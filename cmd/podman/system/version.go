@@ -19,7 +19,7 @@ var (
 	versionCommand = &cobra.Command{
 		Use:               "version [options]",
 		Args:              validate.NoArgs,
-		Short:             "Display the Podman version information",
+		Short:             "Display the Tainer version information",
 		RunE:              version,
 		ValidArgsFunction: completion.AutocompleteNone,
 		Annotations: map[string]string{
@@ -91,7 +91,7 @@ func version(cmd *cobra.Command, _ []string) error {
 }
 
 const versionTemplate = `{{with .Client -}}
-Client:\tPodman Engine
+Client:\tTainer Engine
 Version:\t{{.Version}}
 API Version:\t{{.APIVersion}}
 Go Version:\t{{.GoVersion}}
@@ -103,7 +103,7 @@ OS/Arch:\t{{.OsArch}}
 
 {{- if .Server }}{{with .Server}}
 
-Server:\tPodman Engine
+Server:\tTainer Engine
 Version:\t{{.Version}}
 API Version:\t{{.APIVersion}}
 Go Version:\t{{.GoVersion}}

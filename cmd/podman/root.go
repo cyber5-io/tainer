@@ -141,7 +141,7 @@ func Execute() {
 		}
 		if registry.IsRemote() {
 			if errors.As(err, &bindings.ConnectError{}) {
-				fmt.Fprintln(os.Stderr, "Cannot connect to Podman. Please verify your connection to the Linux system using `podman system connection list`, or try `podman machine init` and `podman machine start` to manage a new Linux VM")
+				fmt.Fprintln(os.Stderr, "Cannot connect to Tainer. Please verify your connection to the Linux system using `tainer system connection list`, or try `tainer machine init` and `tainer machine start` to manage a new Linux VM")
 			}
 		}
 		fmt.Fprintln(os.Stderr, formatError(err))
