@@ -1,0 +1,60 @@
+name: Rebase Brand Branch
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  rebase-brand:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create safety tag
+        run: |
+          git fetch origin brand
+          git tag "brand-backup-$(date +%Y%m%d%H%M%S)" origin/brand
+
+      - name: Rebase brand on main
+        id: rebase
+        run: |
+          git checkout brand
+          git rebase main
+        continue-on-error: true
+
+      - name: Run tests
+        if: steps.rebase.outcome == 'success'
+        id: tests
+        run: make localsystem
+        continue-on-error: true
+
+      - name: Push if clean and tests pass
+        if: steps.rebase.outcome == 'success' && steps.tests.outcome == 'success'
+        run: git push origin brand --force-with-lease
+
+      - name: Create PR if conflicts or test failure
+        if: steps.rebase.outcome == 'failure' || steps.tests.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ steps.rebase.outcome }}" == "failure" ]; then
+            git rebase --abort
+            REASON="Rebase conflicts detected"
+          else
+            REASON="Tests failed after rebase"
+          fi
+          BRANCH_NAME="brand-rebase-$(date +%Y%m%d%H%M%S)"
+          git checkout -b "$BRANCH_NAME"
+          git push origin "$BRANCH_NAME"
+          gh pr create --title "Brand rebase needs manual review" --body "$REASON. Check conflict zones: .claude/conflict-zones.md" --base brand
