@@ -382,9 +382,9 @@ $(IN_CONTAINER): %-in-container:
 ###
 
 # Make sure to warn in case we're building without the systemd buildtag.
-bin/podman: $(SOURCES) go.mod go.sum
+bin/tainer: $(SOURCES) go.mod go.sum
 ifeq (,$(findstring systemd,$(BUILDTAGS)))
-	@echo "Podman is being compiled without the systemd build tag. \
+	@echo "Tainer is being compiled without the systemd build tag. \
 		Install libsystemd on Ubuntu or systemd-devel on rpm based \
 		distro for journald support."
 endif
@@ -417,8 +417,8 @@ $(SRCBINDIR)/podman-remote-static $(SRCBINDIR)/podman-remote-static-linux_amd64 
 		-tags "${REMOTETAGS}" \
 		-o $@ ./cmd/podman
 
-.PHONY: podman
-podman: bin/podman
+.PHONY: tainer
+tainer: bin/tainer
 
 # This will map to the right thing on Linux, Windows, and Mac.
 .PHONY: podman-remote
