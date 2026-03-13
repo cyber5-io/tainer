@@ -91,7 +91,7 @@ func parseCommands() *cobra.Command {
 
 				// add error message to the command so the user knows that this command is not supported with local/remote
 				c.Command.RunE = func(cmd *cobra.Command, _ []string) error {
-					return fmt.Errorf("cannot use command %q with the %s podman client", cmd.CommandPath(), client)
+					return fmt.Errorf("cannot use command %q with the %s tainer client", cmd.CommandPath(), client)
 				}
 				// turn off flag parsing to make we do not get flag errors
 				c.Command.DisableFlagParsing = true
@@ -112,7 +112,7 @@ func parseCommands() *cobra.Command {
 		if found {
 			if rootless.IsRootless() && os.Getuid() != 0 {
 				c.Command.RunE = func(cmd *cobra.Command, _ []string) error {
-					return fmt.Errorf("cannot run command %q in rootless mode, must execute `podman unshare` first", cmd.CommandPath())
+					return fmt.Errorf("cannot run command %q in rootless mode, must execute `tainer unshare` first", cmd.CommandPath())
 				}
 			}
 		}
