@@ -8,6 +8,7 @@ import (
 	"github.com/containers/podman/v6/cmd/podman/utils"
 	"github.com/containers/podman/v6/cmd/podman/validate"
 	"github.com/containers/podman/v6/pkg/domain/entities"
+	tainerCli "github.com/containers/podman/v6/pkg/tainer/cli"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -19,8 +20,12 @@ var (
 		Use:   "init [options] CONTAINER [CONTAINER...]",
 		Short: "Initialize one or more containers",
 		Long:  initDescription,
-		RunE:  initContainer,
+		RunE: initContainer,
 		Args: func(cmd *cobra.Command, args []string) error {
+			// Tainer: allow zero args for project wizard
+			if len(args) == 0 && cmd.Flags().NFlag() == 0 {
+				return nil
+			}
 			return validate.CheckAllLatestAndIDFile(cmd, args, false, "")
 		},
 		ValidArgsFunction: common.AutocompleteContainersCreated,
@@ -63,7 +68,11 @@ func init() {
 	validate.AddLatestFlag(containerInitCommand, &initOptions.Latest)
 }
 
-func initContainer(_ *cobra.Command, args []string) error {
+func initContainer(cmd *cobra.Command, args []string) error {
+	// Tainer: intercept bare `tainer init` for project wizard
+	if tainerCli.InterceptInit(cmd, args) {
+		return nil
+	}
 	var errs utils.OutputErrors
 	args = utils.RemoveSlash(args)
 	report, err := registry.ContainerEngine().ContainerInit(registry.Context(), args, initOptions)

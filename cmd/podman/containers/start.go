@@ -12,6 +12,7 @@ import (
 	"github.com/containers/podman/v6/cmd/podman/validate"
 	"github.com/containers/podman/v6/libpod/define"
 	"github.com/containers/podman/v6/pkg/domain/entities"
+	tainerCli "github.com/containers/podman/v6/pkg/tainer/cli"
 	"github.com/spf13/cobra"
 )
 
@@ -82,7 +83,11 @@ func init() {
 	validate.AddLatestFlag(containerStartCommand, &startOptions.Latest)
 }
 
-func validateStart(_ *cobra.Command, args []string) error {
+func validateStart(cmd *cobra.Command, args []string) error {
+	// Tainer: allow zero args for project start
+	if len(args) == 0 && cmd.Flags().NFlag() == 0 {
+		return nil
+	}
 	if len(args) == 0 && !startOptions.Latest && !startOptions.All && len(filters) < 1 {
 		return errors.New("start requires at least one argument")
 	}
@@ -105,6 +110,10 @@ func validateStart(_ *cobra.Command, args []string) error {
 }
 
 func start(cmd *cobra.Command, args []string) error {
+	// Tainer: intercept bare `tainer start` for project start
+	if tainerCli.InterceptStart(cmd, args) {
+		return nil
+	}
 	var errs utils.OutputErrors
 	sigProxy := startOptions.SigProxy || startOptions.Attach
 	if cmd.Flag("sig-proxy").Changed {

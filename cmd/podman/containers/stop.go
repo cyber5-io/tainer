@@ -12,6 +12,7 @@ import (
 	"github.com/containers/podman/v6/cmd/podman/utils"
 	"github.com/containers/podman/v6/cmd/podman/validate"
 	"github.com/containers/podman/v6/pkg/domain/entities"
+	tainerCli "github.com/containers/podman/v6/pkg/tainer/cli"
 	"github.com/spf13/cobra"
 	"go.podman.io/common/pkg/completion"
 )
@@ -26,6 +27,10 @@ var (
 		Long:  stopDescription,
 		RunE:  stop,
 		Args: func(cmd *cobra.Command, args []string) error {
+			// Tainer: allow zero args for project stop
+			if len(args) == 0 && cmd.Flags().NFlag() == 0 {
+				return nil
+			}
 			return validate.CheckAllLatestAndIDFile(cmd, args, false, "cidfile")
 		},
 		ValidArgsFunction: common.AutocompleteContainersRunning,
@@ -97,6 +102,10 @@ func init() {
 }
 
 func stop(cmd *cobra.Command, args []string) error {
+	// Tainer: intercept bare `tainer stop` for project stop
+	if tainerCli.InterceptStop(cmd, args) {
+		return nil
+	}
 	var errs utils.OutputErrors
 	args = utils.RemoveSlash(args)
 
