@@ -46,6 +46,9 @@ func loadNetworks() *networksData {
 }
 
 func saveNetworks() error {
+	if err := config.EnsureDirs(); err != nil {
+		return fmt.Errorf("creating config dirs: %w", err)
+	}
 	data, err := json.MarshalIndent(networks, "", "  ")
 	if err != nil {
 		return err

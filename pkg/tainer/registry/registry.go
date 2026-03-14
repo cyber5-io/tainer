@@ -47,6 +47,9 @@ func load() *registryData {
 }
 
 func save() error {
+	if err := config.EnsureDirs(); err != nil {
+		return fmt.Errorf("creating config dirs: %w", err)
+	}
 	r := load()
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
