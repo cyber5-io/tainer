@@ -6,11 +6,14 @@ import (
 
 	"github.com/containers/podman/v6/pkg/tainer/manifest"
 	"github.com/containers/podman/v6/pkg/tainer/registry"
+	"github.com/containers/podman/v6/pkg/tainer/wizard"
 	"github.com/spf13/cobra"
 )
 
-// RunWizard is set by the wizard package init to avoid circular imports.
-var RunWizard func(cwd string) error
+// RunWizard delegates to the wizard package.
+var RunWizard = func(cwd string) error {
+	return wizard.Run(cwd)
+}
 
 // ProjectStart is set by the project package.
 var ProjectStart func(path string) error
