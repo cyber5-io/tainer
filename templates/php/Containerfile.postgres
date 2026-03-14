@@ -1,0 +1,2 @@
+FROM postgres:16-alpine
+# DB credentials injected via --env-file at runtime

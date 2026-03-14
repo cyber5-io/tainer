@@ -1,0 +1,14 @@
+# Build with: podman build -f Containerfile.caddy -t <tag> templates/
+FROM caddy:2-alpine
+
+RUN apk add --no-cache \
+    openssh-server \
+    php84-cli php84-phar php84-mbstring php84-curl php84-json php84-xml \
+    mariadb-client postgresql-client \
+    curl bash composer
+
+RUN ssh-keygen -A && mkdir -p /root/.ssh && chmod 700 /root/.ssh
+COPY shared/sshd_config /etc/ssh/sshd_config
+COPY php/Caddyfile /etc/caddy/Caddyfile
+
+CMD sh -c "/usr/sbin/sshd && caddy run --config /etc/caddy/Caddyfile"
