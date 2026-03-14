@@ -2,11 +2,11 @@
 
 Files modified by the brand branch. Check these during upstream merges.
 
-## Binary Name
-- `cmd/podman/main.go` — user-facing strings renamed to "tainer"
-- `cmd/podman/root.go` — error message referencing "tainer" CLI commands
+## Binary Name & Build
+- `cmd/podman/main.go` — user-facing error strings renamed to "tainer"
+- `cmd/podman/root.go` — connection error message references "tainer" CLI
 - `cmd/podman/system/version.go` — version output: "Tainer Engine"
-- `Makefile` — primary build target `bin/tainer` (was `bin/podman`)
+- `Makefile` — comprehensive rename: binary outputs, targets, variables, install paths, clean patterns, release artifacts (Go source paths and on-disk file refs preserved as "podman")
 
 ## Documentation
 - `docs/**` — rebranded (future task)

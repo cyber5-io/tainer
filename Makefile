@@ -8,7 +8,7 @@
 #     to make finding them quicker.
 # 2.  Main entry-point targets, like "default", "all", and "help"
 # 3.  Targets for code formatting and validation
-# 4.  Primary build targets, like podman and podman-remote
+# 4.  Primary build targets, like tainer and tainer-remote
 # 5.  Secondary build targets, shell completions, static and multi-arch.
 # 6.  Targets that format and build documentation
 # 7.  Testing targets
@@ -25,8 +25,8 @@ SHELL := $(shell command -v bash;)
 GO ?= go
 GO_LDFLAGS:= $(shell if $(GO) version|grep -q gccgo ; then echo "-gccgoflags"; else echo "-ldflags"; fi)
 GOCMD = CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=$(GOARCH) $(GO)
-# Podman does not work w/o CGO_ENABLED, except in some very specific cases.
-# Windows and Mac (both podman-remote client only) require CGO_ENABLED=0.
+# Tainer does not work w/o CGO_ENABLED, except in some very specific cases.
+# Windows and Mac (both tainer-remote client only) require CGO_ENABLED=0.
 CGO_ENABLED ?= 1
 # Default to the native OS type and architecture unless otherwise specified
 NATIVE_GOOS := $(shell env -u GOOS $(GO) env GOOS)
@@ -45,7 +45,7 @@ PREFIX ?= /usr/local
 RELEASE_PREFIX = /usr
 BINDIR ?= ${PREFIX}/bin
 LIBEXECDIR ?= ${PREFIX}/libexec
-LIBEXECPODMAN ?= ${LIBEXECDIR}/podman
+LIBEXECTAINER ?= ${LIBEXECDIR}/tainer
 MANDIR ?= ${PREFIX}/share/man
 SHAREDIR_CONTAINERS ?= ${PREFIX}/share/containers
 ETCDIR ?= /etc
@@ -91,7 +91,7 @@ endif
 # This isn't what we actually build; it's a superset, used for target
 # dependencies. Basically: all *.go and *.c files, except *_test.go,
 # and except anything in a dot subdirectory. If any of these files is
-# newer than our target (bin/podman{,-remote}), a rebuild is
+# newer than our target (bin/tainer{,-remote}), a rebuild is
 # triggered.
 SOURCES = $(shell find . -path './.*' -prune -o \( \( -name '*.go' -o -name '*.c' \) -a ! -name '*_test.go' \) -print) Makefile
 
@@ -124,7 +124,7 @@ else
 endif
 LIBPOD := ${PROJECT}/v6/libpod
 GOFLAGS ?= -trimpath
-LDFLAGS_PODMAN ?= \
+LDFLAGS_TAINER ?= \
 	$(if $(GIT_COMMIT),-X $(LIBPOD)/define.gitCommit=$(GIT_COMMIT),) \
 	$(if $(BUILD_INFO),-X $(LIBPOD)/define.buildInfo=$(BUILD_INFO),) \
 	$(if $(BUILD_ORIGIN),-X "$(LIBPOD)/define.buildOrigin=$(BUILD_ORIGIN)",) \
@@ -134,8 +134,8 @@ LDFLAGS_PODMAN ?= \
 	-X go.podman.io/image/v5/signature/internal/sequoia.sequoiaLibraryDir='"$(SEQUOIA_SONAME_DIR)"' \
 	-X go.podman.io/common/pkg/config.additionalHelperBinariesDir=$(HELPER_BINARIES_DIR)\
 	$(EXTRA_LDFLAGS)
-LDFLAGS_PODMAN_STATIC ?= \
-	$(LDFLAGS_PODMAN) \
+LDFLAGS_TAINER_STATIC ?= \
+	$(LDFLAGS_TAINER) \
 	-extldflags=-static
 #Update to LIBSECCOMP_COMMIT should reflect in Dockerfile too.
 LIBSECCOMP_COMMIT := v2.3.3
@@ -161,7 +161,7 @@ RELEASE_VERSION = $(shell if test -x test/version/version; then test/version/ver
 RELEASE_NUMBER = $(shell echo "$(call err_if_empty,RELEASE_VERSION)" | sed -e 's/^v\(.*\)/\1/')
 
 # Logs all output from server during remote system testing to this file
-PODMAN_SERVER_LOG ?= /dev/null
+TAINER_SERVER_LOG ?= /dev/null
 
 # Ensure GOBIN is not set so the default (`go env GOPATH`/bin) is used.
 override undefine GOBIN
@@ -170,26 +170,26 @@ export PATH := $(shell $(GO) env GOPATH)/bin:$(PATH)
 
 GOMD2MAN ?= ./test/tools/build/go-md2man
 
-# There are many possibly unexpected places where podman is used.  For example
+# There are many possibly unexpected places where tainer is used.  For example
 # by OpenWRT for routers and other similar small "edge" devices.  Testing builds
 # for otherwise non-mainstream architectures ensures we catch platform-specific
 # toolchain shenanigans early, for example:
 # https://github.com/containers/podman/issues/8782
 CROSS_BUILD_TARGETS := \
-	bin/podman.cross.linux.amd64 \
-	bin/podman.cross.linux.ppc64le \
-	bin/podman.cross.linux.arm \
-	bin/podman.cross.linux.arm64 \
-	bin/podman.cross.linux.386 \
-	bin/podman.cross.linux.s390x \
-	bin/podman.cross.linux.loong64 \
-	bin/podman.cross.linux.mips \
-	bin/podman.cross.linux.mipsle \
-	bin/podman.cross.linux.mips64 \
-	bin/podman.cross.linux.mips64le \
-	bin/podman.cross.linux.riscv64 \
-	bin/podman.cross.freebsd.amd64 \
-	bin/podman.cross.freebsd.arm64
+	bin/tainer.cross.linux.amd64 \
+	bin/tainer.cross.linux.ppc64le \
+	bin/tainer.cross.linux.arm \
+	bin/tainer.cross.linux.arm64 \
+	bin/tainer.cross.linux.386 \
+	bin/tainer.cross.linux.s390x \
+	bin/tainer.cross.linux.loong64 \
+	bin/tainer.cross.linux.mips \
+	bin/tainer.cross.linux.mipsle \
+	bin/tainer.cross.linux.mips64 \
+	bin/tainer.cross.linux.mips64le \
+	bin/tainer.cross.linux.riscv64 \
+	bin/tainer.cross.freebsd.amd64 \
+	bin/tainer.cross.freebsd.arm64
 
 # Dereference variable $(1), return value if non-empty, otherwise raise an error.
 err_if_empty = $(if $(strip $($(1))),$(strip $($(1))),$(error Required variable $(1) value is undefined, whitespace, or empty))
@@ -238,11 +238,11 @@ all: binaries docs
 
 .PHONY: binaries
 ifeq ($(GOOS),freebsd)
-binaries: podman podman-remote podman-testing ## (FreeBSD) Build podman, podman-remote, and podman-testing binaries
+binaries: tainer tainer-remote tainer-testing ## (FreeBSD) Build tainer, tainer-remote, and tainer-testing binaries
 else ifneq (, $(findstring $(GOOS),darwin windows))
-binaries: podman-remote ## (macOS/Windows) Build podman-remote (client) only binaries
+binaries: tainer-remote ## (macOS/Windows) Build tainer-remote (client) only binaries
 else
-binaries: podman podman-remote podman-testing podmansh rootlessport quadlet ## (Linux) Build podman, podman-remote, podmansh, rootlessport, and quadlet binaries
+binaries: tainer tainer-remote tainer-testing tainersh rootlessport quadlet ## (Linux) Build tainer, tainer-remote, tainersh, rootlessport, and quadlet binaries
 endif
 
 # Extract text following double-# for targets, as their description for
@@ -292,7 +292,7 @@ golangci-lint: .install.golangci-lint
 
 .PHONY: test/checkseccomp/checkseccomp
 test/checkseccomp/checkseccomp: $(wildcard test/checkseccomp/*.go)
-	$(GOCMD) build $(BUILDFLAGS) $(GO_LDFLAGS) '$(LDFLAGS_PODMAN)' -tags "$(BUILDTAGS)" -o $@ ./test/checkseccomp
+	$(GOCMD) build $(BUILDFLAGS) $(GO_LDFLAGS) '$(LDFLAGS_TAINER)' -tags "$(BUILDTAGS)" -o $@ ./test/checkseccomp
 
 .PHONY: test/testvol/testvol
 test/testvol/testvol: $(wildcard test/testvol/*.go)
@@ -300,11 +300,11 @@ test/testvol/testvol: $(wildcard test/testvol/*.go)
 
 .PHONY: volume-plugin-test-img
 volume-plugin-test-img:
-	./bin/podman build --network none -t quay.io/libpod/volume-plugin-test-img:$$(date +%Y%m%d) -f ./test/testvol/Containerfile .
+	./bin/tainer build --network none -t quay.io/libpod/volume-plugin-test-img:$$(date +%Y%m%d) -f ./test/testvol/Containerfile .
 
 .PHONY: test/goecho/goecho
 test/goecho/goecho: $(wildcard test/goecho/*.go)
-	$(GOCMD) build $(BUILDFLAGS) $(GO_LDFLAGS) '$(LDFLAGS_PODMAN)' -o $@ ./test/goecho
+	$(GOCMD) build $(BUILDFLAGS) $(GO_LDFLAGS) '$(LDFLAGS_TAINER)' -o $@ ./test/goecho
 
 # The ./test/version/version binary is executed in other make steps
 # so we have to make sure the version binary is built for NATIVE_GOARCH.
@@ -316,23 +316,23 @@ codespell:
 	# Configuration for codespell is in .codespellrc
 	codespell -w
 
-# Code validation target that **DOES NOT** require building podman binaries
+# Code validation target that **DOES NOT** require building tainer binaries
 .PHONY: validate-source
 validate-source: lint .gitvalidation swagger-check tests-expect-exit pr-removes-fixed-skips
 
-# Code validation target that **DOES** require building podman binaries
+# Code validation target that **DOES** require building tainer binaries
 .PHONY: validate-binaries
 validate-binaries: man-page-check validate.completions
 
 .PHONY: validate
 validate: validate-source validate-binaries
 
-# The image used below is generated manually from contrib/validatepr/Containerfile in this podman repo.  The builds are
+# The image used below is generated manually from contrib/validatepr/Containerfile in this tainer repo.  The builds are
 # not automated right now.  The hope is that eventually the quay.io/libpod/fedora_podman is multiarch and can replace this
 # image in the future.
 .PHONY: validatepr
 validatepr: ## Go Format and lint, which all code changes must pass
-	$(PODMANCMD) run --rm --init --tmpfs /tmp \
+	$(TAINERCMD) run --rm --init --tmpfs /tmp \
 		-v $(CURDIR):/go/src/github.com/containers/podman \
 		-v validatepr-gocache:/root/.cache/go-build \
 		-v validatepr-gomodcache:/root/go/pkg/mod \
@@ -363,14 +363,14 @@ vendor:
 
 
 # We define *-in-container targets for the following make targets. This allow the targets to be run in a container.
-# Note that the PODMANCMD can also be overridden to allow a different container CLI to be used on systems where podman is not already available.
+# Note that the TAINERCMD can also be overridden to allow a different container CLI to be used on systems where tainer is not already available.
 IN_CONTAINER_TARGETS = vendor validate
-PODMANCMD ?= podman
+TAINERCMD ?= tainer
 IN_CONTAINER = $(patsubst %,%-in-container,$(IN_CONTAINER_TARGETS))
 
 .PHONY: $(IN_CONTAINER)
 $(IN_CONTAINER): %-in-container:
-	$(PODMANCMD) run --rm --env HOME=/root \
+	$(TAINERCMD) run --rm --env HOME=/root \
 		-v $(CURDIR):/src -w /src \
 		--security-opt label=disable \
 		quay.io/libpod/validatepr:latest \
@@ -390,7 +390,7 @@ ifeq (,$(findstring systemd,$(BUILDTAGS)))
 endif
 	$(GOCMD) build \
 		$(BUILDFLAGS) \
-		$(GO_LDFLAGS) '$(LDFLAGS_PODMAN)' \
+		$(GO_LDFLAGS) '$(LDFLAGS_TAINER)' \
 		-tags "$(BUILDTAGS)" \
 		-o $@ ./cmd/podman
 	test -z "${SELINUXOPT}" || chcon -t container_runtime_exec_t $@
@@ -400,20 +400,20 @@ $(SRCBINDIR):
 	mkdir -p $(SRCBINDIR)
 
 # '|' is to ignore SRCBINDIR mtime; see: info make 'Types of Prerequisites'
-$(SRCBINDIR)/podman$(BINSFX): $(SOURCES) go.mod go.sum | $(SRCBINDIR)
+$(SRCBINDIR)/tainer$(BINSFX): $(SOURCES) go.mod go.sum | $(SRCBINDIR)
 	$(GOCMD) build \
 		$(BUILDFLAGS) \
-		$(GO_LDFLAGS) '$(LDFLAGS_PODMAN)' \
+		$(GO_LDFLAGS) '$(LDFLAGS_TAINER)' \
 		-tags "${REMOTETAGS}" \
 		-o $@ ./cmd/podman
 
-$(SRCBINDIR)/podman-remote-static-linux_%: GOARCH = $(patsubst $(SRCBINDIR)/podman-remote-static-linux_%,%,$@)
-$(SRCBINDIR)/podman-remote-static-linux_%: GOOS = linux
-$(SRCBINDIR)/podman-remote-static $(SRCBINDIR)/podman-remote-static-linux_amd64 $(SRCBINDIR)/podman-remote-static-linux_arm64: $(SRCBINDIR) $(SOURCES) go.mod go.sum
+$(SRCBINDIR)/tainer-remote-static-linux_%: GOARCH = $(patsubst $(SRCBINDIR)/tainer-remote-static-linux_%,%,$@)
+$(SRCBINDIR)/tainer-remote-static-linux_%: GOOS = linux
+$(SRCBINDIR)/tainer-remote-static $(SRCBINDIR)/tainer-remote-static-linux_amd64 $(SRCBINDIR)/tainer-remote-static-linux_arm64: $(SRCBINDIR) $(SOURCES) go.mod go.sum
 	CGO_ENABLED=0 \
 	$(GO) build \
 		$(BUILDFLAGS) \
-		$(GO_LDFLAGS) '$(LDFLAGS_PODMAN_STATIC)' \
+		$(GO_LDFLAGS) '$(LDFLAGS_TAINER_STATIC)' \
 		-tags "${REMOTETAGS}" \
 		-o $@ ./cmd/podman
 
@@ -421,26 +421,26 @@ $(SRCBINDIR)/podman-remote-static $(SRCBINDIR)/podman-remote-static-linux_amd64 
 tainer: bin/tainer
 
 # This will map to the right thing on Linux, Windows, and Mac.
-.PHONY: podman-remote
-podman-remote: $(SRCBINDIR)/podman$(BINSFX)
+.PHONY: tainer-remote
+tainer-remote: $(SRCBINDIR)/tainer$(BINSFX)
 
 $(SRCBINDIR)/quadlet: $(SOURCES) go.mod go.sum
 	$(GOCMD) build \
 		$(BUILDFLAGS) \
-		$(GO_LDFLAGS) '$(LDFLAGS_PODMAN)' \
+		$(GO_LDFLAGS) '$(LDFLAGS_TAINER)' \
 		-tags "${BUILDTAGS}" \
 		-o $@ ./cmd/quadlet
 
 .PHONY: quadlet
 quadlet: bin/quadlet
 
-.PHONY: podman-remote-static podman-remote-static-linux_amd64 podman-remote-static-linux_arm64
-podman-remote-static: $(SRCBINDIR)/podman-remote-static
-podman-remote-static-linux_amd64: $(SRCBINDIR)/podman-remote-static-linux_amd64
-podman-remote-static-linux_arm64: $(SRCBINDIR)/podman-remote-static-linux_arm64
+.PHONY: tainer-remote-static tainer-remote-static-linux_amd64 tainer-remote-static-linux_arm64
+tainer-remote-static: $(SRCBINDIR)/tainer-remote-static
+tainer-remote-static-linux_amd64: $(SRCBINDIR)/tainer-remote-static-linux_amd64
+tainer-remote-static-linux_arm64: $(SRCBINDIR)/tainer-remote-static-linux_arm64
 
-.PHONY: podman-winpath
-podman-winpath: $(SOURCES) go.mod go.sum
+.PHONY: tainer-winpath
+tainer-winpath: $(SOURCES) go.mod go.sum
 	CGO_ENABLED=0 \
 		GOOS=windows \
 		$(GO) build \
@@ -449,14 +449,14 @@ podman-winpath: $(SOURCES) go.mod go.sum
 		-o bin/windows/winpath.exe \
 		./cmd/winpath
 
-.PHONY: podman-mac-helper
-podman-mac-helper: ## Build podman-mac-helper for macOS
+.PHONY: tainer-mac-helper
+tainer-mac-helper: ## Build tainer-mac-helper for macOS
 	CGO_ENABLED=0 \
 		GOOS=darwin \
 		GOARCH=$(GOARCH) \
 		$(GO) build \
 		$(BUILDFLAGS) \
-		-o bin/darwin/podman-mac-helper \
+		-o bin/darwin/tainer-mac-helper \
 		./cmd/podman-mac-helper
 
 bin/rootlessport: $(SOURCES) go.mod go.sum
@@ -468,21 +468,21 @@ bin/rootlessport: $(SOURCES) go.mod go.sum
 .PHONY: rootlessport
 rootlessport: bin/rootlessport
 
-# podmansh calls `podman exec` into the `podmansh` container when used as
+# tainersh calls `tainer exec` into the `tainersh` container when used as
 # os.Args[0] and is intended to be set as a login shell for users.
-# Run: `man 1 podmansh` for details.
-podmansh: bin/podman
-	if [ ! -f bin/podmansh ]; then ln -s podman bin/podmansh; fi
+# Run: `man 1 tainersh` for details.
+tainersh: bin/tainer
+	if [ ! -f bin/tainersh ]; then ln -s tainer bin/tainersh; fi
 
-$(SRCBINDIR)/podman-testing: $(SOURCES) go.mod go.sum
+$(SRCBINDIR)/tainer-testing: $(SOURCES) go.mod go.sum
 	$(GOCMD) build \
 		$(BUILDFLAGS) \
-		$(GO_LDFLAGS) '$(LDFLAGS_PODMAN)' \
+		$(GO_LDFLAGS) '$(LDFLAGS_TAINER)' \
 		-tags "${BUILDTAGS}" \
 		-o $@ ./cmd/podman-testing
 
-.PHONY: podman-testing
-podman-testing: $(SRCBINDIR)/podman-testing
+.PHONY: tainer-testing
+tainer-testing: $(SRCBINDIR)/tainer-testing
 
 ###
 ### Secondary binary-build targets
@@ -493,21 +493,21 @@ generate-bindings: .install.golangci-lint
 	$(GOCMD) generate ./pkg/bindings/... ;
 
 # Do the cross build with the OS/ARCH extrcted from the target name, i.e.
-# pass a path like "podman.cross.linux.amd64". This target is used by
+# pass a path like "tainer.cross.linux.amd64". This target is used by
 # local-cross to build all CROSS_BUILD_TARGETS.
-bin/podman.cross.%: $(SOURCES)
+bin/tainer.cross.%: $(SOURCES)
 	TARGET="$*"; \
 	GOOS="$${TARGET%%.*}"; \
 	GOARCH="$${TARGET##*.}"; \
 	CGO_ENABLED=0 \
 		$(GO) build \
 		$(BUILDFLAGS) \
-		$(GO_LDFLAGS) '$(LDFLAGS_PODMAN)' \
+		$(GO_LDFLAGS) '$(LDFLAGS_TAINER)' \
 		-tags '$(BUILDTAGS_CROSS)' \
 		-o "$@" ./cmd/podman
 
 .PHONY: local-cross
-local-cross: $(CROSS_BUILD_TARGETS) ## Cross compile podman binary for multiple architectures
+local-cross: $(CROSS_BUILD_TARGETS) ## Cross compile tainer binary for multiple architectures
 
 .PHONY: cross
 cross: local-cross
@@ -521,14 +521,14 @@ cross-binaries:
 		BUILDTAGS="$(BUILDTAGS_CROSS)" clean-binaries binaries
 
 .PHONY: completions
-completions: podman podman-remote
+completions: tainer tainer-remote
 	# key = shell, value = completion filename
 	declare -A outfiles=([bash]=%s [zsh]=_%s [fish]=%s.fish [powershell]=%s.ps1);\
 	for shell in $${!outfiles[*]}; do \
 	    for remote in "" "-remote"; do \
-		podman="podman$$remote"; \
-		outfile=$$(printf "completions/$$shell/$${outfiles[$$shell]}" $$podman); \
-		./bin/$$podman completion $$shell >| $$outfile; \
+		tainer="tainer$$remote"; \
+		outfile=$$(printf "completions/$$shell/$${outfiles[$$shell]}" $$tainer); \
+		./bin/$$tainer completion $$shell >| $$outfile; \
 	    done;\
 	done
 
@@ -593,12 +593,12 @@ docdir:
 docs: $(MANPAGES) ## Generate documentation
 	@ln -sf $(CURDIR)/docs/source/markdown/links/* docs/build/man/
 
-# docs/remote-docs.sh requires a locally executable 'podman-remote' binary
+# docs/remote-docs.sh requires a locally executable 'tainer-remote' binary
 # in addition to the target-architecture binary (if different). That's
 # what the NATIVE_GOOS make does in the first line.
-podman-remote-%-docs: podman-remote
+tainer-remote-%-docs: tainer-remote
 	$(MAKE) clean-binaries
-	$(MAKE) podman-remote GOOS=$(NATIVE_GOOS) GOARCH=$(NATIVE_GOARCH)
+	$(MAKE) tainer-remote GOOS=$(NATIVE_GOOS) GOARCH=$(NATIVE_GOARCH)
 	$(eval GOOS := $*)
 	$(MAKE) docs $(MANPAGES)
 	rm -rf docs/build/remote
@@ -612,10 +612,10 @@ podman-remote-%-docs: podman-remote
 .PHONY: man-page-check
 man-page-check: man-page-checker xref-helpmsgs-manpages xref-quadlet-docs xref-quadlet-docs
 
-man-page-checker: bin/podman docs
+man-page-checker: bin/tainer docs
 	hack/man-page-checker
 
-xref-helpmsgs-manpages: bin/podman docs
+xref-helpmsgs-manpages: bin/tainer docs
 	hack/xref-helpmsgs-manpages
 
 man-page-table-check: docs
@@ -645,9 +645,9 @@ docker-docs: docs
 validate.completions: SHELL:=/usr/bin/env bash # Set shell to bash for this target
 validate.completions: completions
 	# Check if the files can be loaded by the shell
-	. completions/bash/podman
-	if [ -x /bin/zsh ]; then /bin/zsh completions/zsh/_podman; fi
-	if [ -x /bin/fish ]; then /bin/fish completions/fish/podman.fish; fi
+	. completions/bash/tainer
+	if [ -x /bin/zsh ]; then /bin/zsh completions/zsh/_tainer; fi
+	if [ -x /bin/fish ]; then /bin/fish completions/fish/tainer.fish; fi
 
 # Note: Assumes test/python/requirements.txt is installed & available
 .PHONY: run-docker-py-tests
@@ -718,26 +718,26 @@ localmachine:
 localsystem:
 	# Wipe existing config, database, and cache: start with clean slate.
 	$(RM) -rf ${HOME}/.local/share/containers ${HOME}/.config/containers
-	PODMAN=$(CURDIR)/bin/podman QUADLET=$(CURDIR)/bin/quadlet bats -T --filter-tags '!ci:parallel' test/system/
-	PODMAN=$(CURDIR)/bin/podman QUADLET=$(CURDIR)/bin/quadlet bats -T --filter-tags ci:parallel -j $$(nproc) test/system/
+	PODMAN=$(CURDIR)/bin/tainer QUADLET=$(CURDIR)/bin/quadlet bats -T --filter-tags '!ci:parallel' test/system/
+	PODMAN=$(CURDIR)/bin/tainer QUADLET=$(CURDIR)/bin/quadlet bats -T --filter-tags ci:parallel -j $$(nproc) test/system/
 
 
 .PHONY: remotesystem
 remotesystem:
 	# Wipe existing config, database, and cache: start with clean slate.
 	$(RM) -rf ${HOME}/.local/share/containers ${HOME}/.config/containers
-	PODMAN=$(CURDIR)/bin/podman-remote QUADLET=$(CURDIR)/bin/quadlet \
+	PODMAN=$(CURDIR)/bin/tainer-remote QUADLET=$(CURDIR)/bin/quadlet \
 		bats -T --filter-tags '!ci:parallel' test/system/
-	PODMAN=$(CURDIR)/bin/podman-remote QUADLET=$(CURDIR)/bin/quadlet \
+	PODMAN=$(CURDIR)/bin/tainer-remote QUADLET=$(CURDIR)/bin/quadlet \
 		bats -T --filter-tags ci:parallel -j $$(nproc) test/system/
 
 .PHONY: localapiv2-bash
 localapiv2-bash:
-	env PODMAN=./bin/podman stdbuf -o0 -e0 ./test/apiv2/test-apiv2
+	env PODMAN=./bin/tainer stdbuf -o0 -e0 ./test/apiv2/test-apiv2
 
 .PHONY: localapiv2-python
 localapiv2-python:
-	env CONTAINERS_CONF=$(CURDIR)/test/apiv2/containers.conf PODMAN=./bin/podman \
+	env CONTAINERS_CONF=$(CURDIR)/test/apiv2/containers.conf PODMAN=./bin/tainer \
 		pytest --verbose --disable-warnings ./test/apiv2/python
 
 # Order is important running python tests first causes the bash tests
@@ -783,11 +783,11 @@ pr-removes-fixed-skips:
 ### Release/Packaging targets
 ###
 
-.PHONY: podman-release
-podman-release: podman-release-$(GOARCH).tar.gz  # Build all Linux binaries for $GOARCH, docs., and installation tree, into a tarball.
+.PHONY: tainer-release
+tainer-release: tainer-release-$(GOARCH).tar.gz  # Build all Linux binaries for $GOARCH, docs., and installation tree, into a tarball.
 
 # The following two targets are nuanced and complex:
-# Cross-building the podman-remote documentation requires a functional
+# Cross-building the tainer-remote documentation requires a functional
 # native architecture executable.  However `make` only deals with
 # files/timestamps, it doesn't understand if an existing binary will
 # function on the system or not.  This makes building cross-platform
@@ -795,14 +795,14 @@ podman-release: podman-release-$(GOARCH).tar.gz  # Build all Linux binaries for 
 # way to deal with this, is via multiple conditional (nested) `make`
 # calls along with careful manipulation of `$GOOS` and `$GOARCH`.
 
-podman-release-%.tar.gz: test/version/version
-	$(eval tmpsubdir := $(shell mktemp -d podman_tmp_XXXX))
-	$(eval releasedir := podman-v$(call err_if_empty,RELEASE_NUMBER))
+tainer-release-%.tar.gz: test/version/version
+	$(eval tmpsubdir := $(shell mktemp -d tainer_tmp_XXXX))
+	$(eval releasedir := tainer-v$(call err_if_empty,RELEASE_NUMBER))
 	$(eval _dstargs := "DESTDIR=$(tmpsubdir)/$(releasedir)" "PREFIX=$(RELEASE_PREFIX)")
 	$(eval GOARCH := $*)
 	mkdir -p "$(call err_if_empty,tmpsubdir)/$(releasedir)"
 	$(MAKE) GOOS=$(GOOS) GOARCH=$(NATIVE_GOARCH) \
-		clean-binaries docs podman-remote-$(GOOS)-docs
+		clean-binaries docs tainer-remote-$(GOOS)-docs
 	if [[ "$(GOARCH)" != "$(NATIVE_GOARCH)" ]]; then \
 		$(MAKE) CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
 			BUILDTAGS="$(BUILDTAGS_CROSS)" clean-binaries binaries; \
@@ -814,27 +814,27 @@ podman-release-%.tar.gz: test/version/version
 	if [[ "$(GOARCH)" != "$(NATIVE_GOARCH)" ]]; then $(MAKE) clean-binaries; fi
 	-rm -rf "$(tmpsubdir)"
 
-podman-remote-release-%.zip: test/version/version ## Build podman-remote for %=$GOOS_$GOARCH, and docs. into an installation zip.
-	$(eval tmpsubdir := $(shell mktemp -d podman_tmp_XXXX))
-	$(eval releasedir := podman-$(call err_if_empty,RELEASE_NUMBER))
+tainer-remote-release-%.zip: test/version/version ## Build tainer-remote for %=$GOOS_$GOARCH, and docs. into an installation zip.
+	$(eval tmpsubdir := $(shell mktemp -d tainer_tmp_XXXX))
+	$(eval releasedir := tainer-$(call err_if_empty,RELEASE_NUMBER))
 	$(eval _dstargs := "DESTDIR=$(tmpsubdir)/$(releasedir)" "PREFIX=$(RELEASE_PREFIX)")
 	$(eval GOOS := $(firstword $(subst _, ,$*)))
 	$(eval GOARCH := $(lastword $(subst _, ,$*)))
 	$(eval _GOPLAT := GOOS=$(call err_if_empty,GOOS) GOARCH=$(call err_if_empty,GOARCH))
 	mkdir -p "$(call err_if_empty,tmpsubdir)/$(releasedir)"
 	$(MAKE) GOOS=$(GOOS) GOARCH=$(GOARCH) \
-		clean-binaries podman-remote-$(GOOS)-docs
+		clean-binaries tainer-remote-$(GOOS)-docs
 	if [[ "$(GOARCH)" != "$(NATIVE_GOARCH)" ]]; then \
 		$(MAKE) CGO_ENABLED=0 $(GOPLAT) BUILDTAGS="$(BUILDTAGS_CROSS)" \
-			clean-binaries podman-remote; \
+			clean-binaries tainer-remote; \
 	else \
-		$(MAKE) $(GOPLAT) podman-remote; \
+		$(MAKE) $(GOPLAT) tainer-remote; \
 	fi
 	if [[ "$(GOOS)" == "windows" ]]; then \
 		$(MAKE) $(GOPLAT) TMPDIR="" win-gvproxy-$(GOARCH); \
 	fi
 	if [[ "$(GOOS)" == "darwin" ]]; then \
-		$(MAKE) $(GOPLAT) podman-mac-helper;\
+		$(MAKE) $(GOPLAT) tainer-mac-helper;\
 	fi
 	cp -r ./docs/build/remote/$(GOOS) "$(tmpsubdir)/$(releasedir)/docs/"
 	$(MAKE) $(GOPLAT) $(_dstargs) SELINUXOPT="" install.remote
@@ -863,14 +863,14 @@ rpm:  ## Build rpm packages
 ### Installation targets
 ###
 
-# Remember that rpms install exec to /usr/bin/podman while a `make install`
-# installs them to /usr/local/bin/podman which is likely before. Always use
-# a full path to test installed podman or you risk to call another executable.
+# Remember that rpms install exec to /usr/bin/tainer while a `make install`
+# installs them to /usr/local/bin/tainer which is likely before. Always use
+# a full path to test installed tainer or you risk to call another executable.
 .PHONY: rpm-install
 rpm-install: package  ## Install rpm packages
 	$(call err_if_empty,PKG_MANAGER) -y install rpm/RPMS/*/*.rpm
-	/usr/bin/podman version
-	/usr/bin/podman info  # will catch a broken conmon
+	/usr/bin/tainer version
+	/usr/bin/tainer info  # will catch a broken conmon
 
 .PHONY: install
 install: install.bin install.remote install.man install.systemd  ## Install binaries to system locations
@@ -878,33 +878,33 @@ install: install.bin install.remote install.man install.systemd  ## Install bina
 .PHONY: install.remote
 install.remote:
 	install ${SELINUXOPT} -d -m 755 $(DESTDIR)$(BINDIR)
-	install ${SELINUXOPT} -m 755 $(SRCBINDIR)/podman$(BINSFX) \
-		$(DESTDIR)$(BINDIR)/podman$(BINSFX)
+	install ${SELINUXOPT} -m 755 $(SRCBINDIR)/tainer$(BINSFX) \
+		$(DESTDIR)$(BINDIR)/tainer$(BINSFX)
 	test "${GOOS}" != "windows" || \
 		install -m 755 $(SRCBINDIR)/win-sshproxy.exe $(DESTDIR)$(BINDIR)
 	test "${GOOS}" != "windows" || \
 		install -m 755 $(SRCBINDIR)/gvproxy.exe $(DESTDIR)$(BINDIR)
 	test "${GOOS}" != "darwin" || \
-		install -m 755 $(SRCBINDIR)/podman-mac-helper $(DESTDIR)$(BINDIR)
+		install -m 755 $(SRCBINDIR)/tainer-mac-helper $(DESTDIR)$(BINDIR)
 	test -z "${SELINUXOPT}" || \
-		chcon --verbose --reference=$(DESTDIR)$(BINDIR)/podman-remote \
-		bin/podman-remote
+		chcon --verbose --reference=$(DESTDIR)$(BINDIR)/tainer-remote \
+		bin/tainer-remote
 
 .PHONY: install.bin
 install.bin:
 	install ${SELINUXOPT} -d -m 755 $(DESTDIR)$(BINDIR)
-	install ${SELINUXOPT} -m 755 bin/podman $(DESTDIR)$(BINDIR)/podman
-	ln -sf podman $(DESTDIR)$(BINDIR)/podmansh
-	test -z "${SELINUXOPT}" || chcon --verbose --reference=$(DESTDIR)$(BINDIR)/podman bin/podman
-	install ${SELINUXOPT} -d -m 755 $(DESTDIR)$(LIBEXECPODMAN)
+	install ${SELINUXOPT} -m 755 bin/tainer $(DESTDIR)$(BINDIR)/tainer
+	ln -sf tainer $(DESTDIR)$(BINDIR)/tainersh
+	test -z "${SELINUXOPT}" || chcon --verbose --reference=$(DESTDIR)$(BINDIR)/tainer bin/tainer
+	install ${SELINUXOPT} -d -m 755 $(DESTDIR)$(LIBEXECTAINER)
 ifneq ($(NATIVE_GOOS),freebsd)
-	install ${SELINUXOPT} -m 755 bin/rootlessport $(DESTDIR)$(LIBEXECPODMAN)/rootlessport
-	test -z "${SELINUXOPT}" || chcon --verbose --reference=$(DESTDIR)$(LIBEXECPODMAN)/rootlessport bin/rootlessport
-	install ${SELINUXOPT} -m 755 bin/quadlet $(DESTDIR)$(LIBEXECPODMAN)/quadlet
+	install ${SELINUXOPT} -m 755 bin/rootlessport $(DESTDIR)$(LIBEXECTAINER)/rootlessport
+	test -z "${SELINUXOPT}" || chcon --verbose --reference=$(DESTDIR)$(LIBEXECTAINER)/rootlessport bin/rootlessport
+	install ${SELINUXOPT} -m 755 bin/quadlet $(DESTDIR)$(LIBEXECTAINER)/quadlet
 	install ${SELINUXOPT} -d -m 755 $(DESTDIR)$(SYSTEMDGENERATORSDIR)
-	ln -sfr $(DESTDIR)$(LIBEXECPODMAN)/quadlet $(DESTDIR)$(SYSTEMDGENERATORSDIR)/podman-system-generator
+	ln -sfr $(DESTDIR)$(LIBEXECTAINER)/quadlet $(DESTDIR)$(SYSTEMDGENERATORSDIR)/tainer-system-generator
 	install ${SELINUXOPT} -d -m 755 $(DESTDIR)$(USERSYSTEMDGENERATORSDIR)
-	ln -sfr $(DESTDIR)$(LIBEXECPODMAN)/quadlet $(DESTDIR)$(USERSYSTEMDGENERATORSDIR)/podman-user-generator
+	ln -sfr $(DESTDIR)$(LIBEXECTAINER)/quadlet $(DESTDIR)$(USERSYSTEMDGENERATORSDIR)/tainer-user-generator
 	install ${SELINUXOPT} -m 755 -d $(DESTDIR)${TMPFILESDIR}
 	install ${SELINUXOPT} -m 644 contrib/tmpfile/podman.conf $(DESTDIR)${TMPFILESDIR}/podman.conf
 endif
@@ -912,7 +912,7 @@ endif
 .PHONY: install.testing
 install.testing:
 	install ${SELINUXOPT} -d -m 755 $(DESTDIR)$(BINDIR)
-	install ${SELINUXOPT} -m 755 bin/podman-testing $(DESTDIR)$(BINDIR)/podman-testing
+	install ${SELINUXOPT} -m 755 bin/tainer-testing $(DESTDIR)$(BINDIR)/tainer-testing
 
 .PHONY: install.man
 install.man:
@@ -928,14 +928,14 @@ install.man:
 .PHONY: install.completions
 install.completions:
 	install ${SELINUXOPT} -d -m 755 $(DESTDIR)${BASHINSTALLDIR}
-	install ${SELINUXOPT} -m 644 completions/bash/podman $(DESTDIR)${BASHINSTALLDIR}
-	install ${SELINUXOPT} -m 644 completions/bash/podman-remote $(DESTDIR)${BASHINSTALLDIR}
+	install ${SELINUXOPT} -m 644 completions/bash/tainer $(DESTDIR)${BASHINSTALLDIR}
+	install ${SELINUXOPT} -m 644 completions/bash/tainer-remote $(DESTDIR)${BASHINSTALLDIR}
 	install ${SELINUXOPT} -d -m 755 $(DESTDIR)${ZSHINSTALLDIR}
-	install ${SELINUXOPT} -m 644 completions/zsh/_podman $(DESTDIR)${ZSHINSTALLDIR}
-	install ${SELINUXOPT} -m 644 completions/zsh/_podman-remote $(DESTDIR)${ZSHINSTALLDIR}
+	install ${SELINUXOPT} -m 644 completions/zsh/_tainer $(DESTDIR)${ZSHINSTALLDIR}
+	install ${SELINUXOPT} -m 644 completions/zsh/_tainer-remote $(DESTDIR)${ZSHINSTALLDIR}
 	install ${SELINUXOPT} -d -m 755 $(DESTDIR)${FISHINSTALLDIR}
-	install ${SELINUXOPT} -m 644 completions/fish/podman.fish $(DESTDIR)${FISHINSTALLDIR}
-	install ${SELINUXOPT} -m 644 completions/fish/podman-remote.fish $(DESTDIR)${FISHINSTALLDIR}
+	install ${SELINUXOPT} -m 644 completions/fish/tainer.fish $(DESTDIR)${FISHINSTALLDIR}
+	install ${SELINUXOPT} -m 644 completions/fish/tainer-remote.fish $(DESTDIR)${FISHINSTALLDIR}
 	# There is no common location for powershell files so do not install them. Users have to source the file from their powershell profile.
 
 .PHONY: install.docker
@@ -964,17 +964,17 @@ install.docker-full: install.docker install.docker-docs
 
 .PHONY: install.systemd
 ifneq (,$(findstring systemd,$(BUILDTAGS)))
-PODMAN_GENERATED_UNIT_FILES = contrib/systemd/system/podman-auto-update.service \
+TAINER_GENERATED_UNIT_FILES = contrib/systemd/system/podman-auto-update.service \
 		    contrib/systemd/system/podman.service \
 		    contrib/systemd/system/podman-restart.service \
 		    contrib/systemd/system/podman-kube@.service \
 		    contrib/systemd/system/podman-clean-transient.service
 
 %.service: %.service.in
-	sed -e 's;@@PODMAN@@;$(BINDIR)/podman;g' $< >$@.tmp.$$ \
+	sed -e 's;@@PODMAN@@;$(BINDIR)/tainer;g' $< >$@.tmp.$$ \
 		&& mv -f $@.tmp.$$ $@
 
-install.systemd: $(PODMAN_GENERATED_UNIT_FILES)
+install.systemd: $(TAINER_GENERATED_UNIT_FILES)
 	install ${SELINUXOPT} -m 755 -d $(DESTDIR)${SYSTEMDDIR}  $(DESTDIR)${USERSYSTEMDDIR}
 	for unit in $^ \
 				contrib/systemd/system/podman-auto-update.timer \
@@ -1032,17 +1032,17 @@ install.tools: .install.golangci-lint ## Install needed tools
 .PHONY: release-artifacts
 release-artifacts: clean-binaries
 	mkdir -p release/
-	$(MAKE) podman-remote-release-darwin_arm64.zip
-	mv podman-remote-release-darwin_arm64.zip release/
-	$(MAKE) podman-remote-release-windows_amd64.zip
-	mv podman-remote-release-windows_amd64.zip release/
-	$(MAKE) podman-remote-release-windows_arm64.zip
-	mv podman-remote-release-windows_arm64.zip release/
-	$(MAKE) podman-remote-static-linux_amd64
-	tar -cvzf podman-remote-static-linux_amd64.tar.gz bin/podman-remote-static-linux_amd64
-	$(MAKE) podman-remote-static-linux_arm64
-	tar -cvzf podman-remote-static-linux_arm64.tar.gz bin/podman-remote-static-linux_arm64
-	mv podman-remote-static-linux*.tar.gz release/
+	$(MAKE) tainer-remote-release-darwin_arm64.zip
+	mv tainer-remote-release-darwin_arm64.zip release/
+	$(MAKE) tainer-remote-release-windows_amd64.zip
+	mv tainer-remote-release-windows_amd64.zip release/
+	$(MAKE) tainer-remote-release-windows_arm64.zip
+	mv tainer-remote-release-windows_arm64.zip release/
+	$(MAKE) tainer-remote-static-linux_amd64
+	tar -cvzf tainer-remote-static-linux_amd64.tar.gz bin/tainer-remote-static-linux_amd64
+	$(MAKE) tainer-remote-static-linux_arm64
+	tar -cvzf tainer-remote-static-linux_arm64.tar.gz bin/tainer-remote-static-linux_arm64
+	mv tainer-remote-static-linux*.tar.gz release/
 
 .PHONY: uninstall
 uninstall:
@@ -1052,9 +1052,9 @@ uninstall:
 	for i in $(filter %.5,$(MANPAGES_DEST)); do \
 		rm -f $(DESTDIR)$(MANDIR)/man5/$$(basename $${i}); \
 	done
-	# Remove podman and remote bin
-	rm -f $(DESTDIR)$(BINDIR)/podman
-	rm -f $(DESTDIR)$(BINDIR)/podman-remote
+	# Remove tainer and remote bin
+	rm -f $(DESTDIR)$(BINDIR)/tainer
+	rm -f $(DESTDIR)$(BINDIR)/tainer-remote
 	# Remove related config files
 	rm -f $(DESTDIR)${TMPFILESDIR}/podman.conf
 	rm -f $(DESTDIR)${SYSTEMDDIR}/podman.service
@@ -1070,10 +1070,10 @@ clean-binaries: ## Remove platform/architecture specific binary files
 .PHONY: clean
 clean: clean-binaries ## Clean all make artifacts
 	rm -rf \
-		$(wildcard podman-*.msi) \
-		$(wildcard podman-remote*.zip) \
-		$(wildcard podman_tmp_*) \
-		$(wildcard podman*.tar.gz) \
+		$(wildcard tainer-*.msi) \
+		$(wildcard tainer-remote*.zip) \
+		$(wildcard tainer_tmp_*) \
+		$(wildcard tainer*.tar.gz) \
 		build \
 		test/checkseccomp/checkseccomp \
 		test/goecho/goecho \
