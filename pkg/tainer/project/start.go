@@ -95,6 +95,10 @@ func Start(projectDir string) error {
 
 	// 10. Create and start project pod
 	podName := fmt.Sprintf("tainer-%s", m.Project.Name)
+	if isPodRunning(podName) {
+		fmt.Printf("%s is already running\n", m.Project.Name)
+		return nil
+	}
 	if err := createProjectPod(m, podName, netName, projectDir); err != nil {
 		return err
 	}
@@ -264,6 +268,15 @@ func mainContainerName(m *manifest.Manifest, podName string) string {
 		return podName + "-caddy-ct"
 	}
 	return podName + "-node-ct"
+}
+
+func isPodRunning(podName string) bool {
+	cmd := exec.Command("podman", "pod", "inspect", "--format", "{{.State}}", podName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(output)) == "Running"
 }
 
 func getProjectIP(podName string) string {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/containers/podman/v6/pkg/tainer/config"
 	"github.com/containers/podman/v6/pkg/tainer/manifest"
@@ -16,10 +17,12 @@ func BuildImages(m *manifest.Manifest) error {
 
 	// Build main container (Caddy+SSHD for PHP, Node for Node.js)
 	if m.IsPHP() {
+		// Alpine PHP packages use version without dots: 8.4 → 84
+		alpinePHP := strings.ReplaceAll(m.Runtime.PHP, ".", "")
 		if err := buildImage(
 			filepath.Join(tmplDir, "Containerfile.caddy"),
 			prefix+"-caddy",
-			nil,
+			map[string]string{"PHP_VERSION": alpinePHP},
 		); err != nil {
 			return fmt.Errorf("building caddy image: %w", err)
 		}
@@ -60,7 +63,8 @@ func buildImage(containerfile, tag string, buildArgs map[string]string) error {
 	for k, v := range buildArgs {
 		args = append(args, "--build-arg", fmt.Sprintf("%s=%s", k, v))
 	}
-	args = append(args, filepath.Dir(containerfile))
+	// Build context must be templates/ root so COPY shared/... paths resolve
+	args = append(args, config.TemplatesDir())
 
 	cmd := exec.Command("podman", args...)
 	output, err := cmd.CombinedOutput()

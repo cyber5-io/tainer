@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"text/tabwriter"
 
@@ -48,10 +49,17 @@ func listRun(cmd *cobra.Command, args []string) error {
 		fmt.Printf("tainer-router   stopped\n\n")
 	}
 
-	// Project table
+	// Project table (sorted by name for deterministic output)
+	names := make([]string, 0, len(projects))
+	for name := range projects {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 4, ' ', 0)
 	fmt.Fprintln(w, "NAME\tTYPE\tDOMAIN\tSTATUS\tPATH")
-	for name, p := range projects {
+	for _, name := range names {
+		p := projects[name]
 		status := getPodStatus(name)
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", name, p.Type, p.Domain, status, p.Path)
 	}

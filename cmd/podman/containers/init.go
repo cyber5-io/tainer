@@ -70,8 +70,8 @@ func init() {
 
 func initContainer(cmd *cobra.Command, args []string) error {
 	// Tainer: intercept bare `tainer init` for project wizard
-	if tainerCli.InterceptInit(cmd, args) {
-		return nil
+	if handled, err := tainerCli.InterceptInit(cmd, args); handled {
+		return err
 	}
 	var errs utils.OutputErrors
 	args = utils.RemoveSlash(args)

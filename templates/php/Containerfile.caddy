@@ -1,9 +1,12 @@
 # Build with: podman build -f Containerfile.caddy -t <tag> templates/
+ARG PHP_VERSION=84
 FROM caddy:2-alpine
 
+ARG PHP_VERSION
 RUN apk add --no-cache \
     openssh-server \
-    php84-cli php84-phar php84-mbstring php84-curl php84-json php84-xml \
+    php${PHP_VERSION}-cli php${PHP_VERSION}-phar php${PHP_VERSION}-mbstring \
+    php${PHP_VERSION}-curl php${PHP_VERSION}-json php${PHP_VERSION}-xml \
     mariadb-client postgresql-client \
     curl bash composer
 

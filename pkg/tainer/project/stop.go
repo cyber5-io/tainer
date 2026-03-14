@@ -2,6 +2,7 @@ package project
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 
 	"github.com/containers/podman/v6/pkg/tainer/config"
@@ -36,7 +37,9 @@ func Stop(projectName string) error {
 	router.DisconnectFromProjectNetwork(netName)
 
 	// 6. Update Caddyfile and reload
-	updateRouterConfig()
+	if err := updateRouterConfig(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not update router config: %v\n", err)
+	}
 
 	// 7. If no other projects running, stop router
 	if router.RunningProjectCount() == 0 {

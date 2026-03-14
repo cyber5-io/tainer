@@ -9,14 +9,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/containers/podman/v6/pkg/tainer/config"
 	"github.com/containers/podman/v6/pkg/tainer/tls"
 )
 
 const (
-	ghReleasesAPI = "https://api.github.com/repos/cyber5-io/tainer/releases/latest"
+	ghReleasesAPI  = "https://api.github.com/repos/cyber5-io/tainer/releases/latest"
+	maxDownloadSize = 100 * 1024 * 1024 // 100 MB
 )
+
+var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 type githubRelease struct {
 	Assets []struct {
@@ -59,12 +63,24 @@ func Run() error {
 	return nil
 }
 
+func ghRequest(url string) (*http.Response, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "tainer/1.0")
+	return httpClient.Do(req)
+}
+
 func getLatestRelease() (*githubRelease, error) {
-	resp, err := http.Get(ghReleasesAPI)
+	resp, err := ghRequest(ghReleasesAPI)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub API returned HTTP %d", resp.StatusCode)
+	}
 	var release githubRelease
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
 		return nil, err
@@ -89,12 +105,15 @@ func downloadAndExtractZip(url, destDir string) error {
 	defer os.Remove(tmpFile.Name())
 	defer tmpFile.Close()
 
-	resp, err := http.Get(url)
+	resp, err := ghRequest(url)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download returned HTTP %d", resp.StatusCode)
+	}
+	if _, err := io.Copy(tmpFile, io.LimitReader(resp.Body, maxDownloadSize)); err != nil {
 		return err
 	}
 	tmpFile.Close()

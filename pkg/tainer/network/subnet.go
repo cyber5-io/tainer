@@ -35,7 +35,10 @@ func loadNetworks() *networksData {
 	if err != nil {
 		return networks
 	}
-	json.Unmarshal(data, networks)
+	if err := json.Unmarshal(data, networks); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: corrupted networks.json, starting fresh: %v\n", err)
+		networks.Allocations = make(map[string]string)
+	}
 	if networks.Allocations == nil {
 		networks.Allocations = make(map[string]string)
 	}

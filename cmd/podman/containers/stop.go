@@ -103,8 +103,8 @@ func init() {
 
 func stop(cmd *cobra.Command, args []string) error {
 	// Tainer: intercept bare `tainer stop` for project stop
-	if tainerCli.InterceptStop(cmd, args) {
-		return nil
+	if handled, err := tainerCli.InterceptStop(cmd, args); handled {
+		return err
 	}
 	var errs utils.OutputErrors
 	args = utils.RemoveSlash(args)

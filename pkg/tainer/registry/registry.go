@@ -36,7 +36,10 @@ func load() *registryData {
 	if err != nil {
 		return registry
 	}
-	json.Unmarshal(data, registry)
+	if err := json.Unmarshal(data, registry); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: corrupted projects.json, starting fresh: %v\n", err)
+		registry.Projects = make(map[string]Project)
+	}
 	if registry.Projects == nil {
 		registry.Projects = make(map[string]Project)
 	}

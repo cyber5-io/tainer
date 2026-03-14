@@ -111,8 +111,8 @@ func validateStart(cmd *cobra.Command, args []string) error {
 
 func start(cmd *cobra.Command, args []string) error {
 	// Tainer: intercept bare `tainer start` for project start
-	if tainerCli.InterceptStart(cmd, args) {
-		return nil
+	if handled, err := tainerCli.InterceptStart(cmd, args); handled {
+		return err
 	}
 	var errs utils.OutputErrors
 	sigProxy := startOptions.SigProxy || startOptions.Attach

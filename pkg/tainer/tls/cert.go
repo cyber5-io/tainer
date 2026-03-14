@@ -40,17 +40,18 @@ func CheckExpiry(certPath string) (time.Time, bool, error) {
 // DownloadCert downloads cert+key from a URL and writes them to disk.
 // Used for auto-renewal from GitHub Releases.
 func DownloadCert(certURL, certPath, keyURL, keyPath string) error {
-	if err := downloadFile(certURL, certPath); err != nil {
+	if err := downloadFile(certURL, certPath, 0644); err != nil {
 		return fmt.Errorf("downloading cert: %w", err)
 	}
-	if err := downloadFile(keyURL, keyPath); err != nil {
+	if err := downloadFile(keyURL, keyPath, 0600); err != nil {
 		return fmt.Errorf("downloading key: %w", err)
 	}
 	return nil
 }
 
-func downloadFile(url, dest string) error {
-	resp, err := http.Get(url)
+func downloadFile(url, dest string, perm os.FileMode) error {
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(url)
 	if err != nil {
 		return err
 	}
@@ -62,5 +63,5 @@ func downloadFile(url, dest string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(dest, data, 0644)
+	return os.WriteFile(dest, data, perm)
 }

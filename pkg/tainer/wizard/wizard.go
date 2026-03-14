@@ -164,7 +164,9 @@ func promptInt(reader *bufio.Reader, prompt string, min, max int) (int, error) {
 		return 0, err
 	}
 	var n int
-	fmt.Sscan(strings.TrimSpace(input), &n)
+	if _, err := fmt.Sscan(strings.TrimSpace(input), &n); err != nil {
+		return 0, fmt.Errorf("please enter a number between %d and %d", min, max)
+	}
 	if n < min || n > max {
 		return 0, fmt.Errorf("choice must be between %d and %d", min, max)
 	}
