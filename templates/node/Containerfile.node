@@ -1,0 +1,12 @@
+# Build with: podman build -f Containerfile.node -t <tag> templates/
+ARG NODE_VERSION=22
+FROM node:${NODE_VERSION}-alpine
+
+RUN apk add --no-cache openssh-server postgresql-client mariadb-client bash curl
+
+RUN ssh-keygen -A && mkdir -p /root/.ssh && chmod 700 /root/.ssh
+COPY shared/sshd_config /etc/ssh/sshd_config
+
+WORKDIR /app
+
+CMD sh -c "/usr/sbin/sshd && tail -f /dev/null"
