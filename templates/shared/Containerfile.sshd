@@ -1,0 +1,7 @@
+FROM alpine:3.21 AS sshd-base
+RUN apk add --no-cache openssh-server && \
+    ssh-keygen -A && \
+    mkdir -p /root/.ssh && \
+    chmod 700 /root/.ssh
+COPY sshd_config /etc/ssh/sshd_config
+EXPOSE 22
