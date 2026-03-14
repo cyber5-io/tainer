@@ -1,12 +1,12 @@
 # Fork Diff Summary
 
 ## Brand Branch (vs main)
-User-facing renames only — minimal surface area:
+Binary rename and build system rebrand:
 
 - `cmd/podman/main.go` — error strings: "podman" → "tainer"
 - `cmd/podman/root.go` — connection error message references tainer CLI
 - `cmd/podman/system/version.go` — version output: "Tainer Engine"
-- `Makefile` — build target `bin/tainer`, phony target `tainer`
+- `Makefile` — comprehensive rename: all binary outputs, build targets, variables, install paths, clean patterns, release artifacts (Go source paths and on-disk file refs preserved as "podman")
 - `.claude/conflict-zones.md` — documents all brand-modified files
 
 ## Main Branch (vs upstream)
