@@ -1,0 +1,23 @@
+# Build with: podman build -f Containerfile.caddy -t <tag> templates/
+# (build context = templates/ so shared/ files are accessible)
+FROM caddy:2-alpine
+
+RUN apk add --no-cache \
+    openssh-server \
+    php84-cli php84-phar php84-mbstring php84-curl php84-json php84-xml \
+    php84-tokenizer php84-ctype php84-session \
+    mariadb-client postgresql-client \
+    curl bash
+
+# Install WP-CLI
+RUN curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar && \
+    chmod +x wp-cli.phar && mv wp-cli.phar /usr/local/bin/wp
+
+# SSHD setup
+RUN ssh-keygen -A && mkdir -p /root/.ssh && chmod 700 /root/.ssh
+COPY shared/sshd_config /etc/ssh/sshd_config
+
+COPY wordpress/Caddyfile /etc/caddy/Caddyfile
+
+# Start both Caddy and SSHD
+CMD sh -c "/usr/sbin/sshd && caddy run --config /etc/caddy/Caddyfile"

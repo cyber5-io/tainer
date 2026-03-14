@@ -1,0 +1,4 @@
+FROM mariadb:11-alpine
+# DB credentials injected via --env-file at runtime.
+# MariaDB reads: MYSQL_DATABASE, MYSQL_USER, MYSQL_PASSWORD, MYSQL_ROOT_PASSWORD
+# The .env uses DB_* names, so the post-deploy maps them.
