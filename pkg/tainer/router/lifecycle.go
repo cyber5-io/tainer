@@ -1,0 +1,153 @@
+package router
+
+import (
+	"fmt"
+	"net"
+	"os/exec"
+	"strings"
+
+	"github.com/containers/podman/v6/pkg/tainer/config"
+	"github.com/containers/podman/v6/pkg/tainer/network"
+)
+
+const (
+	RouterPodName      = "tainer-router"
+	CaddyContainerName = "tainer-router-caddy"
+	SSHPiperContainer  = "tainer-router-sshpiper"
+	DnsmasqContainer   = "tainer-router-dnsmasq"
+)
+
+// IsRouterRunning checks if the router pod exists and is running.
+func IsRouterRunning() bool {
+	cmd := exec.Command("podman", "pod", "exists", RouterPodName)
+	return cmd.Run() == nil
+}
+
+// RunningProjectCount returns how many Tainer project pods are currently running.
+func RunningProjectCount() int {
+	cmd := exec.Command("podman", "pod", "ls",
+		"--filter", "label=tainer.project",
+		"--filter", "status=running",
+		"--format", "{{.Name}}")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return 0
+	}
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		return 0
+	}
+	return len(lines)
+}
+
+// CheckPortConflict checks if a port is already in use on the host.
+// Returns the process name using the port, or empty string if free.
+func CheckPortConflict(port int) string {
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return err.Error()
+	}
+	ln.Close()
+	return ""
+}
+
+// StartRouter creates and starts the router pod with Caddy, sshpiper, and dnsmasq.
+func StartRouter() error {
+	if IsRouterRunning() {
+		return nil
+	}
+
+	// Check port conflicts
+	for _, port := range []int{80, 443, 2222, 53} {
+		if conflict := CheckPortConflict(port); conflict != "" {
+			return fmt.Errorf("port %d is already in use: %s", port, conflict)
+		}
+	}
+
+	// Ensure router network exists
+	subnet := network.RouterSubnet()
+	netName := network.RouterNetworkName()
+	if err := network.CreateNetwork(netName, subnet); err != nil {
+		return fmt.Errorf("creating router network: %w", err)
+	}
+
+	// Ensure configs exist
+	WriteDnsmasqConf(config.DnsmasqConf())
+
+	// Create router pod
+	cmd := exec.Command("podman", "pod", "create",
+		"--name", RouterPodName,
+		"--network", netName,
+		"-p", "80:80",
+		"-p", "443:443",
+		"-p", "2222:2222",
+		"-p", "127.0.0.1:53:53/udp",
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("creating router pod: %s", string(output))
+	}
+
+	// Start Caddy container
+	caddyCmd := exec.Command("podman", "run", "-d",
+		"--pod", RouterPodName,
+		"--name", CaddyContainerName,
+		"-v", config.CaddyfilePath()+":/etc/caddy/Caddyfile:ro",
+		"-v", config.CertFile()+":/certs/tainer.me.crt:ro",
+		"-v", config.KeyFile()+":/certs/tainer.me.key:ro",
+		"caddy:2-alpine",
+	)
+	if output, err := caddyCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("starting Caddy: %s", string(output))
+	}
+
+	// Start sshpiper container
+	sshpiperCmd := exec.Command("podman", "run", "-d",
+		"--pod", RouterPodName,
+		"--name", SSHPiperContainer,
+		"-v", config.SSHPiperDir()+":/var/sshpiper:rw",
+		"farmer1992/sshpiperd:latest",
+		"/sshpiperd", "daemon", "--workingdir", "/var/sshpiper",
+	)
+	if output, err := sshpiperCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("starting sshpiper: %s", string(output))
+	}
+
+	// Start dnsmasq container
+	dnsmasqCmd := exec.Command("podman", "run", "-d",
+		"--pod", RouterPodName,
+		"--name", DnsmasqContainer,
+		"-v", config.DnsmasqConf()+":/etc/dnsmasq.conf:ro",
+		"--cap-add=NET_ADMIN",
+		"drpsychick/dnsmasq:latest",
+	)
+	if output, err := dnsmasqCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("starting dnsmasq: %s", string(output))
+	}
+
+	return nil
+}
+
+// StopRouter stops and removes the router pod.
+func StopRouter() error {
+	cmd := exec.Command("podman", "pod", "rm", "-f", RouterPodName)
+	cmd.CombinedOutput()
+	return nil
+}
+
+// ConnectToProjectNetwork connects the router's Caddy and sshpiper containers
+// to a project's network so they can reach the project pod.
+func ConnectToProjectNetwork(projectNetworkName string) error {
+	for _, container := range []string{CaddyContainerName, SSHPiperContainer} {
+		if err := network.ConnectContainer(projectNetworkName, container); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DisconnectFromProjectNetwork disconnects router containers from a project network.
+func DisconnectFromProjectNetwork(projectNetworkName string) {
+	for _, container := range []string{CaddyContainerName, SSHPiperContainer} {
+		network.DisconnectContainer(projectNetworkName, container)
+	}
+}
