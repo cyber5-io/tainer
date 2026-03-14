@@ -1,2 +1,2 @@
-FROM mariadb:11-alpine
+FROM mariadb:11
 # DB credentials injected via --env-file at runtime
