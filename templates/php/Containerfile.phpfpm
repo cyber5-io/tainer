@@ -1,4 +1,5 @@
 ARG PHP_VERSION=8.4
 FROM php:${PHP_VERSION}-fpm-alpine
 
-RUN docker-php-ext-install pdo_mysql pdo_pgsql
+RUN apk add --no-cache postgresql-dev && \
+    docker-php-ext-install pdo_mysql pdo_pgsql
