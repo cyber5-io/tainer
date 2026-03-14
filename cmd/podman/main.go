@@ -24,6 +24,7 @@ import (
 	_ "github.com/containers/podman/v6/cmd/podman/secrets"
 	_ "github.com/containers/podman/v6/cmd/podman/system"
 	_ "github.com/containers/podman/v6/cmd/podman/system/connection"
+	_ "github.com/containers/podman/v6/cmd/podman/tainer"
 	"github.com/containers/podman/v6/cmd/podman/validate"
 	_ "github.com/containers/podman/v6/cmd/podman/volumes"
 	"github.com/containers/podman/v6/pkg/domain/entities"
