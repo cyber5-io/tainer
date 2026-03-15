@@ -22,9 +22,13 @@ arch=$(cat "${BASEDIR}/ARCH")
 function build_tainer() {
   pushd "$1"
 
-  make tainer-remote-darwin-docs
-  mkdir -p "contrib/pkginstaller/out/packaging/${docDir}"
-  cp -v docs/build/remote/darwin/*.1 "contrib/pkginstaller/out/packaging/${docDir}"
+  # Build docs if possible (requires GNU man/grep, skip on macOS)
+  if make tainer-remote-darwin-docs 2>/dev/null; then
+    mkdir -p "contrib/pkginstaller/out/packaging/${docDir}"
+    cp -v docs/build/remote/darwin/*.1 "contrib/pkginstaller/out/packaging/${docDir}"
+  else
+    echo "Skipping man page generation (GNU tools not available)"
+  fi
 
   case ${goArch} in
   arm64)
