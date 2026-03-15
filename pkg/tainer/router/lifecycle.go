@@ -81,6 +81,7 @@ func StartRouter() error {
 		"-p", "80:80",
 		"-p", "443:443",
 		"-p", "2222:2222",
+		"-p", "127.0.0.1:7753:53/udp",
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("creating router pod: %s", string(output))

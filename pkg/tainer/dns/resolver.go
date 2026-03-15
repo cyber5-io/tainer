@@ -13,7 +13,7 @@ import (
 func ResolverConfig() (path, content string) {
 	switch runtime.GOOS {
 	case "darwin":
-		return "/etc/resolver/tainer.me", "nameserver 127.0.0.1\n"
+		return "/etc/resolver/tainer.me", "nameserver 127.0.0.1\nport 7753\n"
 	case "linux":
 		return "/etc/systemd/resolved.conf.d/tainer.conf",
 			"[Resolve]\nDNS=127.0.0.1\nDomains=~tainer.me\n"
