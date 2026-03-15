@@ -4,9 +4,33 @@ set -e
 
 echo "/opt/tainer/bin" > /etc/paths.d/00-tainer
 
+# krunkit has a hardcoded rpath to /opt/podman/lib that can't be patched.
+# Symlink so it finds dylibs at /opt/tainer/lib.
+if [ ! -e /opt/podman/lib ]; then
+    mkdir -p /opt/podman
+    ln -sf /opt/tainer/lib /opt/podman/lib
+fi
+
 # make sure to ignore errors, this is not a hard requirement to use tainer
 /opt/tainer/bin/tainer-mac-helper install || :
 
 # Add pointer to tainer docs in manpath
 mkdir -p /usr/local/etc/man.d/
 echo "MANPATH /opt/tainer/docs/man" > /usr/local/etc/man.d/tainer.man.conf
+
+# Set up offline DNS resolver for *.tainer.me domains.
+# Routes DNS queries to the local dnsmasq container via port 7753.
+mkdir -p /etc/resolver
+cat > /etc/resolver/tainer.me <<'RESOLVER'
+nameserver 127.0.0.1
+port 7753
+RESOLVER
+
+# Initialize the Tainer machine for the installing user.
+# Other users get auto-initialized on first tainer command.
+REAL_USER=$(stat -f '%Su' /dev/console)
+if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
+    sudo -u "$REAL_USER" /opt/tainer/bin/tainer machine init || :
+    sudo -u "$REAL_USER" /opt/tainer/bin/tainer machine set --rootful || :
+    sudo -u "$REAL_USER" /opt/tainer/bin/tainer machine start || :
+fi

@@ -19,13 +19,13 @@ const (
 
 // IsRouterRunning checks if the router pod exists and is running.
 func IsRouterRunning() bool {
-	cmd := exec.Command("podman", "pod", "exists", RouterPodName)
+	cmd := exec.Command("tainer", "pod", "exists", RouterPodName)
 	return cmd.Run() == nil
 }
 
 // RunningProjectCount returns how many Tainer project pods are currently running.
 func RunningProjectCount() int {
-	cmd := exec.Command("podman", "pod", "ls",
+	cmd := exec.Command("tainer", "pod", "ls",
 		"--filter", "label=tainer.project",
 		"--filter", "status=running",
 		"--format", "{{.Name}}")
@@ -75,7 +75,7 @@ func StartRouter() error {
 	WriteDnsmasqConf(config.DnsmasqConf())
 
 	// Create router pod
-	cmd := exec.Command("podman", "pod", "create",
+	cmd := exec.Command("tainer", "pod", "create",
 		"--name", RouterPodName,
 		"--network", netName,
 		"-p", "80:80",
@@ -88,7 +88,7 @@ func StartRouter() error {
 	}
 
 	// Start Caddy container
-	caddyCmd := exec.Command("podman", "run", "-d",
+	caddyCmd := exec.Command("tainer", "run", "-d",
 		"--pod", RouterPodName,
 		"--name", CaddyContainerName,
 		"-v", config.CaddyfilePath()+":/etc/caddy/Caddyfile:ro",
@@ -101,7 +101,7 @@ func StartRouter() error {
 	}
 
 	// Start sshpiper container
-	sshpiperCmd := exec.Command("podman", "run", "-d",
+	sshpiperCmd := exec.Command("tainer", "run", "-d",
 		"--pod", RouterPodName,
 		"--name", SSHPiperContainer,
 		"-v", config.SSHPiperDir()+":/var/sshpiper:rw",
@@ -113,7 +113,7 @@ func StartRouter() error {
 	}
 
 	// Start dnsmasq container
-	dnsmasqCmd := exec.Command("podman", "run", "-d",
+	dnsmasqCmd := exec.Command("tainer", "run", "-d",
 		"--pod", RouterPodName,
 		"--name", DnsmasqContainer,
 		"-v", config.DnsmasqConf()+":/etc/dnsmasq.conf:ro",
@@ -129,7 +129,7 @@ func StartRouter() error {
 
 // StopRouter stops and removes the router pod.
 func StopRouter() error {
-	cmd := exec.Command("podman", "pod", "rm", "-f", RouterPodName)
+	cmd := exec.Command("tainer", "pod", "rm", "-f", RouterPodName)
 	cmd.CombinedOutput()
 	return nil
 }
@@ -138,7 +138,7 @@ func StopRouter() error {
 // Pod containers share the infra container's network namespace, so network
 // connections must target the infra container.
 func routerInfraContainer() (string, error) {
-	cmd := exec.Command("podman", "pod", "inspect", RouterPodName, "--format", "{{.InfraContainerID}}")
+	cmd := exec.Command("tainer", "pod", "inspect", RouterPodName, "--format", "{{.InfraContainerID}}")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("getting router infra container: %s", string(output))

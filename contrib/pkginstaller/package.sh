@@ -71,6 +71,9 @@ fi
 
 build_tainer "../../../../"
 
+# krunkit has hardcoded rpath /opt/podman/lib — can't patch (packed __LINKEDIT).
+# Postinstall creates a symlink /opt/podman/lib -> /opt/tainer/lib as a workaround.
+
 sign "${binDir}/tainer"
 sign "${binDir}/tainer-mac-helper"
 sign "${binDir}/gvproxy"

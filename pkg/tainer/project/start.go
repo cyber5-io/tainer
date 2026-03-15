@@ -152,7 +152,7 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string)
 		"--label", fmt.Sprintf("tainer.manifest=%s", filepath.Join(projectDir, manifest.FileName)),
 		"--label", fmt.Sprintf("tainer.domain=%s", m.Project.Domain),
 	}
-	if output, err := exec.Command("podman", createArgs...).CombinedOutput(); err != nil {
+	if output, err := exec.Command("tainer", createArgs...).CombinedOutput(); err != nil {
 		if !strings.Contains(string(output), "already exists") {
 			return fmt.Errorf("creating pod: %s", string(output))
 		}
@@ -192,7 +192,7 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string)
 			"--env-file", filepath.Join(projectDir, ".env"),
 		}, usernsFlag...)
 		mainArgs = append(mainArgs, prefix+"-caddy")
-		if output, err := exec.Command("podman", mainArgs...).CombinedOutput(); err != nil {
+		if output, err := exec.Command("tainer", mainArgs...).CombinedOutput(); err != nil {
 			return fmt.Errorf("starting main container: %s", string(output))
 		}
 
@@ -202,7 +202,7 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string)
 			"-v", projectDir + ":" + containerPath + ":rw",
 		}, usernsFlag...)
 		fpmArgs = append(fpmArgs, prefix+"-phpfpm")
-		if output, err := exec.Command("podman", fpmArgs...).CombinedOutput(); err != nil {
+		if output, err := exec.Command("tainer", fpmArgs...).CombinedOutput(); err != nil {
 			return fmt.Errorf("starting PHP-FPM: %s", string(output))
 		}
 	} else {
@@ -214,7 +214,7 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string)
 			"--env-file", filepath.Join(projectDir, ".env"),
 		}, usernsFlag...)
 		mainArgs = append(mainArgs, prefix+"-node")
-		if output, err := exec.Command("podman", mainArgs...).CombinedOutput(); err != nil {
+		if output, err := exec.Command("tainer", mainArgs...).CombinedOutput(); err != nil {
 			return fmt.Errorf("starting Node container: %s", string(output))
 		}
 	}
@@ -232,7 +232,7 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string)
 			"--env-file", filepath.Join(projectDir, ".env"),
 			prefix + "-db",
 		}
-		if output, err := exec.Command("podman", dbArgs...).CombinedOutput(); err != nil {
+		if output, err := exec.Command("tainer", dbArgs...).CombinedOutput(); err != nil {
 			return fmt.Errorf("starting database: %s", string(output))
 		}
 	}
@@ -245,7 +245,7 @@ func updateRouterConfig() error {
 	var caddyProjects []router.CaddyProject
 	for name, p := range projects {
 		podName := fmt.Sprintf("tainer-%s", name)
-		cmd := exec.Command("podman", "pod", "inspect", "--format", "{{.State}}", podName)
+		cmd := exec.Command("tainer", "pod", "inspect", "--format", "{{.State}}", podName)
 		output, err := cmd.CombinedOutput()
 		if err != nil || strings.TrimSpace(string(output)) != "Running" {
 			continue
@@ -271,7 +271,7 @@ func mainContainerName(m *manifest.Manifest, podName string) string {
 }
 
 func isPodRunning(podName string) bool {
-	cmd := exec.Command("podman", "pod", "inspect", "--format", "{{.State}}", podName)
+	cmd := exec.Command("tainer", "pod", "inspect", "--format", "{{.State}}", podName)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return false
@@ -280,13 +280,13 @@ func isPodRunning(podName string) bool {
 }
 
 func getProjectIP(podName string) string {
-	cmd := exec.Command("podman", "pod", "inspect", podName,
+	cmd := exec.Command("tainer", "pod", "inspect", podName,
 		"--format", "{{.InfraContainerID}}")
 	infraID, err := cmd.CombinedOutput()
 	if err != nil {
 		return ""
 	}
-	ipCmd := exec.Command("podman", "inspect", strings.TrimSpace(string(infraID)),
+	ipCmd := exec.Command("tainer", "inspect", strings.TrimSpace(string(infraID)),
 		"--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}")
 	output, err := ipCmd.CombinedOutput()
 	if err != nil {
@@ -298,7 +298,7 @@ func getProjectIP(podName string) string {
 func isFirstStart(m *manifest.Manifest, podName string) bool {
 	ct := mainContainerName(m, podName)
 	markerPath := markerFilePath(m)
-	checkCmd := exec.Command("podman", "exec", ct, "test", "-f", markerPath)
+	checkCmd := exec.Command("tainer", "exec", ct, "test", "-f", markerPath)
 	return checkCmd.Run() != nil
 }
 
@@ -319,12 +319,12 @@ func runPostDeploy(m *manifest.Manifest, podName string) error {
 	ct := mainContainerName(m, podName)
 
 	destPath := "/tmp/post-deploy.sh"
-	cpCmd := exec.Command("podman", "cp", script, ct+":"+destPath)
+	cpCmd := exec.Command("tainer", "cp", script, ct+":"+destPath)
 	if output, err := cpCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("copying post-deploy script: %s", string(output))
 	}
 
-	cmd := exec.Command("podman", "exec", ct, "sh", destPath)
+	cmd := exec.Command("tainer", "exec", ct, "sh", destPath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -333,6 +333,6 @@ func runPostDeploy(m *manifest.Manifest, podName string) error {
 func markInitialized(m *manifest.Manifest, podName string) {
 	ct := mainContainerName(m, podName)
 	markerPath := markerFilePath(m)
-	exec.Command("podman", "exec", ct, "mkdir", "-p", filepath.Dir(markerPath)).Run()
-	exec.Command("podman", "exec", ct, "touch", markerPath).Run()
+	exec.Command("tainer", "exec", ct, "mkdir", "-p", filepath.Dir(markerPath)).Run()
+	exec.Command("tainer", "exec", ct, "touch", markerPath).Run()
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/containers/podman/v6/pkg/tainer/machine"
 	"github.com/containers/podman/v6/pkg/tainer/manifest"
 	"github.com/containers/podman/v6/pkg/tainer/project"
 	"github.com/containers/podman/v6/pkg/tainer/registry"
@@ -42,6 +43,11 @@ func InterceptInit(cmd *cobra.Command, args []string) (bool, error) {
 		return true, fmt.Errorf("tainer.yaml already exists in %s", cwd)
 	}
 
+	// Ensure machine is running before starting the wizard
+	if err := machine.EnsureRunning(); err != nil {
+		return true, err
+	}
+
 	if RunWizard == nil {
 		return true, fmt.Errorf("wizard not available")
 	}
@@ -78,6 +84,14 @@ func interceptProjectCommand(cmd *cobra.Command, args []string, action string) (
 		if !manifest.Exists(cwd) {
 			return true, fmt.Errorf("no tainer.yaml found in current directory.\n  Run 'tainer init' to create a project, or provide a project/container name.\n  Usage: tainer %s [project-name|container-name]", action)
 		}
+
+		// Ensure machine is running before project actions
+		if action != "stop" {
+			if err := machine.EnsureRunning(); err != nil {
+				return true, err
+			}
+		}
+
 		m, err := manifest.LoadFromDir(cwd)
 		if err != nil {
 			return true, fmt.Errorf("reading tainer.yaml: %w", err)
@@ -89,6 +103,11 @@ func interceptProjectCommand(cmd *cobra.Command, args []string, action string) (
 	if len(args) == 1 && cmd.Flags().NFlag() == 0 {
 		name := args[0]
 		if p, ok := registry.Get(name); ok {
+			if action != "stop" {
+				if err := machine.EnsureRunning(); err != nil {
+					return true, err
+				}
+			}
 			return true, executeProjectAction(name, p.Path, action)
 		}
 		// Not a registered project → fall through to Podman (container name)

@@ -47,7 +47,7 @@ func WriteCaddyfile(path string, projects []CaddyProject, certPath, keyPath stri
 
 // ReloadCaddy tells a running Caddy to reload its config via exec into the container.
 func ReloadCaddy() error {
-	cmd := exec.Command("podman", "exec", CaddyContainerName, "caddy", "reload", "--config", "/etc/caddy/Caddyfile")
+	cmd := exec.Command("tainer", "exec", CaddyContainerName, "caddy", "reload", "--config", "/etc/caddy/Caddyfile")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("Caddy reload failed: %s", strings.TrimSpace(string(output)))

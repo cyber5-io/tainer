@@ -23,11 +23,11 @@ func Stop(projectName string) error {
 	netName := network.NetworkName(projectName)
 
 	// 2. Stop project pod
-	stopCmd := exec.Command("podman", "pod", "stop", podName)
+	stopCmd := exec.Command("tainer", "pod", "stop", podName)
 	stopCmd.CombinedOutput() // ignore error if already stopped
 
 	// 3. Remove project pod (preserves volumes)
-	rmCmd := exec.Command("podman", "pod", "rm", "-f", podName)
+	rmCmd := exec.Command("tainer", "pod", "rm", "-f", podName)
 	rmCmd.CombinedOutput()
 
 	// 4. Update router config

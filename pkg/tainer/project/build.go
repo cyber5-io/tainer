@@ -66,7 +66,7 @@ func buildImage(containerfile, tag string, buildArgs map[string]string) error {
 	// Build context must be templates/ root so COPY shared/... paths resolve
 	args = append(args, config.TemplatesDir())
 
-	cmd := exec.Command("podman", args...)
+	cmd := exec.Command("tainer", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s: %s", tag, string(output))
