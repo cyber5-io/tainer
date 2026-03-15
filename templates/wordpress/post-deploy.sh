@@ -5,6 +5,9 @@ set -e
 
 cd /var/www/html
 
+# WP-CLI wrapper with sufficient memory
+wp() { php -d memory_limit=512M /usr/local/bin/wp "$@"; }
+
 # Download WordPress if not present
 if [ ! -f wp-config.php ] && [ ! -f wp-load.php ]; then
     wp core download --allow-root

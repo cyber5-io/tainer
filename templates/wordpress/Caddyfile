@@ -1,4 +1,4 @@
-:443 {
+:8080 {
     root * /var/www/html
     php_fastcgi 127.0.0.1:9000
     file_server
