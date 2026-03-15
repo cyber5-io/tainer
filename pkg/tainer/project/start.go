@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/containers/podman/v6/pkg/tainer/config"
-	"github.com/containers/podman/v6/pkg/tainer/dns"
 	"github.com/containers/podman/v6/pkg/tainer/manifest"
 	"github.com/containers/podman/v6/pkg/tainer/network"
 	projRegistry "github.com/containers/podman/v6/pkg/tainer/registry"
@@ -49,14 +48,9 @@ func Start(projectDir string) error {
 		}
 	}
 
-	// 4. Check offline DNS resolver
-	if !dns.IsResolverInstalled() {
-		fmt.Println("Setting up offline DNS resolver (requires sudo)...")
-		if err := dns.InstallResolver(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not install DNS resolver: %v\n", err)
-			fmt.Println("DNS will only work while online.")
-		}
-	}
+	// 4. Offline DNS resolver — disabled until dnsmasq port conflict is resolved
+	// TODO: re-enable when dnsmasq runs on a non-conflicting port (e.g., 5353)
+	// and /etc/resolver/tainer.me uses "port 5353"
 
 	// 5. Ensure SSH keys exist
 	if err := ssh.EnsureKeyPair(config.PrivateKey(), config.PublicKey()); err != nil {
