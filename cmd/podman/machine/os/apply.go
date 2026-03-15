@@ -13,7 +13,7 @@ import (
 
 var applyCmd = &cobra.Command{
 	Use:               "apply [options] URI|IMAGE [MACHINE]",
-	Short:             "Apply an OCI image to a Podman Machine's OS",
+	Short:             "Apply an OCI image to a Tainer Machine's OS",
 	Long:              "Apply custom layers from a containerized Fedora CoreOS OCI image on top of an existing VM",
 	PersistentPreRunE: validate.NoOp,
 	Args:              cobra.RangeArgs(1, 2),
@@ -30,7 +30,7 @@ var applyCmd = &cobra.Command{
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 	},
-	Example: `podman machine os apply myimage`,
+	Example: `tainer machine os apply myimage`,
 }
 
 var restart bool

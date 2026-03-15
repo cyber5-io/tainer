@@ -8,5 +8,5 @@ import (
 )
 
 func getMachineConn(connection string, parsedConnection *url.URL) (string, error) {
-	return "", errors.New("podman machine not supported on this architecture")
+	return "", errors.New("tainer machine not supported on this architecture")
 }

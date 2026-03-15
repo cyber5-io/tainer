@@ -118,9 +118,9 @@ func composeDockerHost() (string, error) {
 			return registry.DefaultAPIAddress(), nil
 		// If there is no default connection on Windows or Mac
 		// OS, we can safely assume that something went wrong.
-		// A `podman machine init` will set the connection.
+		// A `tainer machine init` will set the connection.
 		default:
-			return "", fmt.Errorf("cannot connect to a socket or via SSH: no default connection found: consider running `podman machine init`")
+			return "", fmt.Errorf("cannot connect to a socket or via SSH: no default connection found: consider running `tainer machine init`")
 		}
 	}
 
@@ -134,7 +134,7 @@ func composeDockerHost() (string, error) {
 	if !conf.MachineMode {
 		// Docker Compose v1 doesn't like paths for ssh, so we optimistically
 		// assume the presence of a Docker socket on the remote
-		// machine which is the case for podman machines.
+		// machine which is the case for tainer machines.
 		if parsedConnection.Scheme == "ssh" {
 			return strings.TrimSuffix(conf.URI, parsedConnection.Path), nil
 		}

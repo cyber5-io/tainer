@@ -31,7 +31,7 @@ var (
 		PersistentPreRunE: machinePreRunE,
 		RunE:              initMachine,
 		Args:              cobra.MaximumNArgs(1),
-		Example:           `podman machine init podman-machine-default`,
+		Example:           `tainer machine init tainer-machine-default`,
 		ValidArgsFunction: completion.AutocompleteNone,
 	}
 
@@ -199,7 +199,7 @@ func initMachine(cmd *cobra.Command, args []string) error {
 		machineProvider = providers[indexVal]
 	}
 
-	// The vmtype names need to be reserved and cannot be used for podman machine names
+	// The vmtype names need to be reserved and cannot be used for tainer machine names
 	if _, err := define.ParseVMType(initOpts.Name, define.UnknownVirt); err == nil {
 		return fmt.Errorf("cannot use %q for a machine name", initOpts.Name)
 	}
@@ -237,7 +237,7 @@ func initMachine(cmd *cobra.Command, args []string) error {
 		if con.ReadWrite {
 			for _, connection := range []string{initOpts.Name, fmt.Sprintf("%s-root", initOpts.Name)} {
 				if con.Name == connection {
-					return fmt.Errorf("system connection %q already exists. consider a different machine name or remove the connection with `podman system connection rm`", connection)
+					return fmt.Errorf("system connection %q already exists. consider a different machine name or remove the connection with `tainer system connection rm`", connection)
 				}
 			}
 		}
@@ -304,7 +304,7 @@ func initMachine(cmd *cobra.Command, args []string) error {
 	if initOpts.Name != defaultMachineName {
 		extra = " " + initOpts.Name
 	}
-	fmt.Printf("To start your machine run:\n\n\tpodman machine start%s\n\n", extra)
+	fmt.Printf("To start your machine run:\n\n\ttainer machine start%s\n\n", extra)
 	return err
 }
 

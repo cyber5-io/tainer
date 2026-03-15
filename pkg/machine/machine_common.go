@@ -55,7 +55,7 @@ func WaitAPIAndPrintInfo(forwardState APIForwardingState, name, helper, forwardS
 
 				fmtString = `
 The system helper service is not installed; the default Docker API socket
-address can't be used by podman. `
+address can't be used by tainer. `
 
 				if len(helper) < 1 {
 					fmt.Print(fmtString)
@@ -63,7 +63,7 @@ address can't be used by podman. `
 					fmtString += `If you would like to install it, run the following commands:
 
         sudo %s install
-        podman machine stop%[2]s; podman machine start%[2]s
+        tainer machine stop%[2]s; tainer machine start%[2]s
 
 `
 					fmt.Printf(fmtString, helper, suffix)
@@ -100,9 +100,9 @@ func PrintRootlessWarning(name string) {
 	fmtString := `
 This machine is currently configured in rootless mode. If your containers
 require root permissions (e.g. ports < 1024), or if you run into compatibility
-issues with non-podman clients, you can switch using the following command:
+issues with non-tainer clients, you can switch using the following command:
 
-	podman machine set --rootful%s
+	tainer machine set --rootful%s
 
 `
 	fmt.Printf(fmtString, suffix)

@@ -49,6 +49,7 @@ LIBEXECTAINER ?= ${LIBEXECDIR}/tainer
 MANDIR ?= ${PREFIX}/share/man
 SHAREDIR_CONTAINERS ?= ${PREFIX}/share/containers
 ETCDIR ?= /etc
+HELPER_BINARIES_DIR ?= /opt/tainer/bin
 LIBDIR ?= ${PREFIX}/lib
 TMPFILESDIR ?= ${LIBDIR}/tmpfiles.d
 USERTMPFILESDIR ?= ${PREFIX}/share/user-tmpfiles.d

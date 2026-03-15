@@ -36,7 +36,7 @@ var (
 		PersistentPreRunE: machinePreRunE,
 		RunE:              cp,
 		Args:              cobra.ExactArgs(2),
-		Example:           `podman machine cp ~/ca.crt podman-machine-default:/etc/containers/certs.d/ca.crt`,
+		Example:           `tainer machine cp ~/ca.crt tainer-machine-default:/etc/containers/certs.d/ca.crt`,
 		ValidArgsFunction: autocompleteMachineCp,
 	}
 

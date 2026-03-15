@@ -24,7 +24,7 @@ var server9pCommand = &cobra.Command{
 	Long:              "Start a number of 9p servers on given hvsock UUIDs, and run until the given PID exits",
 	RunE:              remoteDirServer,
 	ValidArgsFunction: completion.AutocompleteNone,
-	Example:           `podman system server9p --serve C:\Users\myuser:00000050-FACB-11E6-BD58-64006A7986D3 /mnt`,
+	Example:           `tainer system server9p --serve C:\Users\myuser:00000050-FACB-11E6-BD58-64006A7986D3 /mnt`,
 }
 
 func init() {

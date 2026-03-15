@@ -25,7 +25,7 @@ var resetCmd = &cobra.Command{
 	Long:              "Remove all machines, configurations, data, and cached images",
 	RunE:              reset,
 	Args:              validate.NoArgs,
-	Example:           `podman machine reset`,
+	Example:           `tainer machine reset`,
 	ValidArgsFunction: completion.AutocompleteNone,
 }
 
@@ -49,7 +49,7 @@ func reset(_ *cobra.Command, _ []string) error {
 		isInstalled, err := provider2.IsInstalled(p.VMType())
 		if !hasPerms && (isInstalled || err != nil) && !resetOptions.Force {
 			logrus.Warnf("Managing %s machines require admin authority.", p.VMType().String())
-			logrus.Warnf("Continuing to reset may cause Podman to be unaware of remaining VMs in the VM manager.")
+			logrus.Warnf("Continuing to reset may cause Tainer to be unaware of remaining VMs in the VM manager.")
 		}
 	}
 
@@ -75,8 +75,8 @@ func reset(_ *cobra.Command, _ []string) error {
 }
 
 func resetConfirmationMessage(listResponse []*machine.ListResponse) {
-	fmt.Println("Warning: this command will delete all existing Podman machines")
-	fmt.Println("and all of the configuration and data directories for Podman machines")
+	fmt.Println("Warning: this command will delete all existing Tainer machines")
+	fmt.Println("and all of the configuration and data directories for Tainer machines")
 	fmt.Printf("\nThe following machine(s) will be deleted:\n\n")
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
 	fmt.Fprintln(w, "NAME\tPROVIDER")

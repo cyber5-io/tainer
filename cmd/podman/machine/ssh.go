@@ -22,8 +22,8 @@ var sshCmd = &cobra.Command{
 	Long:              "SSH into a managed virtual machine ",
 	PersistentPreRunE: machinePreRunE,
 	RunE:              ssh,
-	Example: `podman machine ssh podman-machine-default
-podman machine ssh myvm echo hello`,
+	Example: `tainer machine ssh tainer-machine-default
+tainer machine ssh myvm echo hello`,
 	ValidArgsFunction: autocompleteMachineSSH,
 }
 

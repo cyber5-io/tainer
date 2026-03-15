@@ -20,7 +20,7 @@ var (
 		PersistentPreRunE: machinePreRunE,
 		RunE:              start,
 		Args:              cobra.MaximumNArgs(1),
-		Example:           `podman machine start podman-machine-default`,
+		Example:           `tainer machine start tainer-machine-default`,
 		ValidArgsFunction: AutocompleteMachine,
 	}
 	startOpts            = machine.StartOptions{}

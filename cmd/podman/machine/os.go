@@ -10,8 +10,8 @@ import (
 
 var OSCmd = &cobra.Command{
 	Use:               "os",
-	Short:             "Manage a Podman virtual machine's OS",
-	Long:              "Manage a Podman virtual machine's operating system",
+	Short:             "Manage a Tainer virtual machine's OS",
+	Long:              "Manage a Tainer virtual machine's operating system",
 	PersistentPreRunE: validate.NoOp,
 	RunE:              validate.SubCommandExists,
 }

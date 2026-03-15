@@ -17,7 +17,7 @@ var rmCmd = &cobra.Command{
 	PersistentPreRunE: machinePreRunE,
 	RunE:              rm,
 	Args:              cobra.MaximumNArgs(1),
-	Example:           `podman machine rm podman-machine-default`,
+	Example:           `tainer machine rm tainer-machine-default`,
 	ValidArgsFunction: AutocompleteMachine,
 }
 

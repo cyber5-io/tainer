@@ -2,5 +2,5 @@
 
 package os
 
-// init do not register _podman machine os_ command on unsupported platforms
+// init do not register _tainer machine os_ command on unsupported platforms
 func init() {}

@@ -5,7 +5,7 @@ import "os"
 const (
 	UserCertsTargetPath = "/etc/containers/certs.d"
 	DefaultIdentityName = "machine"
-	DefaultMachineName  = "podman-machine-default"
+	DefaultMachineName  = "tainer-machine-default"
 )
 
 // MountTag is an identifier to mount a VirtioFS file system tag on a mount point in the VM.

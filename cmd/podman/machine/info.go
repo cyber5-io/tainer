@@ -31,7 +31,7 @@ var infoCmd = &cobra.Command{
 	RunE:              info,
 	Args:              validate.NoArgs,
 	ValidArgsFunction: completion.AutocompleteNone,
-	Example:           `podman machine info`,
+	Example:           `tainer machine info`,
 }
 
 var inFormat string

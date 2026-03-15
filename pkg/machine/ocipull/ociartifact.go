@@ -228,7 +228,7 @@ func (o *OCIArtifactDisk) getDestArtifact() (types.ImageReference, digest.Digest
 	if err != nil {
 		return nil, "", err
 	}
-	fmt.Printf("Looking up Podman Machine image at %s to create VM\n", imgRef.DockerReference())
+	fmt.Printf("Looking up Tainer Machine image at %s to create VM\n", imgRef.DockerReference())
 	sysCtx, err := o.pullOptions.systemContext()
 	if err != nil {
 		return nil, "", err

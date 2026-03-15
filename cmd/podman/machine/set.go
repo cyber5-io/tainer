@@ -18,7 +18,7 @@ var setCmd = &cobra.Command{
 	PersistentPreRunE: machinePreRunE,
 	RunE:              setMachine,
 	Args:              cobra.MaximumNArgs(1),
-	Example:           `podman machine set --rootful=false`,
+	Example:           `tainer machine set --rootful=false`,
 	ValidArgsFunction: completion.AutocompleteNone,
 }
 

@@ -35,9 +35,9 @@ var (
 		RunE:              list,
 		Args:              validate.NoArgs,
 		ValidArgsFunction: completion.AutocompleteNone,
-		Example: `podman machine list,
-podman machine list --format json
-podman machine ls`,
+		Example: `tainer machine list,
+tainer machine list --format json
+tainer machine ls`,
 	}
 	listFlag = listFlagType{}
 )

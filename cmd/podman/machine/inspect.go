@@ -22,7 +22,7 @@ var (
 		Long:              "Provide details on a managed virtual machine",
 		PersistentPreRunE: machinePreRunE,
 		RunE:              inspect,
-		Example:           `podman machine inspect myvm`,
+		Example:           `tainer machine inspect myvm`,
 		ValidArgsFunction: AutocompleteMachine,
 	}
 	inspectFlag = inspectFlagType{}

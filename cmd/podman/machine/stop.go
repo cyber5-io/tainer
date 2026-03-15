@@ -18,7 +18,7 @@ var stopCmd = &cobra.Command{
 	PersistentPreRunE: machinePreRunE,
 	RunE:              stop,
 	Args:              cobra.MaximumNArgs(1),
-	Example:           `podman machine stop podman-machine-default`,
+	Example:           `tainer machine stop tainer-machine-default`,
 	ValidArgsFunction: AutocompleteMachine,
 }
 

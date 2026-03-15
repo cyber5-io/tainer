@@ -25,7 +25,7 @@ var client9pCommand = &cobra.Command{
 	Long:              "Connect to the given hvsock port using 9p and mount the served filesystem at the given directory",
 	RunE:              remoteDirClient,
 	ValidArgsFunction: completion.AutocompleteNone,
-	Example:           `podman system client9p 55000 /mnt`,
+	Example:           `tainer system client9p 55000 /mnt`,
 }
 
 func init() {
@@ -49,7 +49,7 @@ func remoteDirClient(_ *cobra.Command, args []string) error {
 }
 
 // This is Linux-only as we only intend for this function to be used inside the
-// `podman machine` VM, which is guaranteed to be Linux.
+// `tainer machine` VM, which is guaranteed to be Linux.
 func client9p(portNum uint32, mountPath string) error {
 	cleanPath, err := filepath.Abs(mountPath)
 	if err != nil {

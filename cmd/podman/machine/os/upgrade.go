@@ -25,7 +25,7 @@ var upgradeCmd = &cobra.Command{
 	Args:              cobra.MaximumNArgs(1),
 	RunE:              upgrade,
 	ValidArgsFunction: common.AutocompleteImages,
-	Example:           `podman machine os upgrade`,
+	Example:           `tainer machine os upgrade`,
 }
 
 type upgradeOpts struct {
