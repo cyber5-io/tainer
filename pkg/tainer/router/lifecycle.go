@@ -58,7 +58,7 @@ func StartRouter() error {
 	}
 
 	// Check port conflicts
-	for _, port := range []int{80, 443, 2222, 53} {
+	for _, port := range []int{80, 443, 2222} {
 		if conflict := CheckPortConflict(port); conflict != "" {
 			return fmt.Errorf("port %d is already in use: %s", port, conflict)
 		}
@@ -81,7 +81,6 @@ func StartRouter() error {
 		"-p", "80:80",
 		"-p", "443:443",
 		"-p", "2222:2222",
-		"-p", "127.0.0.1:53:53/udp",
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("creating router pod: %s", string(output))
@@ -134,20 +133,33 @@ func StopRouter() error {
 	return nil
 }
 
-// ConnectToProjectNetwork connects the router's Caddy and sshpiper containers
-// to a project's network so they can reach the project pod.
-func ConnectToProjectNetwork(projectNetworkName string) error {
-	for _, container := range []string{CaddyContainerName, SSHPiperContainer} {
-		if err := network.ConnectContainer(projectNetworkName, container); err != nil {
-			return err
-		}
+// routerInfraContainer returns the infra container ID for the router pod.
+// Pod containers share the infra container's network namespace, so network
+// connections must target the infra container.
+func routerInfraContainer() (string, error) {
+	cmd := exec.Command("podman", "pod", "inspect", RouterPodName, "--format", "{{.InfraContainerID}}")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("getting router infra container: %s", string(output))
 	}
-	return nil
+	return strings.TrimSpace(string(output)), nil
 }
 
-// DisconnectFromProjectNetwork disconnects router containers from a project network.
-func DisconnectFromProjectNetwork(projectNetworkName string) {
-	for _, container := range []string{CaddyContainerName, SSHPiperContainer} {
-		network.DisconnectContainer(projectNetworkName, container)
+// ConnectToProjectNetwork connects the router pod to a project's network
+// so Caddy and sshpiper can reach the project pod.
+func ConnectToProjectNetwork(projectNetworkName string) error {
+	infraID, err := routerInfraContainer()
+	if err != nil {
+		return err
 	}
+	return network.ConnectContainer(projectNetworkName, infraID)
+}
+
+// DisconnectFromProjectNetwork disconnects the router pod from a project network.
+func DisconnectFromProjectNetwork(projectNetworkName string) {
+	infraID, err := routerInfraContainer()
+	if err != nil {
+		return
+	}
+	network.DisconnectContainer(projectNetworkName, infraID)
 }

@@ -254,13 +254,13 @@ func updateRouterConfig() error {
 		caddyProjects = append(caddyProjects, router.CaddyProject{
 			Domain: p.Domain,
 			IP:     ip,
-			Port:   "443",
+			Port:   "8080",
 		})
 	}
 	if err := router.WriteCaddyfile(config.CaddyfilePath(), caddyProjects, "/certs/tainer.me.crt", "/certs/tainer.me.key"); err != nil {
 		return err
 	}
-	return router.ReloadCaddy(config.CaddyfilePath())
+	return router.ReloadCaddy()
 }
 
 func mainContainerName(m *manifest.Manifest, podName string) string {
