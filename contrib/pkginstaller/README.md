@@ -10,14 +10,11 @@ $ make ARCH=aarch64 CODESIGN_IDENTITY=<ID> PRODUCTSIGN_IDENTITY=<ID> pkginstalle
 $ make ARCH=aarch64 CODESIGN_IDENTITY=<ID> PRODUCTSIGN_IDENTITY=<ID> NOTARIZE_USERNAME=<appleID> NOTARIZE_PASSWORD=<appleID-password> NOTARIZE_TEAM=<team-id> notarize
 ```
 
-The generated pkg will be written to `out/podman-macos-installer-*.pkg`.
-Currently the pkg installs `podman`, `vfkit`, `gvproxy` and `podman-mac-helper` to `/opt/podman`
+The generated pkg will be written to `out/tainer-installer-macos-*.pkg`.
+Currently the pkg installs `tainer`, `vfkit`, `gvproxy`, `krunkit`, and `tainer-mac-helper` to `/opt/tainer`
 
 ## Uninstalling
 
 ```sh
-$ sudo rm -rf /opt/podman
+$ sudo rm -rf /opt/tainer
 ```
-
-### Screenshot
-<img width="626" alt="screenshot-macOS-pkg-podman" src="https://user-images.githubusercontent.com/8885742/157380992-2e3b1573-34a0-4aa0-bdc1-a85f4792a1d2.png">

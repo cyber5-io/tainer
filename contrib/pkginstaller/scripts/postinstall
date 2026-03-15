@@ -2,11 +2,11 @@
 
 set -e
 
-echo "/opt/podman/bin" > /etc/paths.d/podman-pkg
+echo "/opt/tainer/bin" > /etc/paths.d/00-tainer
 
-# make sure to ignore errors, this is not a hard requirement to use podman
-/opt/podman/bin/podman-mac-helper install || :
+# make sure to ignore errors, this is not a hard requirement to use tainer
+/opt/tainer/bin/tainer-mac-helper install || :
 
-# Add pointer to podman docs in manpath
+# Add pointer to tainer docs in manpath
 mkdir -p /usr/local/etc/man.d/
-echo "MANPATH /opt/podman/docs/man" > /usr/local/etc/man.d/podman.man.conf
+echo "MANPATH /opt/tainer/docs/man" > /usr/local/etc/man.d/tainer.man.conf

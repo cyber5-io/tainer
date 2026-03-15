@@ -2,13 +2,13 @@
 
 set -e
 
-rm -rf /opt/podman
+rm -rf /opt/tainer
 
 if [ ! -d "/etc/paths.d" ]; then
     mkdir -p /etc/paths.d
 fi
 
-# Create directory to be able to add podman
+# Create directory to be able to add tainer
 # man pages into the "man" path
 if [ ! -d "/usr/local/etc/man.d" ]; then
     mkdir -p /usr/local/etc/man.d
