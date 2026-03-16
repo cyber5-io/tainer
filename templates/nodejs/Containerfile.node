@@ -9,6 +9,10 @@ COPY shared/sshd_config /etc/ssh/sshd_config
 
 WORKDIR /app
 
+# Enable polling for file watcher (virtio-fs doesn't propagate inotify from host)
+ENV CHOKIDAR_USEPOLLING=true
+ENV WATCHPACK_POLLING=true
+
 COPY shared/tainer-entrypoint.sh /usr/local/bin/tainer-entrypoint.sh
 COPY shared/start-node.sh /usr/local/bin/start-node.sh
 RUN chmod +x /usr/local/bin/tainer-entrypoint.sh /usr/local/bin/start-node.sh

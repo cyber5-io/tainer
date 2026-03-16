@@ -60,8 +60,15 @@ fi
 if ! wp core is-installed 2>/dev/null; then
     wp core install \
         --url="$WP_HOME" --title="Tainer Site" \
-        --admin_user=admin --admin_password=admin \
-        --admin_email=admin@example.com
+        --admin_user=tainer --admin_password=tainer \
+        --admin_email=tainer@tainer.me
 fi
+
+# WP-CLI config so wp commands work from any directory
+mkdir -p /home/tainer/.wp-cli
+cat > /home/tainer/.wp-cli/config.yml << 'WPCLIEOF'
+path: /var/www/html
+WPCLIEOF
+chown -R tainer /home/tainer/.wp-cli
 
 echo "WordPress ready"

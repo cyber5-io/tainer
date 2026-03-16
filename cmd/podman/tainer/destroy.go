@@ -7,7 +7,7 @@ import (
 )
 
 var destroyCmd = &cobra.Command{
-	Use:   "destroy [project-name]",
+	Use:   "destroy [project-name] [--volumes]",
 	Short: "Destroy a Tainer project (stop, remove containers, clean up)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		_, err := tainerCli.InterceptDestroy(cmd, args)
@@ -17,6 +17,7 @@ var destroyCmd = &cobra.Command{
 
 func init() {
 	destroyCmd.Flags().BoolP("force", "f", false, "Skip confirmation")
+	destroyCmd.Flags().Bool("volumes", false, "Also remove db/ and data/ directories")
 	registry.Commands = append(registry.Commands, registry.CliCommand{
 		Command: destroyCmd,
 	})

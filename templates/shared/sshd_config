@@ -1,6 +1,6 @@
 Port 22
-PermitRootLogin yes
+PermitRootLogin no
 PubkeyAuthentication yes
-PasswordAuthentication no
+PasswordAuthentication yes
 ChallengeResponseAuthentication no
 Subsystem sftp /usr/lib/ssh/sftp-server

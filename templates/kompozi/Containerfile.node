@@ -2,12 +2,16 @@
 ARG NODE_VERSION=22
 FROM node:${NODE_VERSION}-alpine
 
-RUN apk add --no-cache su-exec openssh-server postgresql-client mariadb-client bash curl
+RUN apk add --no-cache su-exec openssh-server postgresql-client bash curl git
 
 RUN ssh-keygen -A
 COPY shared/sshd_config /etc/ssh/sshd_config
 
 WORKDIR /app
+
+# Enable polling for file watcher (virtio-fs doesn't propagate inotify from host)
+ENV CHOKIDAR_USEPOLLING=true
+ENV WATCHPACK_POLLING=true
 
 COPY shared/tainer-entrypoint.sh /usr/local/bin/tainer-entrypoint.sh
 COPY shared/start-node.sh /usr/local/bin/start-node.sh

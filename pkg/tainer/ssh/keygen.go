@@ -43,6 +43,22 @@ func EnsureKeyPair(privPath, pubPath string) error {
 	return nil
 }
 
+// EnsureHostKey generates an Ed25519 host key if it doesn't exist.
+func EnsureHostKey(privPath string) error {
+	if _, err := os.Stat(privPath); err == nil {
+		return nil
+	}
+	_, privKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return fmt.Errorf("generating host key: %w", err)
+	}
+	privBytes, err := ssh.MarshalPrivateKey(privKey, "")
+	if err != nil {
+		return fmt.Errorf("marshaling host key: %w", err)
+	}
+	return os.WriteFile(privPath, pem.EncodeToMemory(privBytes), 0644)
+}
+
 // ReadPublicKey reads the public key from disk in authorized_keys format.
 func ReadPublicKey(pubPath string) (string, error) {
 	data, err := os.ReadFile(pubPath)

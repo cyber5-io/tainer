@@ -108,9 +108,20 @@ func Run(cwd string) error {
 		return err
 	}
 
-	// Database
+	// Database — choices depend on project type
 	defaultDB := DefaultDatabase(selectedType)
-	dbChoices := []string{"mariadb", "postgres", "none"}
+	var dbChoices []string
+	switch selectedType {
+	case manifest.TypeWordPress:
+		dbChoices = []string{"mariadb"}
+	case manifest.TypePHP:
+		dbChoices = []string{"mariadb", "postgres", "none"}
+	case manifest.TypeNodeJS:
+		dbChoices = []string{"postgres", "mariadb", "none"}
+	default:
+		// NextJS, NuxtJS, Kompozi — database is required
+		dbChoices = []string{"postgres", "mariadb"}
+	}
 	dbStr, err := promptChoice(reader, "Database", dbChoices, string(defaultDB))
 	if err != nil {
 		return err

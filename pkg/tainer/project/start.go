@@ -68,6 +68,9 @@ func Start(projectDir string) error {
 	if err := ssh.EnsureKeyPair(config.PrivateKey(), config.PublicKey()); err != nil {
 		return fmt.Errorf("generating SSH keys: %w", err)
 	}
+	if err := ssh.EnsureHostKey(config.SSHPiperHostKey()); err != nil {
+		return fmt.Errorf("generating sshpiper host key: %w", err)
+	}
 
 	// 6. Register project
 	if err := projRegistry.Add(m.Project.Name, projectDir, string(m.Project.Type), m.Project.Domain); err != nil {
@@ -131,7 +134,9 @@ func Start(projectDir string) error {
 
 	// Add sshpiper entry
 	projectIP := getProjectIP(podName)
-	router.AddSSHPiperEntry(config.SSHPiperDir(), m.Project.Name, projectIP, config.PrivateKey())
+	if err := router.AddSSHPiperEntry(config.SSHPiperDir(), m.Project.Name, projectIP, config.PrivateKey()); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: sshpiper setup failed: %v\n", err)
+	}
 
 	// 14. Run post-deploy (idempotent)
 	fmt.Println("Running post-deploy checks...")
@@ -148,7 +153,7 @@ func Start(projectDir string) error {
 	}
 	fmt.Printf("\n%s started\n", m.Project.Name)
 	fmt.Printf("  https://%s\n", m.Project.Domain)
-	fmt.Printf("  ssh%s %s@%s\n", portFlag, m.Project.Name, m.Project.Domain)
+	fmt.Printf("  ssh%s %s@ssh.tainer.me\n", portFlag, m.Project.Name)
 
 	return nil
 }
@@ -262,10 +267,16 @@ func updateRouterConfig() error {
 			continue
 		}
 		ip := getProjectIP(podName)
+		port := "80"
+		pt := manifest.ProjectType(p.Type)
+		if pt == manifest.TypeNodeJS || pt == manifest.TypeNextJS ||
+			pt == manifest.TypeNuxtJS || pt == manifest.TypeKompozi {
+			port = "3000"
+		}
 		caddyProjects = append(caddyProjects, router.CaddyProject{
 			Domain: p.Domain,
 			IP:     ip,
-			Port:   "80",
+			Port:   port,
 		})
 	}
 	if err := router.WriteCaddyfile(config.CaddyfilePath(), caddyProjects, "/certs/tainer.me.crt", "/certs/tainer.me.key"); err != nil {

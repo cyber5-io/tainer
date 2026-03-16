@@ -24,7 +24,9 @@ var ProjectStart = project.Start
 var ProjectStop = project.Stop
 
 // ProjectDestroy delegates to the project package.
-var ProjectDestroy = project.Destroy
+var ProjectDestroy = func(dir string, force bool, volumes ...bool) error {
+	return project.Destroy(dir, force, volumes...)
+}
 
 // GetWorkingDir returns the current working directory. Replaceable for testing.
 var GetWorkingDir = os.Getwd
@@ -84,19 +86,23 @@ func InterceptDestroy(cmd *cobra.Command, args []string) (bool, error) {
 	}
 
 	force := false
+	volumes := false
 	for _, a := range os.Args {
 		if a == "--force" || a == "-f" {
 			force = true
+		}
+		if a == "--volumes" {
+			volumes = true
 		}
 	}
 
 	// No args: check for tainer.yaml in cwd
 	if len(args) == 0 {
 		if !manifest.Exists(cwd) {
-			return true, fmt.Errorf("no tainer.yaml found in current directory.\n  Run 'tainer init' to create a project, or provide a project name.\n  Usage: tainer destroy [project-name]")
+			return true, fmt.Errorf("no tainer.yaml found in current directory.\n  Run 'tainer init' to create a project, or provide a project name.\n  Usage: tainer destroy [project-name] [--volumes]")
 		}
 		if ProjectDestroy != nil {
-			if err := ProjectDestroy(cwd, force); err != nil {
+			if err := ProjectDestroy(cwd, force, volumes); err != nil {
 				return true, err
 			}
 		}
@@ -108,7 +114,7 @@ func InterceptDestroy(cmd *cobra.Command, args []string) (bool, error) {
 		name := args[0]
 		if p, ok := registry.Get(name); ok {
 			if ProjectDestroy != nil {
-				if err := ProjectDestroy(p.Path, force); err != nil {
+				if err := ProjectDestroy(p.Path, force, volumes); err != nil {
 					return true, err
 				}
 			}
@@ -123,13 +129,17 @@ func InterceptDestroy(cmd *cobra.Command, args []string) (bool, error) {
 
 // InterceptData checks if `tainer data add <path>` or `tainer data del <path>` should be handled.
 func InterceptData(cmd *cobra.Command, args []string) (bool, error) {
-	if len(args) < 2 {
-		return false, nil
+	if len(args) == 0 {
+		return true, fmt.Errorf("usage: tainer data <add|del> <path>\n\nManage persistent data mounts for a Tainer project.\n\nSubcommands:\n  add <path>   Add a custom data mount\n  del <path>   Remove a custom data mount")
 	}
 
 	subCmd := args[0]
 	if subCmd != "add" && subCmd != "del" {
-		return false, nil
+		return true, fmt.Errorf("unknown subcommand %q\nUsage: tainer data <add|del> <path>", subCmd)
+	}
+
+	if len(args) < 2 {
+		return true, fmt.Errorf("missing path argument\nUsage: tainer data %s <path>", subCmd)
 	}
 
 	cwd, err := GetWorkingDir()

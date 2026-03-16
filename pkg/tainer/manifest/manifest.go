@@ -206,7 +206,7 @@ func (m *Manifest) validate() error {
 	switch m.Project.Type {
 	case TypeWordPress, TypePHP, TypeNodeJS, TypeNextJS, TypeNuxtJS, TypeKompozi:
 	default:
-		return fmt.Errorf("invalid project type: %q (expected wordpress, php, nodejs, or kompozi)", m.Project.Type)
+		return fmt.Errorf("invalid project type: %q (expected wordpress, php, nodejs, nextjs, nuxtjs, or kompozi)", m.Project.Type)
 	}
 	switch m.Runtime.Database {
 	case DatabaseMariaDB, DatabasePostgres, DatabaseNone:

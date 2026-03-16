@@ -9,6 +9,12 @@ COPY shared/sshd_config /etc/ssh/sshd_config
 
 WORKDIR /app
 
+# Pre-install Next.js so first start doesn't OOM
+RUN yarn global add next@15 react@19 react-dom@19
+
+# Enable polling for file watcher (virtio-fs doesn't propagate inotify from host)
+ENV WATCHPACK_POLLING=true
+
 COPY shared/tainer-entrypoint.sh /usr/local/bin/tainer-entrypoint.sh
 COPY shared/start-node.sh /usr/local/bin/start-node.sh
 RUN chmod +x /usr/local/bin/tainer-entrypoint.sh /usr/local/bin/start-node.sh

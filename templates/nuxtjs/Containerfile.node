@@ -9,6 +9,12 @@ COPY shared/sshd_config /etc/ssh/sshd_config
 
 WORKDIR /app
 
+# Pre-install Nuxt so first start doesn't OOM
+RUN yarn global add nuxt@3
+
+# Enable polling for file watcher (virtio-fs doesn't propagate inotify from host)
+ENV CHOKIDAR_USEPOLLING=true
+
 COPY shared/tainer-entrypoint.sh /usr/local/bin/tainer-entrypoint.sh
 COPY shared/start-node.sh /usr/local/bin/start-node.sh
 RUN chmod +x /usr/local/bin/tainer-entrypoint.sh /usr/local/bin/start-node.sh

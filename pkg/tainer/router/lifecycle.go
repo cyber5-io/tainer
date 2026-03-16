@@ -3,6 +3,7 @@ package router
 import (
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -18,10 +19,26 @@ const (
 	DnsmasqContainer   = "tainer-router-dnsmasq"
 )
 
-// IsRouterRunning checks if the router pod exists and is running.
+// IsRouterRunning checks if the router pod is actually running (not just created/exited).
 func IsRouterRunning() bool {
+	cmd := exec.Command("tainer", "pod", "inspect", "--format", "{{.State}}", RouterPodName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(output)) == "Running"
+}
+
+// cleanStaleRouter removes a router pod that exists but isn't running.
+func cleanStaleRouter() {
+	if IsRouterRunning() {
+		return
+	}
+	// If pod exists but isn't running, remove it
 	cmd := exec.Command("tainer", "pod", "exists", RouterPodName)
-	return cmd.Run() == nil
+	if cmd.Run() == nil {
+		exec.Command("tainer", "pod", "rm", "-f", RouterPodName).CombinedOutput()
+	}
 }
 
 // RunningProjectCount returns how many Tainer project pods are currently running.
@@ -57,10 +74,11 @@ func StartRouter() error {
 	if IsRouterRunning() {
 		return nil
 	}
+	cleanStaleRouter()
 
-	// Check port conflicts (SSHPort probes 22→2222; TOCTOU race is inherent to probe-then-bind)
-	sshPort := SSHPort()
-	for _, port := range []int{80, 443, sshPort} {
+	// Check port conflicts using the actual bind port
+	sshBindPort := SSHBindPort()
+	for _, port := range []int{80, 443, sshBindPort} {
 		if conflict := CheckPortConflict(port); conflict != "" {
 			return fmt.Errorf("port %d is already in use: %s", port, conflict)
 		}
@@ -82,11 +100,17 @@ func StartRouter() error {
 		"--network", netName,
 		"-p", "80:80",
 		"-p", "443:443",
-		"-p", fmt.Sprintf("%d:2222", sshPort),
+		"-p", fmt.Sprintf("%d:2222", sshBindPort),
 		"-p", "127.0.0.1:7753:53/udp",
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("creating router pod: %s", string(output))
+	}
+
+	// Ensure the pod's infra container is running before adding containers
+	startPod := exec.Command("tainer", "pod", "start", RouterPodName)
+	if output, err := startPod.CombinedOutput(); err != nil {
+		return fmt.Errorf("starting router pod: %s", string(output))
 	}
 
 	// Start Caddy container
@@ -102,13 +126,14 @@ func StartRouter() error {
 		return fmt.Errorf("starting Caddy: %s", string(output))
 	}
 
-	// Start sshpiper container
+	// Start sshpiper container (workingdir plugin reads sshpiper_upstream files)
 	sshpiperCmd := exec.Command("tainer", "run", "-d",
 		"--pod", RouterPodName,
 		"--name", SSHPiperContainer,
 		"-v", config.SSHPiperDir()+":/var/sshpiper:rw",
+		"-v", config.SSHPiperHostKey()+":/etc/ssh/ssh_host_ed25519_key:ro",
 		"farmer1992/sshpiperd:latest",
-		"/sshpiperd", "daemon", "--workingdir", "/var/sshpiper",
+		"/sshpiperd/plugins/workingdir", "--root", "/var/sshpiper", "--no-check-perm", "--allow-baduser-name",
 	)
 	if output, err := sshpiperCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("starting sshpiper: %s", string(output))
@@ -148,10 +173,10 @@ func routerInfraContainer() (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-// SSHPort returns the SSH port the router is listening on.
-// On macOS, always uses 2222 (privileged ports fail in Podman VM).
-// On Linux, prefers port 22 if available, falls back to 2222.
-func SSHPort() int {
+// SSHBindPort returns the port Podman actually binds on the host.
+// On macOS, always 2222 (gvproxy can't bind privileged ports).
+// On Linux, prefers 22 if available, falls back to 2222.
+func SSHBindPort() int {
 	if runtime.GOOS == "darwin" {
 		return 2222
 	}
@@ -159,6 +184,22 @@ func SSHPort() int {
 		return 22
 	}
 	return 2222
+}
+
+// SSHPort returns the port users should connect to.
+// On macOS with pf redirect (22→2222), returns 22.
+// Otherwise returns the bind port.
+func SSHPort() int {
+	if runtime.GOOS == "darwin" && pfRedirectActive() {
+		return 22
+	}
+	return SSHBindPort()
+}
+
+// pfRedirectActive checks if the pf anchor file for tainer exists.
+func pfRedirectActive() bool {
+	_, err := os.Stat("/etc/pf.anchors/tainer")
+	return err == nil
 }
 
 // ConnectToProjectNetwork connects the router pod to a project's network

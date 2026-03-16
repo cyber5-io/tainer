@@ -86,6 +86,33 @@ func Generate(m *manifest.Manifest, path string) error {
 		)
 	}
 
+	if m.Project.Type == manifest.TypeKompozi {
+		payloadSecret := randomPassword(48)
+		lines = append(lines,
+			"",
+			"# Kompozi / PayloadCMS",
+			fmt.Sprintf("PAYLOAD_SECRET=%s", payloadSecret),
+			"KOMPOZI_ADMIN_EMAIL=tainer@tainer.me",
+			"KOMPOZI_ADMIN_PASSWORD=tainer",
+		)
+		// PayloadCMS reads DATABASE_URI — add as alias of DATABASE_URL
+		if m.HasDatabase() {
+			dbPassword := ""
+			// Re-extract password from existing lines
+			for _, l := range lines {
+				if strings.HasPrefix(l, "DB_PASSWORD=") {
+					dbPassword = strings.TrimPrefix(l, "DB_PASSWORD=")
+					break
+				}
+			}
+			if dbPassword != "" {
+				lines = append(lines,
+					fmt.Sprintf("DATABASE_URI=postgresql://tainer:%s@127.0.0.1:%s/tainer", dbPassword, m.DBPort()),
+				)
+			}
+		}
+	}
+
 	content := strings.Join(lines, "\n") + "\n"
 	return os.WriteFile(path, []byte(content), 0644)
 }
