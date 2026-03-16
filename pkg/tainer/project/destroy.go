@@ -49,7 +49,7 @@ func Destroy(projectDir string, force bool, volumes ...bool) error {
 
 	// 1-2. Stop and remove pod
 	exec.Command("tainer", "pod", "stop", podName).CombinedOutput()
-	exec.Command("tainer", "pod", "rm", "-f", podName).CombinedOutput()
+	exec.Command("tainer", "pod", "rm", "-f", "--volumes", podName).CombinedOutput()
 
 	// 3. Disconnect router (warn on error)
 	if router.IsRouterRunning() {
