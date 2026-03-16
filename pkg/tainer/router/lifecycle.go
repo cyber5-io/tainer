@@ -57,8 +57,9 @@ func StartRouter() error {
 		return nil
 	}
 
-	// Check port conflicts
-	for _, port := range []int{80, 443, 2222} {
+	// Check port conflicts (SSHPort probes 22→2222; TOCTOU race is inherent to probe-then-bind)
+	sshPort := SSHPort()
+	for _, port := range []int{80, 443, sshPort} {
 		if conflict := CheckPortConflict(port); conflict != "" {
 			return fmt.Errorf("port %d is already in use: %s", port, conflict)
 		}
@@ -80,7 +81,7 @@ func StartRouter() error {
 		"--network", netName,
 		"-p", "80:80",
 		"-p", "443:443",
-		"-p", "2222:2222",
+		"-p", fmt.Sprintf("%d:2222", sshPort),
 		"-p", "127.0.0.1:7753:53/udp",
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
