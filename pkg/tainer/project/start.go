@@ -86,7 +86,9 @@ func Start(projectDir string) error {
 	ls.Network.Subnet = subnet
 	ls.Network.Name = netName
 	lsData, _ := yaml.Marshal(ls)
-	os.WriteFile(filepath.Join(projectDir, ".tainer.local.yaml"), lsData, 0644)
+	if err := os.WriteFile(filepath.Join(projectDir, ".tainer.local.yaml"), lsData, 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not write .tainer.local.yaml: %v\n", err)
+	}
 
 	// 8. Create Podman network
 	if err := network.CreateNetwork(netName, subnet); err != nil {
@@ -170,9 +172,14 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 	envFlags := identity.EnvFlags(uid, gid)
 
 	// Inject SSH public key into authorized_keys
-	pubKey, _ := os.ReadFile(config.PublicKey())
+	pubKey, err := os.ReadFile(config.PublicKey())
+	if err != nil {
+		return fmt.Errorf("reading SSH public key %s: %w", config.PublicKey(), err)
+	}
 	authKeysPath := filepath.Join(projectDir, ".tainer-authorized_keys")
-	os.WriteFile(authKeysPath, pubKey, 0644)
+	if err := os.WriteFile(authKeysPath, pubKey, 0600); err != nil {
+		return fmt.Errorf("writing authorized_keys: %w", err)
+	}
 
 	// Build common mount flags
 	appMount := []string{"-v", filepath.Join(projectDir, "app") + ":" + containerAppPath + ":rw"}
