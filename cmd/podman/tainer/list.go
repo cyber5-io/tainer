@@ -69,7 +69,7 @@ func listRun(cmd *cobra.Command, args []string) error {
 }
 
 func getPodStatus(projectName string) string {
-	cmd := exec.Command("podman", "pod", "inspect",
+	cmd := exec.Command("tainer", "pod", "inspect",
 		"--format", "{{.State}}", fmt.Sprintf("tainer-%s", projectName))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
