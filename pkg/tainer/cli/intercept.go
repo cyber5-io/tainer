@@ -121,6 +121,41 @@ func InterceptDestroy(cmd *cobra.Command, args []string) (bool, error) {
 	return false, nil
 }
 
+// InterceptData checks if `tainer data add <path>` or `tainer data del <path>` should be handled.
+func InterceptData(cmd *cobra.Command, args []string) (bool, error) {
+	if len(args) < 2 {
+		return false, nil
+	}
+
+	subCmd := args[0]
+	if subCmd != "add" && subCmd != "del" {
+		return false, nil
+	}
+
+	cwd, err := GetWorkingDir()
+	if err != nil {
+		return true, fmt.Errorf("getting working directory: %w", err)
+	}
+
+	if !manifest.Exists(cwd) {
+		return true, fmt.Errorf("no tainer.yaml found in current directory")
+	}
+
+	path := args[1]
+
+	switch subCmd {
+	case "add":
+		err = project.DataAdd(cwd, path)
+	case "del":
+		err = project.DataDel(cwd, path)
+	}
+
+	if err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
 func interceptProjectCommand(cmd *cobra.Command, args []string, action string) (bool, error) {
 	cwd, err := GetWorkingDir()
 	if err != nil {
