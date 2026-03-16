@@ -23,7 +23,7 @@ fi
 # Generate wp-config.php if empty or missing (writes to data/ via bind mount)
 # Use -s (non-empty) because the wizard creates an empty placeholder file
 if [ ! -s wp-config.php ]; then
-    wp config create \
+    wp config create --force \
         --dbname="$DB_NAME" --dbuser="$DB_USER" \
         --dbpass="$DB_PASSWORD" --dbhost="$DB_HOST"
     wp config set FS_METHOD direct
