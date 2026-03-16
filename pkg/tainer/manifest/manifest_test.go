@@ -178,6 +178,131 @@ func TestSave(t *testing.T) {
 	}
 }
 
+func TestValidateDataMounts_Valid(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `version: 1
+project:
+  name: test
+  type: wordpress
+  domain: test.tainer.me
+runtime:
+  php: "8.4"
+  database: mariadb
+data:
+  mounts:
+    - wp-content/uploads
+    - custom/path
+`
+	path := filepath.Join(dir, "tainer.yaml")
+	os.WriteFile(path, []byte(yaml), 0644)
+	_, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateDataMounts_AbsolutePath(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `version: 1
+project:
+  name: test
+  type: wordpress
+  domain: test.tainer.me
+runtime:
+  php: "8.4"
+  database: mariadb
+data:
+  mounts:
+    - /etc/passwd
+`
+	path := filepath.Join(dir, "tainer.yaml")
+	os.WriteFile(path, []byte(yaml), 0644)
+	_, err := Load(path)
+	if err == nil {
+		t.Error("expected error for absolute path")
+	}
+}
+
+func TestValidateDataMounts_DotDot(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `version: 1
+project:
+  name: test
+  type: wordpress
+  domain: test.tainer.me
+runtime:
+  php: "8.4"
+  database: mariadb
+data:
+  mounts:
+    - ../escape
+`
+	path := filepath.Join(dir, "tainer.yaml")
+	os.WriteFile(path, []byte(yaml), 0644)
+	_, err := Load(path)
+	if err == nil {
+		t.Error("expected error for .. in path")
+	}
+}
+
+func TestValidateDataMounts_Empty(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `version: 1
+project:
+  name: test
+  type: wordpress
+  domain: test.tainer.me
+runtime:
+  php: "8.4"
+  database: mariadb
+data:
+  mounts:
+    - ""
+`
+	path := filepath.Join(dir, "tainer.yaml")
+	os.WriteFile(path, []byte(yaml), 0644)
+	_, err := Load(path)
+	if err == nil {
+		t.Error("expected error for empty mount path")
+	}
+}
+
+func TestDefaultDataMounts(t *testing.T) {
+	wp := &Manifest{Project: ProjectConfig{Type: TypeWordPress}}
+	defaults := wp.DefaultDataMounts()
+	if len(defaults) != 3 {
+		t.Fatalf("expected 3 defaults for WordPress, got %d", len(defaults))
+	}
+
+	node := &Manifest{Project: ProjectConfig{Type: TypeNodeJS}}
+	if len(node.DefaultDataMounts()) != 0 {
+		t.Error("expected no defaults for NodeJS")
+	}
+}
+
+func TestAllDataMounts_MergesDedupe(t *testing.T) {
+	m := &Manifest{
+		Project: ProjectConfig{Type: TypeWordPress},
+		Data:    DataConfig{Mounts: []string{"wp-content/uploads", "custom/path"}},
+	}
+	all := m.AllDataMounts()
+	// Should have 3 defaults + 1 custom (uploads is deduped)
+	if len(all) != 4 {
+		t.Fatalf("expected 4 mounts, got %d: %v", len(all), all)
+	}
+}
+
+func TestContainerAppPath(t *testing.T) {
+	wp := &Manifest{Project: ProjectConfig{Type: TypeWordPress}}
+	if wp.ContainerAppPath() != "/var/www/html" {
+		t.Errorf("expected /var/www/html, got %s", wp.ContainerAppPath())
+	}
+	node := &Manifest{Project: ProjectConfig{Type: TypeNodeJS}}
+	if node.ContainerAppPath() != "/app" {
+		t.Errorf("expected /app, got %s", node.ContainerAppPath())
+	}
+}
+
 func TestHelperMethods(t *testing.T) {
 	wp := &Manifest{Project: ProjectConfig{Type: TypeWordPress}, Runtime: RuntimeConfig{PHP: "8.4", Database: DatabaseMariaDB}}
 	if !wp.IsPHP() {

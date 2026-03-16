@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/containers/podman/v6/pkg/tainer/validate"
 	"gopkg.in/yaml.v3"
@@ -28,10 +29,15 @@ const (
 	DatabaseNone     DatabaseType = "none"
 )
 
+type DataConfig struct {
+	Mounts []string `yaml:"mounts,omitempty"`
+}
+
 type Manifest struct {
 	Version int           `yaml:"version"`
 	Project ProjectConfig `yaml:"project"`
 	Runtime RuntimeConfig `yaml:"runtime"`
+	Data    DataConfig    `yaml:"data,omitempty"`
 }
 
 type ProjectConfig struct {
@@ -70,6 +76,41 @@ func (m *Manifest) DBPort() string {
 		return "5432"
 	}
 	return "3306"
+}
+
+func (m *Manifest) DefaultDataMounts() []string {
+	switch m.Project.Type {
+	case TypeWordPress:
+		return []string{"wp-content/uploads", "wp-content/plugins", "wp-content/themes"}
+	default:
+		return nil
+	}
+}
+
+func (m *Manifest) AllDataMounts() []string {
+	defaults := m.DefaultDataMounts()
+	seen := make(map[string]bool, len(defaults)+len(m.Data.Mounts))
+	var result []string
+	for _, d := range defaults {
+		if !seen[d] {
+			seen[d] = true
+			result = append(result, d)
+		}
+	}
+	for _, u := range m.Data.Mounts {
+		if !seen[u] {
+			seen[u] = true
+			result = append(result, u)
+		}
+	}
+	return result
+}
+
+func (m *Manifest) ContainerAppPath() string {
+	if m.IsNode() {
+		return "/app"
+	}
+	return "/var/www/html"
 }
 
 func Exists(dir string) bool {
@@ -126,6 +167,19 @@ func (m *Manifest) validate() error {
 	}
 	if m.IsNode() && m.Runtime.Node == "" {
 		return fmt.Errorf("node version required for %s projects", m.Project.Type)
+	}
+	for _, mount := range m.Data.Mounts {
+		if mount == "" {
+			return fmt.Errorf("data mount path cannot be empty")
+		}
+		if strings.HasPrefix(mount, "/") {
+			return fmt.Errorf("data mount path must be relative: %q", mount)
+		}
+		for _, seg := range strings.Split(mount, "/") {
+			if seg == ".." {
+				return fmt.Errorf("data mount path must not contain '..' segments: %q", mount)
+			}
+		}
 	}
 	return nil
 }
