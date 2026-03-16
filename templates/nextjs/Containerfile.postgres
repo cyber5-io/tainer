@@ -1,0 +1,7 @@
+FROM postgres:16-alpine
+
+COPY shared/tainer-db-entrypoint.sh /usr/local/bin/tainer-db-entrypoint.sh
+RUN chmod +x /usr/local/bin/tainer-db-entrypoint.sh
+
+ENTRYPOINT ["tainer-db-entrypoint.sh"]
+CMD ["postgres"]

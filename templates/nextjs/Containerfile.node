@@ -1,0 +1,17 @@
+# Build with: podman build -f Containerfile.node -t <tag> templates/
+ARG NODE_VERSION=22
+FROM node:${NODE_VERSION}-alpine
+
+RUN apk add --no-cache su-exec openssh-server postgresql-client mariadb-client bash curl
+
+RUN ssh-keygen -A
+COPY shared/sshd_config /etc/ssh/sshd_config
+
+WORKDIR /app
+
+COPY shared/tainer-entrypoint.sh /usr/local/bin/tainer-entrypoint.sh
+COPY shared/start-node.sh /usr/local/bin/start-node.sh
+RUN chmod +x /usr/local/bin/tainer-entrypoint.sh /usr/local/bin/start-node.sh
+
+ENTRYPOINT ["tainer-entrypoint.sh"]
+CMD ["start-node.sh"]

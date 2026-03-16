@@ -23,6 +23,8 @@ var (
 		{manifest.TypeWordPress, "WordPress"},
 		{manifest.TypePHP, "PHP"},
 		{manifest.TypeNodeJS, "Node.js"},
+		{manifest.TypeNextJS, "Next.js"},
+		{manifest.TypeNuxtJS, "Nuxt.js"},
 		{manifest.TypeKompozi, "Kompozi"},
 	}
 )

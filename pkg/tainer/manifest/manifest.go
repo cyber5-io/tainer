@@ -18,6 +18,8 @@ const (
 	TypeWordPress ProjectType = "wordpress"
 	TypePHP       ProjectType = "php"
 	TypeNodeJS    ProjectType = "nodejs"
+	TypeNextJS    ProjectType = "nextjs"
+	TypeNuxtJS    ProjectType = "nuxtjs"
 	TypeKompozi   ProjectType = "kompozi"
 )
 
@@ -57,7 +59,8 @@ func (m *Manifest) IsPHP() bool {
 }
 
 func (m *Manifest) IsNode() bool {
-	return m.Project.Type == TypeNodeJS || m.Project.Type == TypeKompozi
+	return m.Project.Type == TypeNodeJS || m.Project.Type == TypeNextJS ||
+		m.Project.Type == TypeNuxtJS || m.Project.Type == TypeKompozi
 }
 
 func (m *Manifest) RuntimeVersion() string {
@@ -153,7 +156,7 @@ func (m *Manifest) validate() error {
 		return fmt.Errorf("invalid project name: %w", err)
 	}
 	switch m.Project.Type {
-	case TypeWordPress, TypePHP, TypeNodeJS, TypeKompozi:
+	case TypeWordPress, TypePHP, TypeNodeJS, TypeNextJS, TypeNuxtJS, TypeKompozi:
 	default:
 		return fmt.Errorf("invalid project type: %q (expected wordpress, php, nodejs, or kompozi)", m.Project.Type)
 	}

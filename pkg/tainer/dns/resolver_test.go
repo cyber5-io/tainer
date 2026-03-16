@@ -13,8 +13,8 @@ func TestResolverConfig_macOS(t *testing.T) {
 	if path != "/etc/resolver/tainer.me" {
 		t.Errorf("path = %q, want /etc/resolver/tainer.me", path)
 	}
-	if content != "nameserver 127.0.0.1\n" {
-		t.Errorf("content = %q, want nameserver line", content)
+	if content != "nameserver 127.0.0.1\nport 7753\n" {
+		t.Errorf("content = %q, want nameserver + port lines", content)
 	}
 }
 
