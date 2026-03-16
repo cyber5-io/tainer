@@ -127,6 +127,12 @@ func Run(cwd string) error {
 	}
 	fmt.Printf("\nCreated %s\n", manifest.FileName)
 
+	// Create project directories
+	if err := createProjectDirs(cwd, m); err != nil {
+		return err
+	}
+	fmt.Println("Created app/ and data/ directories")
+
 	// Generate .env
 	envPath := filepath.Join(cwd, ".env")
 	if err := env.Generate(m, envPath); err != nil {
@@ -140,6 +146,46 @@ func Run(cwd string) error {
 	}
 	fmt.Println("Project registered")
 	fmt.Println("\nRun 'tainer start' to launch.")
+
+	return nil
+}
+
+func createProjectDirs(cwd string, m *manifest.Manifest) error {
+	// Create app/ (disposable runtime)
+	appDir := filepath.Join(cwd, "app")
+	if err := os.MkdirAll(appDir, 0755); err != nil {
+		return fmt.Errorf("creating app directory: %w", err)
+	}
+
+	// Create data/ (persistent work)
+	dataDir := filepath.Join(cwd, "data")
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		return fmt.Errorf("creating data directory: %w", err)
+	}
+
+	// Create data/db/ if database selected
+	if m.HasDatabase() {
+		if err := os.MkdirAll(filepath.Join(dataDir, "db"), 0755); err != nil {
+			return fmt.Errorf("creating data/db directory: %w", err)
+		}
+	}
+
+	// Create directories for default data mounts
+	for _, mount := range m.DefaultDataMounts() {
+		if err := os.MkdirAll(filepath.Join(dataDir, mount), 0755); err != nil {
+			return fmt.Errorf("creating data/%s directory: %w", mount, err)
+		}
+	}
+
+	// Create wp-config.php placeholder for WordPress (needed for single-file bind mount)
+	if m.Project.Type == manifest.TypeWordPress {
+		wpConfigPath := filepath.Join(dataDir, "wp-config.php")
+		if _, err := os.Stat(wpConfigPath); os.IsNotExist(err) {
+			if err := os.WriteFile(wpConfigPath, []byte(""), 0644); err != nil {
+				return fmt.Errorf("creating wp-config.php placeholder: %w", err)
+			}
+		}
+	}
 
 	return nil
 }
