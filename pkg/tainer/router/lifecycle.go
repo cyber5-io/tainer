@@ -146,6 +146,15 @@ func routerInfraContainer() (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
+// SSHPort returns the SSH port the router is listening on.
+// Prefers port 22 if available, falls back to 2222.
+func SSHPort() int {
+	if CheckPortConflict(22) == "" {
+		return 22
+	}
+	return 2222
+}
+
 // ConnectToProjectNetwork connects the router pod to a project's network
 // so Caddy and sshpiper can reach the project pod.
 func ConnectToProjectNetwork(projectNetworkName string) error {

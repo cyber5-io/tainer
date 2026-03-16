@@ -5,11 +5,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/containers/podman/v6/pkg/tainer/config"
 	"github.com/containers/podman/v6/pkg/tainer/dns"
+	"github.com/containers/podman/v6/pkg/tainer/identity"
 	"github.com/containers/podman/v6/pkg/tainer/manifest"
 	"github.com/containers/podman/v6/pkg/tainer/network"
 	projRegistry "github.com/containers/podman/v6/pkg/tainer/registry"
@@ -33,6 +33,12 @@ func Start(projectDir string) error {
 	m, err := manifest.LoadFromDir(projectDir)
 	if err != nil {
 		return err
+	}
+
+	// 1b. Detect uid/gid for container injection
+	uid, gid, err := identity.Detect(projectDir)
+	if err != nil {
+		return fmt.Errorf("detecting uid/gid: %w", err)
 	}
 
 	// 2. Ensure config dirs exist
@@ -99,7 +105,7 @@ func Start(projectDir string) error {
 		fmt.Printf("%s is already running\n", m.Project.Name)
 		return nil
 	}
-	if err := createProjectPod(m, podName, netName, projectDir); err != nil {
+	if err := createProjectPod(m, podName, netName, projectDir, uid, gid); err != nil {
 		return err
 	}
 
@@ -125,25 +131,27 @@ func Start(projectDir string) error {
 	projectIP := getProjectIP(podName)
 	router.AddSSHPiperEntry(config.SSHPiperDir(), m.Project.Name, projectIP, config.PrivateKey())
 
-	// 14. Run post-deploy if first start
-	if isFirstStart(m, podName) {
-		fmt.Println("Running first-start setup...")
-		if err := runPostDeploy(m, podName); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: post-deploy failed: %v\n", err)
-			fmt.Println("Pod is still running — SSH in to debug.")
-		}
-		markInitialized(m, podName)
+	// 14. Run post-deploy (idempotent)
+	fmt.Println("Running post-deploy checks...")
+	if err := runPostDeploy(m, podName); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: post-deploy failed: %v\n", err)
+		fmt.Println("Pod is still running — SSH in to debug.")
 	}
 
 	// 15. Output
+	sshPort := router.SSHPort()
+	portFlag := ""
+	if sshPort != 22 {
+		portFlag = fmt.Sprintf(" -p %d", sshPort)
+	}
 	fmt.Printf("\n%s started\n", m.Project.Name)
 	fmt.Printf("  https://%s\n", m.Project.Domain)
-	fmt.Printf("  ssh -p 2222 %s@localhost\n", m.Project.Name)
+	fmt.Printf("  ssh%s %s@%s\n", portFlag, m.Project.Name, m.Project.Domain)
 
 	return nil
 }
 
-func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string) error {
+func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string, uid, gid uint32) error {
 	prefix := fmt.Sprintf("tainer-%s", m.Project.Name)
 
 	// Create pod
@@ -158,61 +166,57 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string)
 		}
 	}
 
-	// Determine mount paths
-	containerPath := "/var/www/html"
-	if m.IsNode() {
-		containerPath = "/app"
-	}
-
-	// UID mapping flag for Linux
-	var usernsFlag []string
-	if runtime.GOOS == "linux" {
-		usernsFlag = []string{"--userns=keep-id"}
-	}
+	containerAppPath := m.ContainerAppPath()
+	envFlags := identity.EnvFlags(uid, gid)
 
 	// Inject SSH public key into authorized_keys
 	pubKey, _ := os.ReadFile(config.PublicKey())
 	authKeysPath := filepath.Join(projectDir, ".tainer-authorized_keys")
 	os.WriteFile(authKeysPath, pubKey, 0644)
 
-	// Data volume for persistent project data
-	dataVolume := fmt.Sprintf("tainer-%s-data", m.Project.Name)
+	// Build common mount flags
+	appMount := []string{"-v", filepath.Join(projectDir, "app") + ":" + containerAppPath + ":rw"}
+	dataMounts := buildDataMountFlags(m, projectDir)
+	authKeyMount := []string{"-v", authKeysPath + ":/home/tainer/.ssh/authorized_keys:ro"}
+	envFile := []string{"--env-file", filepath.Join(projectDir, ".env")}
 
-	// Start main container
+	// wp-config.php mount (WordPress only)
+	var wpConfigMount []string
+	if m.Project.Type == manifest.TypeWordPress {
+		wpConfigMount = wpConfigMountFlag(projectDir)
+	}
+
+	// Start main container (caddy for PHP, node for Node.js)
 	if m.IsPHP() {
-		dataMount := "/var/www/html/wp-content/uploads"
-		if m.Project.Type == manifest.TypePHP {
-			dataMount = "/var/www/html/data"
-		}
-		mainArgs := append([]string{"run", "-d", "--pod", podName,
-			"--name", prefix + "-caddy-ct",
-			"-v", projectDir + ":" + containerPath + ":rw",
-			"-v", dataVolume + ":" + dataMount,
-			"-v", authKeysPath + ":/root/.ssh/authorized_keys:ro",
-			"--env-file", filepath.Join(projectDir, ".env"),
-		}, usernsFlag...)
+		mainArgs := []string{"run", "-d", "--pod", podName, "--name", prefix + "-caddy-ct"}
+		mainArgs = append(mainArgs, appMount...)
+		mainArgs = append(mainArgs, dataMounts...)
+		mainArgs = append(mainArgs, wpConfigMount...)
+		mainArgs = append(mainArgs, authKeyMount...)
+		mainArgs = append(mainArgs, envFile...)
+		mainArgs = append(mainArgs, envFlags...)
 		mainArgs = append(mainArgs, prefix+"-caddy")
 		if output, err := exec.Command("tainer", mainArgs...).CombinedOutput(); err != nil {
 			return fmt.Errorf("starting main container: %s", string(output))
 		}
 
-		// PHP-FPM container
-		fpmArgs := append([]string{"run", "-d", "--pod", podName,
-			"--name", prefix + "-phpfpm-ct",
-			"-v", projectDir + ":" + containerPath + ":rw",
-		}, usernsFlag...)
+		// PHP-FPM container (needs app + data mounts but not SSH/env-file)
+		fpmArgs := []string{"run", "-d", "--pod", podName, "--name", prefix + "-phpfpm-ct"}
+		fpmArgs = append(fpmArgs, appMount...)
+		fpmArgs = append(fpmArgs, dataMounts...)
+		fpmArgs = append(fpmArgs, wpConfigMount...)
+		fpmArgs = append(fpmArgs, envFlags...)
 		fpmArgs = append(fpmArgs, prefix+"-phpfpm")
 		if output, err := exec.Command("tainer", fpmArgs...).CombinedOutput(); err != nil {
 			return fmt.Errorf("starting PHP-FPM: %s", string(output))
 		}
 	} else {
-		mainArgs := append([]string{"run", "-d", "--pod", podName,
-			"--name", prefix + "-node-ct",
-			"-v", projectDir + ":" + containerPath + ":rw",
-			"-v", dataVolume + ":/app/data",
-			"-v", authKeysPath + ":/root/.ssh/authorized_keys:ro",
-			"--env-file", filepath.Join(projectDir, ".env"),
-		}, usernsFlag...)
+		mainArgs := []string{"run", "-d", "--pod", podName, "--name", prefix + "-node-ct"}
+		mainArgs = append(mainArgs, appMount...)
+		mainArgs = append(mainArgs, dataMounts...)
+		mainArgs = append(mainArgs, authKeyMount...)
+		mainArgs = append(mainArgs, envFile...)
+		mainArgs = append(mainArgs, envFlags...)
 		mainArgs = append(mainArgs, prefix+"-node")
 		if output, err := exec.Command("tainer", mainArgs...).CombinedOutput(); err != nil {
 			return fmt.Errorf("starting Node container: %s", string(output))
@@ -225,18 +229,52 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string)
 		if m.Runtime.Database == manifest.DatabasePostgres {
 			dbMount = "/var/lib/postgresql/data"
 		}
-		dbVolume := fmt.Sprintf("tainer-%s-db", m.Project.Name)
-		dbArgs := []string{"run", "-d", "--pod", podName,
-			"--name", prefix + "-db-ct",
-			"-v", dbVolume + ":" + dbMount,
+		dbDataDir := filepath.Join(projectDir, "data", "db")
+		dbArgs := []string{"run", "-d", "--pod", podName, "--name", prefix + "-db-ct",
+			"-v", dbDataDir + ":" + dbMount + ":rw",
 			"--env-file", filepath.Join(projectDir, ".env"),
-			prefix + "-db",
 		}
+		dbArgs = append(dbArgs, envFlags...)
+		dbArgs = append(dbArgs, prefix+"-db")
 		if output, err := exec.Command("tainer", dbArgs...).CombinedOutput(); err != nil {
 			return fmt.Errorf("starting database: %s", string(output))
 		}
 	}
 
+	return nil
+}
+
+func buildDataMountFlags(m *manifest.Manifest, projectDir string) []string {
+	dataDir := filepath.Join(projectDir, "data")
+	containerAppPath := m.ContainerAppPath()
+	var flags []string
+	for _, mount := range m.AllDataMounts() {
+		hostPath := filepath.Join(dataDir, mount)
+		containerPath := containerAppPath + "/" + mount
+		flags = append(flags, "-v", hostPath+":"+containerPath+":rw")
+	}
+	return flags
+}
+
+func wpConfigMountFlag(projectDir string) []string {
+	dataConfig := filepath.Join(projectDir, "data", "wp-config.php")
+	appConfig := filepath.Join(projectDir, "app", "wp-config.php")
+
+	if _, err := os.Stat(dataConfig); err == nil {
+		return []string{"-v", dataConfig + ":/var/www/html/wp-config.php:rw"}
+	}
+	if _, err := os.Stat(appConfig); err == nil {
+		data, err := os.ReadFile(appConfig)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not read %s: %v\n", appConfig, err)
+			return nil
+		}
+		if err := os.WriteFile(dataConfig, data, 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not write %s: %v\n", dataConfig, err)
+			return nil
+		}
+		return []string{"-v", dataConfig + ":/var/www/html/wp-config.php:rw"}
+	}
 	return nil
 }
 
@@ -295,20 +333,6 @@ func getProjectIP(podName string) string {
 	return strings.TrimSpace(string(output))
 }
 
-func isFirstStart(m *manifest.Manifest, podName string) bool {
-	ct := mainContainerName(m, podName)
-	markerPath := markerFilePath(m)
-	checkCmd := exec.Command("tainer", "exec", ct, "test", "-f", markerPath)
-	return checkCmd.Run() != nil
-}
-
-func markerFilePath(m *manifest.Manifest) string {
-	if m.IsPHP() {
-		return "/var/www/html/.tainer-initialized"
-	}
-	return "/app/data/.tainer-initialized"
-}
-
 func runPostDeploy(m *manifest.Manifest, podName string) error {
 	tmplDir := filepath.Join(config.TemplatesDir(), string(m.Project.Type))
 	script := filepath.Join(tmplDir, "post-deploy.sh")
@@ -328,11 +352,4 @@ func runPostDeploy(m *manifest.Manifest, podName string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
-}
-
-func markInitialized(m *manifest.Manifest, podName string) {
-	ct := mainContainerName(m, podName)
-	markerPath := markerFilePath(m)
-	exec.Command("tainer", "exec", ct, "mkdir", "-p", filepath.Dir(markerPath)).Run()
-	exec.Command("tainer", "exec", ct, "touch", markerPath).Run()
 }
