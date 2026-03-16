@@ -2,12 +2,12 @@
 set -e
 cd /var/www/html
 
-# Set PHP memory limit for WP-CLI (default 128M is too low for extraction)
-export PHP_MEMORY_LIMIT=512M
-echo "memory_limit=$PHP_MEMORY_LIMIT" > /usr/local/etc/php/conf.d/tainer-memory.ini 2>/dev/null || true
-
 # WP-CLI wrapper: runs as tainer user with sufficient memory
 wp() { su-exec tainer php -d memory_limit=512M /usr/local/bin/wp "$@"; }
+
+# Fix ownership on mount-point directories created by Podman as root
+chown tainer /var/www/html
+[ -d wp-content ] && chown -R tainer wp-content
 
 # Download WordPress if not present
 if [ ! -f wp-load.php ]; then
@@ -18,13 +18,11 @@ if [ ! -f wp-load.php ]; then
         # Version swap — core only, preserve existing themes/plugins
         wp core download --skip-content
     fi
-    # Clean up app/wp-content leftovers (non-mounted files like index.php)
-    rm -f wp-content/index.php 2>/dev/null
-    rmdir wp-content 2>/dev/null || true
 fi
 
-# Generate wp-config.php if not present (writes to data/ via bind mount)
-if [ ! -f wp-config.php ]; then
+# Generate wp-config.php if empty or missing (writes to data/ via bind mount)
+# Use -s (non-empty) because the wizard creates an empty placeholder file
+if [ ! -s wp-config.php ]; then
     wp config create \
         --dbname="$DB_NAME" --dbuser="$DB_USER" \
         --dbpass="$DB_PASSWORD" --dbhost="$DB_HOST"
