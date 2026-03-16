@@ -6,17 +6,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var dataCmd = &cobra.Command{
-	Use:   "data <add|del> <path>",
-	Short: "Manage persistent data mounts for a Tainer project",
+var mountCmd = &cobra.Command{
+	Use:   "mount <add|del> <name>",
+	Short: "Manage custom mounts for a Tainer project",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		_, err := tainerCli.InterceptData(cmd, args)
+		_, err := tainerCli.InterceptMount(cmd, args)
 		return err
 	},
 }
 
 func init() {
 	registry.Commands = append(registry.Commands, registry.CliCommand{
-		Command: dataCmd,
+		Command: mountCmd,
 	})
 }

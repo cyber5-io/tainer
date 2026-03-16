@@ -184,10 +184,12 @@ func createProjectDirs(cwd string, m *manifest.Manifest) error {
 		}
 	}
 
-	// Create directories for default data mounts
-	for _, mount := range m.DefaultDataMounts() {
-		if err := os.MkdirAll(filepath.Join(dataDir, mount), 0755); err != nil {
-			return fmt.Errorf("creating data/%s directory: %w", mount, err)
+	// Create wp-content subdirs for WordPress (used by post-deploy symlinks)
+	if m.Project.Type == manifest.TypeWordPress {
+		for _, sub := range []string{"wp-content/uploads", "wp-content/plugins", "wp-content/themes"} {
+			if err := os.MkdirAll(filepath.Join(dataDir, sub), 0755); err != nil {
+				return fmt.Errorf("creating data/%s directory: %w", sub, err)
+			}
 		}
 	}
 

@@ -189,11 +189,11 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 
 	// Build common mount flags
 	appMount := []string{"-v", filepath.Join(projectDir, "app") + ":" + containerAppPath + ":rw"}
-	var dataMounts []string
-	for _, mp := range m.AllDataMounts() {
-		hostPath := filepath.Join(projectDir, "data", mp)
-		containerPath := containerAppPath + "/" + mp
-		dataMounts = append(dataMounts, "-v", hostPath+":"+containerPath+":rw")
+	mountBase := m.ContainerMountBase()
+	dataMount := []string{"-v", filepath.Join(projectDir, "data") + ":" + mountBase + "/data:rw"}
+	// Custom mounts (from tainer mount add)
+	for _, name := range m.Mounts {
+		dataMount = append(dataMount, "-v", filepath.Join(projectDir, name)+":"+mountBase+"/"+name+":rw")
 	}
 	authKeyMount := []string{"-v", authKeysPath + ":/home/tainer/.ssh/authorized_keys:ro"}
 	certMount := []string{
@@ -206,7 +206,7 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 	if m.IsPHP() {
 		mainArgs := []string{"run", "-d", "--pod", podName, "--name", prefix + "-caddy-ct"}
 		mainArgs = append(mainArgs, appMount...)
-		mainArgs = append(mainArgs, dataMounts...)
+		mainArgs = append(mainArgs, dataMount...)
 		mainArgs = append(mainArgs, authKeyMount...)
 		mainArgs = append(mainArgs, certMount...)
 		mainArgs = append(mainArgs, envFile...)
@@ -220,7 +220,7 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 		phpLimitsFlags := m.Runtime.Limits.EnvFlags()
 		fpmArgs := []string{"run", "-d", "--pod", podName, "--name", prefix + "-phpfpm-ct"}
 		fpmArgs = append(fpmArgs, appMount...)
-		fpmArgs = append(fpmArgs, dataMounts...)
+		fpmArgs = append(fpmArgs, dataMount...)
 		fpmArgs = append(fpmArgs, envFlags...)
 		fpmArgs = append(fpmArgs, phpLimitsFlags...)
 		fpmArgs = append(fpmArgs, prefix+"-phpfpm")
@@ -230,7 +230,7 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 	} else {
 		mainArgs := []string{"run", "-d", "--pod", podName, "--name", prefix + "-node-ct"}
 		mainArgs = append(mainArgs, appMount...)
-		mainArgs = append(mainArgs, dataMounts...)
+		mainArgs = append(mainArgs, dataMount...)
 		mainArgs = append(mainArgs, authKeyMount...)
 		mainArgs = append(mainArgs, envFile...)
 		mainArgs = append(mainArgs, envFlags...)

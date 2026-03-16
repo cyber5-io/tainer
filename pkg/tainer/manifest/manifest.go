@@ -31,15 +31,11 @@ const (
 	DatabaseNone     DatabaseType = "none"
 )
 
-type DataConfig struct {
-	Mounts []string `yaml:"mounts,omitempty"`
-}
-
 type Manifest struct {
 	Version int           `yaml:"version"`
 	Project ProjectConfig `yaml:"project"`
 	Runtime RuntimeConfig `yaml:"runtime"`
-	Data    DataConfig    `yaml:"data,omitempty"`
+	Mounts  []string      `yaml:"mounts,omitempty"`
 }
 
 type ProjectConfig struct {
@@ -129,32 +125,13 @@ func (m *Manifest) DBPort() string {
 	return "3306"
 }
 
-func (m *Manifest) DefaultDataMounts() []string {
-	switch m.Project.Type {
-	case TypeWordPress:
-		return []string{"wp-content/uploads", "wp-content/plugins", "wp-content/themes"}
-	default:
-		return nil
+// ContainerMountBase returns the base path for top-level mounts in the container.
+// PHP: /var/www, Node.js: /
+func (m *Manifest) ContainerMountBase() string {
+	if m.IsPHP() {
+		return "/var/www"
 	}
-}
-
-func (m *Manifest) AllDataMounts() []string {
-	defaults := m.DefaultDataMounts()
-	seen := make(map[string]bool, len(defaults)+len(m.Data.Mounts))
-	var result []string
-	for _, d := range defaults {
-		if !seen[d] {
-			seen[d] = true
-			result = append(result, d)
-		}
-	}
-	for _, u := range m.Data.Mounts {
-		if !seen[u] {
-			seen[u] = true
-			result = append(result, u)
-		}
-	}
-	return result
+	return "/"
 }
 
 func (m *Manifest) ContainerAppPath() string {
@@ -219,17 +196,16 @@ func (m *Manifest) validate() error {
 	if m.IsNode() && m.Runtime.Node == "" {
 		return fmt.Errorf("node version required for %s projects", m.Project.Type)
 	}
-	for _, mount := range m.Data.Mounts {
+	reserved := map[string]bool{"app": true, "data": true, "db": true}
+	for _, mount := range m.Mounts {
 		if mount == "" {
-			return fmt.Errorf("data mount path cannot be empty")
+			return fmt.Errorf("mount name cannot be empty")
 		}
-		if strings.HasPrefix(mount, "/") {
-			return fmt.Errorf("data mount path must be relative: %q", mount)
+		if strings.Contains(mount, "/") || strings.Contains(mount, "..") {
+			return fmt.Errorf("mount name must be a simple directory name: %q", mount)
 		}
-		for _, seg := range strings.Split(mount, "/") {
-			if seg == ".." {
-				return fmt.Errorf("data mount path must not contain '..' segments: %q", mount)
-			}
+		if reserved[mount] {
+			return fmt.Errorf("mount name %q is reserved", mount)
 		}
 	}
 	return nil

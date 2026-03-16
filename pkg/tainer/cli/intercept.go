@@ -127,19 +127,19 @@ func InterceptDestroy(cmd *cobra.Command, args []string) (bool, error) {
 	return false, nil
 }
 
-// InterceptData checks if `tainer data add <path>` or `tainer data del <path>` should be handled.
-func InterceptData(cmd *cobra.Command, args []string) (bool, error) {
+// InterceptMount checks if `tainer mount add <name>` or `tainer mount del <name>` should be handled.
+func InterceptMount(cmd *cobra.Command, args []string) (bool, error) {
 	if len(args) == 0 {
-		return true, fmt.Errorf("usage: tainer data <add|del> <path>\n\nManage persistent data mounts for a Tainer project.\n\nSubcommands:\n  add <path>   Add a custom data mount\n  del <path>   Remove a custom data mount")
+		return true, fmt.Errorf("usage: tainer mount <add|del> <name>\n\nManage custom mounts for a Tainer project.\n\nSubcommands:\n  add <name>   Add a custom mount\n  del <name>   Remove a custom mount")
 	}
 
 	subCmd := args[0]
 	if subCmd != "add" && subCmd != "del" {
-		return true, fmt.Errorf("unknown subcommand %q\nUsage: tainer data <add|del> <path>", subCmd)
+		return true, fmt.Errorf("unknown subcommand %q\nUsage: tainer mount <add|del> <name>", subCmd)
 	}
 
 	if len(args) < 2 {
-		return true, fmt.Errorf("missing path argument\nUsage: tainer data %s <path>", subCmd)
+		return true, fmt.Errorf("missing name argument\nUsage: tainer mount %s <name>", subCmd)
 	}
 
 	cwd, err := GetWorkingDir()
@@ -151,13 +151,13 @@ func InterceptData(cmd *cobra.Command, args []string) (bool, error) {
 		return true, fmt.Errorf("no tainer.yaml found in current directory")
 	}
 
-	path := args[1]
+	name := args[1]
 
 	switch subCmd {
 	case "add":
-		err = project.DataAdd(cwd, path)
+		err = project.MountAdd(cwd, name)
 	case "del":
-		err = project.DataDel(cwd, path)
+		err = project.MountDel(cwd, name)
 	}
 
 	if err != nil {

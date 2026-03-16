@@ -47,9 +47,10 @@ func Destroy(projectDir string, force bool, volumes ...bool) error {
 	podName := fmt.Sprintf("tainer-%s", m.Project.Name)
 	netName := network.NetworkName(m.Project.Name)
 
-	// 1-2. Stop and remove pod
+	// 1-2. Stop and remove pod (then prune anonymous volumes)
 	exec.Command("tainer", "pod", "stop", podName).CombinedOutput()
-	exec.Command("tainer", "pod", "rm", "-f", "--volumes", podName).CombinedOutput()
+	exec.Command("tainer", "pod", "rm", "-f", podName).CombinedOutput()
+	exec.Command("tainer", "volume", "prune", "-f").CombinedOutput()
 
 	// 3. Disconnect router (warn on error)
 	if router.IsRouterRunning() {

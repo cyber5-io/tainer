@@ -1,6 +1,7 @@
 package manifest
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -178,7 +179,7 @@ func TestSave(t *testing.T) {
 	}
 }
 
-func TestValidateDataMounts_Valid(t *testing.T) {
+func TestValidateMounts_Valid(t *testing.T) {
 	dir := t.TempDir()
 	yaml := `version: 1
 project:
@@ -188,10 +189,9 @@ project:
 runtime:
   php: "8.4"
   database: mariadb
-data:
-  mounts:
-    - wp-content/uploads
-    - custom/path
+mounts:
+  - media
+  - uploads
 `
 	path := filepath.Join(dir, "tainer.yaml")
 	os.WriteFile(path, []byte(yaml), 0644)
@@ -201,7 +201,7 @@ data:
 	}
 }
 
-func TestValidateDataMounts_AbsolutePath(t *testing.T) {
+func TestValidateMounts_Slash(t *testing.T) {
 	dir := t.TempDir()
 	yaml := `version: 1
 project:
@@ -211,21 +211,21 @@ project:
 runtime:
   php: "8.4"
   database: mariadb
-data:
-  mounts:
-    - /etc/passwd
+mounts:
+  - some/path
 `
 	path := filepath.Join(dir, "tainer.yaml")
 	os.WriteFile(path, []byte(yaml), 0644)
 	_, err := Load(path)
 	if err == nil {
-		t.Error("expected error for absolute path")
+		t.Error("expected error for path with slash")
 	}
 }
 
-func TestValidateDataMounts_DotDot(t *testing.T) {
-	dir := t.TempDir()
-	yaml := `version: 1
+func TestValidateMounts_Reserved(t *testing.T) {
+	for _, name := range []string{"app", "data", "db"} {
+		dir := t.TempDir()
+		yaml := fmt.Sprintf(`version: 1
 project:
   name: test
   type: wordpress
@@ -233,68 +233,48 @@ project:
 runtime:
   php: "8.4"
   database: mariadb
-data:
-  mounts:
-    - ../escape
-`
-	path := filepath.Join(dir, "tainer.yaml")
-	os.WriteFile(path, []byte(yaml), 0644)
-	_, err := Load(path)
-	if err == nil {
-		t.Error("expected error for .. in path")
-	}
-}
-
-func TestValidateDataMounts_Empty(t *testing.T) {
-	dir := t.TempDir()
-	yaml := `version: 1
-project:
-  name: test
-  type: wordpress
-  domain: test.tainer.me
-runtime:
-  php: "8.4"
-  database: mariadb
-data:
-  mounts:
-    - ""
-`
-	path := filepath.Join(dir, "tainer.yaml")
-	os.WriteFile(path, []byte(yaml), 0644)
-	_, err := Load(path)
-	if err == nil {
-		t.Error("expected error for empty mount path")
-	}
-}
-
-func TestDefaultDataMounts(t *testing.T) {
-	wp := &Manifest{Project: ProjectConfig{Type: TypeWordPress}}
-	defaults := wp.DefaultDataMounts()
-	if len(defaults) != 3 {
-		t.Fatalf("expected 3 defaults for WordPress, got %d: %v", len(defaults), defaults)
-	}
-	expected := []string{"wp-content/uploads", "wp-content/plugins", "wp-content/themes"}
-	for i, e := range expected {
-		if defaults[i] != e {
-			t.Errorf("defaults[%d] = %q, want %q", i, defaults[i], e)
+mounts:
+  - %s
+`, name)
+		path := filepath.Join(dir, "tainer.yaml")
+		os.WriteFile(path, []byte(yaml), 0644)
+		_, err := Load(path)
+		if err == nil {
+			t.Errorf("expected error for reserved mount name %q", name)
 		}
+	}
+}
+
+func TestValidateMounts_Empty(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `version: 1
+project:
+  name: test
+  type: wordpress
+  domain: test.tainer.me
+runtime:
+  php: "8.4"
+  database: mariadb
+mounts:
+  - ""
+`
+	path := filepath.Join(dir, "tainer.yaml")
+	os.WriteFile(path, []byte(yaml), 0644)
+	_, err := Load(path)
+	if err == nil {
+		t.Error("expected error for empty mount name")
+	}
+}
+
+func TestContainerMountBase(t *testing.T) {
+	php := &Manifest{Project: ProjectConfig{Type: TypeWordPress}}
+	if php.ContainerMountBase() != "/var/www" {
+		t.Errorf("expected /var/www for PHP, got %s", php.ContainerMountBase())
 	}
 
 	node := &Manifest{Project: ProjectConfig{Type: TypeNodeJS}}
-	if len(node.DefaultDataMounts()) != 0 {
-		t.Error("expected no defaults for NodeJS")
-	}
-}
-
-func TestAllDataMounts_MergesDedupe(t *testing.T) {
-	m := &Manifest{
-		Project: ProjectConfig{Type: TypeWordPress},
-		Data:    DataConfig{Mounts: []string{"wp-content/uploads", "custom/path"}},
-	}
-	all := m.AllDataMounts()
-	// Should have 3 defaults + 1 custom (wp-content/uploads deduped)
-	if len(all) != 4 {
-		t.Fatalf("expected 4 mounts, got %d: %v", len(all), all)
+	if node.ContainerMountBase() != "/" {
+		t.Errorf("expected / for Node.js, got %s", node.ContainerMountBase())
 	}
 }
 
