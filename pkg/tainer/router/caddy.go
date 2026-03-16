@@ -10,7 +10,7 @@ import (
 type CaddyProject struct {
 	Domain string
 	IP     string
-	Port   string // internal port the project pod listens on (typically 443 or 8080)
+	Port   string // internal port the project pod listens on
 }
 
 // GenerateCaddyfile creates a Caddyfile with reverse proxy entries for all running projects.

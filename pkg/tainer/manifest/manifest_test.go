@@ -270,8 +270,14 @@ data:
 func TestDefaultDataMounts(t *testing.T) {
 	wp := &Manifest{Project: ProjectConfig{Type: TypeWordPress}}
 	defaults := wp.DefaultDataMounts()
-	if len(defaults) != 1 || defaults[0] != "wp-content" {
-		t.Fatalf("expected [wp-content] for WordPress, got %v", defaults)
+	if len(defaults) != 3 {
+		t.Fatalf("expected 3 defaults for WordPress, got %d: %v", len(defaults), defaults)
+	}
+	expected := []string{"wp-content/uploads", "wp-content/plugins", "wp-content/themes"}
+	for i, e := range expected {
+		if defaults[i] != e {
+			t.Errorf("defaults[%d] = %q, want %q", i, defaults[i], e)
+		}
 	}
 
 	node := &Manifest{Project: ProjectConfig{Type: TypeNodeJS}}
@@ -283,12 +289,12 @@ func TestDefaultDataMounts(t *testing.T) {
 func TestAllDataMounts_MergesDedupe(t *testing.T) {
 	m := &Manifest{
 		Project: ProjectConfig{Type: TypeWordPress},
-		Data:    DataConfig{Mounts: []string{"wp-content", "custom/path"}},
+		Data:    DataConfig{Mounts: []string{"wp-content/uploads", "custom/path"}},
 	}
 	all := m.AllDataMounts()
-	// Should have 1 default + 1 custom (wp-content deduped)
-	if len(all) != 2 {
-		t.Fatalf("expected 2 mounts, got %d: %v", len(all), all)
+	// Should have 3 defaults + 1 custom (wp-content/uploads deduped)
+	if len(all) != 4 {
+		t.Fatalf("expected 4 mounts, got %d: %v", len(all), all)
 	}
 }
 
@@ -335,5 +341,70 @@ func TestHelperMethods(t *testing.T) {
 	none := &Manifest{Project: ProjectConfig{Type: TypeNodeJS}, Runtime: RuntimeConfig{Node: "22", Database: DatabaseNone}}
 	if none.HasDatabase() {
 		t.Error("should not have database")
+	}
+}
+
+func TestPHPLimits_Defaults(t *testing.T) {
+	l := PHPLimits{}
+	r := l.Resolved()
+	if r.UploadMaxFilesize != "2G" {
+		t.Errorf("UploadMaxFilesize = %q, want 2G", r.UploadMaxFilesize)
+	}
+	if r.MemoryLimit != "512M" {
+		t.Errorf("MemoryLimit = %q, want 512M", r.MemoryLimit)
+	}
+	if r.MaxInputVars != "10000" {
+		t.Errorf("MaxInputVars = %q, want 10000", r.MaxInputVars)
+	}
+}
+
+func TestPHPLimits_Override(t *testing.T) {
+	l := PHPLimits{MemoryLimit: "256M", MaxInputVars: "5000"}
+	r := l.Resolved()
+	if r.MemoryLimit != "256M" {
+		t.Errorf("MemoryLimit = %q, want 256M", r.MemoryLimit)
+	}
+	if r.MaxInputVars != "5000" {
+		t.Errorf("MaxInputVars = %q, want 5000", r.MaxInputVars)
+	}
+	if r.UploadMaxFilesize != "2G" {
+		t.Errorf("UploadMaxFilesize should default to 2G, got %q", r.UploadMaxFilesize)
+	}
+}
+
+func TestPHPLimits_EnvFlags(t *testing.T) {
+	l := PHPLimits{MemoryLimit: "256M"}
+	flags := l.EnvFlags()
+	if len(flags) != 10 {
+		t.Fatalf("expected 10 flags (5 pairs), got %d", len(flags))
+	}
+	// Check memory_limit override
+	for i := 0; i < len(flags)-1; i++ {
+		if flags[i] == "-e" && flags[i+1] == "PHP_MEMORY_LIMIT=256M" {
+			return
+		}
+	}
+	t.Error("expected PHP_MEMORY_LIMIT=256M in flags")
+}
+
+func TestLoad_WithLimits(t *testing.T) {
+	dir := t.TempDir()
+	content := "version: 1\nproject:\n  name: test\n  type: wordpress\n  domain: test.tainer.me\nruntime:\n  php: \"8.4\"\n  database: mariadb\n  limits:\n    memory_limit: 256M\n    upload_max_filesize: 1G\n"
+	path := filepath.Join(dir, "tainer.yaml")
+	os.WriteFile(path, []byte(content), 0644)
+
+	m, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if m.Runtime.Limits.MemoryLimit != "256M" {
+		t.Errorf("Limits.MemoryLimit = %q, want 256M", m.Runtime.Limits.MemoryLimit)
+	}
+	r := m.Runtime.Limits.Resolved()
+	if r.UploadMaxFilesize != "1G" {
+		t.Errorf("Resolved UploadMaxFilesize = %q, want 1G", r.UploadMaxFilesize)
+	}
+	if r.MaxExecutionTime != "300" {
+		t.Errorf("Resolved MaxExecutionTime = %q, want 300 (default)", r.MaxExecutionTime)
 	}
 }

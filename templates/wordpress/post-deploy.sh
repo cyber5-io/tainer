@@ -22,21 +22,22 @@ if [ ! -s wp-config.php ]; then
     wp config set FS_METHOD direct
 fi
 
+# Wait for database
+db_ready=0
+for i in $(seq 1 60); do
+    if wp db check >/dev/null 2>&1; then
+        db_ready=1
+        break
+    fi
+    sleep 1
+done
+if [ "$db_ready" -ne 1 ]; then
+    echo "ERROR: database not reachable after 60s" >&2
+    exit 1
+fi
+
 # Install WordPress if DB is empty
 if ! wp core is-installed 2>/dev/null; then
-    # Wait for database
-    db_ready=0
-    for i in $(seq 1 30); do
-        if wp db check 2>/dev/null; then
-            db_ready=1
-            break
-        fi
-        sleep 1
-    done
-    if [ "$db_ready" -ne 1 ]; then
-        echo "ERROR: database not reachable after 30s" >&2
-        exit 1
-    fi
     wp core install \
         --url="$WP_HOME" --title="Tainer Site" \
         --admin_user=admin --admin_password=admin \

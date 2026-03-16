@@ -55,6 +55,7 @@ func BuildManifest(name string, pt manifest.ProjectType, version string, db mani
 	}
 	if pt == manifest.TypeWordPress || pt == manifest.TypePHP {
 		m.Runtime.PHP = version
+		m.Runtime.Limits = manifest.DefaultPHPLimits
 	} else {
 		m.Runtime.Node = version
 	}
@@ -176,6 +177,16 @@ func createProjectDirs(cwd string, m *manifest.Manifest) error {
 	for _, mount := range m.DefaultDataMounts() {
 		if err := os.MkdirAll(filepath.Join(dataDir, mount), 0755); err != nil {
 			return fmt.Errorf("creating data/%s directory: %w", mount, err)
+		}
+	}
+
+	// Create wp-config.php placeholder for WordPress (needed for bind mount)
+	if m.Project.Type == manifest.TypeWordPress {
+		wpConfigPath := filepath.Join(dataDir, "wp-config.php")
+		if _, err := os.Stat(wpConfigPath); os.IsNotExist(err) {
+			if err := os.WriteFile(wpConfigPath, []byte(""), 0644); err != nil {
+				return fmt.Errorf("creating wp-config.php placeholder: %w", err)
+			}
 		}
 	}
 

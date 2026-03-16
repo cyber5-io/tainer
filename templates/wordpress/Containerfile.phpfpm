@@ -1,8 +1,17 @@
 ARG PHP_VERSION=8.4
 FROM php:${PHP_VERSION}-fpm-alpine
 
-RUN apk add --no-cache su-exec libpng-dev libjpeg-turbo-dev libzip-dev libxml2-dev postgresql-dev oniguruma-dev && \
-    docker-php-ext-install mysqli pdo_mysql pdo_pgsql gd zip xml mbstring
+RUN apk add --no-cache su-exec libpng-dev libjpeg-turbo-dev libzip-dev libxml2-dev postgresql-dev oniguruma-dev \
+    libexif-dev imagemagick-dev icu-dev autoconf gcc g++ make && \
+    docker-php-ext-install mysqli pdo_mysql pdo_pgsql gd zip xml mbstring exif intl && \
+    pecl install imagick && docker-php-ext-enable imagick && \
+    apk add --no-cache imagemagick && \
+    apk del autoconf gcc g++ make
+
+# HTTPS detection behind reverse proxy (auto-prepend runs before every request)
+COPY wordpress/tainer-proxy.php /usr/local/lib/tainer-proxy.php
+RUN echo 'auto_prepend_file=/usr/local/lib/tainer-proxy.php' > /usr/local/etc/php/conf.d/tainer-proxy.ini
+
 
 COPY shared/tainer-entrypoint.sh /usr/local/bin/tainer-entrypoint.sh
 COPY shared/start-phpfpm.sh /usr/local/bin/start-phpfpm.sh

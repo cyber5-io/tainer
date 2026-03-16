@@ -48,10 +48,58 @@ type ProjectConfig struct {
 	Domain string      `yaml:"domain"`
 }
 
+type PHPLimits struct {
+	UploadMaxFilesize string `yaml:"upload_max_filesize,omitempty"`
+	PostMaxSize       string `yaml:"post_max_size,omitempty"`
+	MemoryLimit       string `yaml:"memory_limit,omitempty"`
+	MaxExecutionTime  string `yaml:"max_execution_time,omitempty"`
+	MaxInputVars      string `yaml:"max_input_vars,omitempty"`
+}
+
+var DefaultPHPLimits = PHPLimits{
+	UploadMaxFilesize: "2G",
+	PostMaxSize:       "2G",
+	MemoryLimit:       "512M",
+	MaxExecutionTime:  "300",
+	MaxInputVars:      "10000",
+}
+
+func (l PHPLimits) Resolved() PHPLimits {
+	d := DefaultPHPLimits
+	if l.UploadMaxFilesize != "" {
+		d.UploadMaxFilesize = l.UploadMaxFilesize
+	}
+	if l.PostMaxSize != "" {
+		d.PostMaxSize = l.PostMaxSize
+	}
+	if l.MemoryLimit != "" {
+		d.MemoryLimit = l.MemoryLimit
+	}
+	if l.MaxExecutionTime != "" {
+		d.MaxExecutionTime = l.MaxExecutionTime
+	}
+	if l.MaxInputVars != "" {
+		d.MaxInputVars = l.MaxInputVars
+	}
+	return d
+}
+
+func (l PHPLimits) EnvFlags() []string {
+	r := l.Resolved()
+	return []string{
+		"-e", "PHP_UPLOAD_MAX_FILESIZE=" + r.UploadMaxFilesize,
+		"-e", "PHP_POST_MAX_SIZE=" + r.PostMaxSize,
+		"-e", "PHP_MEMORY_LIMIT=" + r.MemoryLimit,
+		"-e", "PHP_MAX_EXECUTION_TIME=" + r.MaxExecutionTime,
+		"-e", "PHP_MAX_INPUT_VARS=" + r.MaxInputVars,
+	}
+}
+
 type RuntimeConfig struct {
 	PHP      string       `yaml:"php,omitempty"`
 	Node     string       `yaml:"node,omitempty"`
 	Database DatabaseType `yaml:"database"`
+	Limits   PHPLimits    `yaml:"limits,omitempty"`
 }
 
 func (m *Manifest) IsPHP() bool {
@@ -84,7 +132,7 @@ func (m *Manifest) DBPort() string {
 func (m *Manifest) DefaultDataMounts() []string {
 	switch m.Project.Type {
 	case TypeWordPress:
-		return []string{"wp-content"}
+		return []string{"wp-content/uploads", "wp-content/plugins", "wp-content/themes"}
 	default:
 		return nil
 	}
