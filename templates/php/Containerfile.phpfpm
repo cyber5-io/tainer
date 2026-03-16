@@ -1,5 +1,12 @@
 ARG PHP_VERSION=8.4
 FROM php:${PHP_VERSION}-fpm-alpine
 
-RUN apk add --no-cache postgresql-dev && \
+RUN apk add --no-cache su-exec postgresql-dev && \
     docker-php-ext-install pdo_mysql pdo_pgsql
+
+COPY shared/tainer-entrypoint.sh /usr/local/bin/tainer-entrypoint.sh
+COPY shared/start-phpfpm.sh /usr/local/bin/start-phpfpm.sh
+RUN chmod +x /usr/local/bin/tainer-entrypoint.sh /usr/local/bin/start-phpfpm.sh
+
+ENTRYPOINT ["tainer-entrypoint.sh"]
+CMD ["start-phpfpm.sh"]

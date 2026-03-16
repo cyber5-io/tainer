@@ -4,14 +4,20 @@ FROM caddy:2-alpine
 
 ARG PHP_VERSION
 RUN apk add --no-cache \
+    su-exec \
     openssh-server \
     php${PHP_VERSION}-cli php${PHP_VERSION}-phar php${PHP_VERSION}-mbstring \
     php${PHP_VERSION}-curl php${PHP_VERSION}-json php${PHP_VERSION}-xml \
     mariadb-client postgresql-client \
     curl bash composer
 
-RUN ssh-keygen -A && mkdir -p /root/.ssh && chmod 700 /root/.ssh
+RUN ssh-keygen -A
 COPY shared/sshd_config /etc/ssh/sshd_config
 COPY php/Caddyfile /etc/caddy/Caddyfile
 
-CMD sh -c "/usr/sbin/sshd && caddy run --config /etc/caddy/Caddyfile"
+COPY shared/tainer-entrypoint.sh /usr/local/bin/tainer-entrypoint.sh
+COPY shared/start-caddy.sh /usr/local/bin/start-caddy.sh
+RUN chmod +x /usr/local/bin/tainer-entrypoint.sh /usr/local/bin/start-caddy.sh
+
+ENTRYPOINT ["tainer-entrypoint.sh"]
+CMD ["start-caddy.sh"]
