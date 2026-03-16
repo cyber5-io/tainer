@@ -1,11 +1,15 @@
 #!/bin/sh
 set -e
 cd /app
-if [ -f package.json ]; then
-    npm install
+
+# Install dependencies if package.json exists
+if [ -f package.json ] && [ ! -d node_modules ]; then
+    su-exec tainer npm install
 fi
-# Run Kompozi Engine database migrations
-if [ -f node_modules/.bin/payload ]; then
-    npx payload migrate
+
+# Run Payload migrations if available
+if command -v npx >/dev/null 2>&1 && [ -f node_modules/.bin/payload ]; then
+    su-exec tainer npx payload migrate 2>/dev/null || true
 fi
-echo "Kompozi project setup complete"
+
+echo "Kompozi ready"
