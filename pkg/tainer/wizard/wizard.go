@@ -166,10 +166,10 @@ func createProjectDirs(cwd string, m *manifest.Manifest) error {
 		return fmt.Errorf("creating data directory: %w", err)
 	}
 
-	// Create data/db/ if database selected
+	// Create db/ at project root if database selected
 	if m.HasDatabase() {
-		if err := os.MkdirAll(filepath.Join(dataDir, "db"), 0755); err != nil {
-			return fmt.Errorf("creating data/db directory: %w", err)
+		if err := os.MkdirAll(filepath.Join(cwd, "db"), 0755); err != nil {
+			return fmt.Errorf("creating db directory: %w", err)
 		}
 	}
 
@@ -177,16 +177,6 @@ func createProjectDirs(cwd string, m *manifest.Manifest) error {
 	for _, mount := range m.DefaultDataMounts() {
 		if err := os.MkdirAll(filepath.Join(dataDir, mount), 0755); err != nil {
 			return fmt.Errorf("creating data/%s directory: %w", mount, err)
-		}
-	}
-
-	// Create wp-config.php placeholder for WordPress (needed for bind mount)
-	if m.Project.Type == manifest.TypeWordPress {
-		wpConfigPath := filepath.Join(dataDir, "wp-config.php")
-		if _, err := os.Stat(wpConfigPath); os.IsNotExist(err) {
-			if err := os.WriteFile(wpConfigPath, []byte(""), 0644); err != nil {
-				return fmt.Errorf("creating wp-config.php placeholder: %w", err)
-			}
 		}
 	}
 

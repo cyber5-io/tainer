@@ -5,18 +5,38 @@ cd /var/www/html
 # WP-CLI wrapper: runs as tainer user with sufficient memory
 wp() { su-exec tainer php -d memory_limit=512M /usr/local/bin/wp "$@"; }
 
-# Fix ownership on app dir and wp-content mount
+# Fix ownership
 chown tainer /var/www/html
-[ -d wp-content ] && chown tainer wp-content
+chown -R tainer /var/www/data
 
 # Download WordPress if not present
 if [ ! -f wp-load.php ]; then
     wp core download
 fi
 
-# Generate wp-config.php if empty or missing
-if [ ! -s wp-config.php ]; then
-    wp config create --force \
+# Create symlinks from app to data (idempotent)
+# wp-config.php
+if [ ! -L wp-config.php ]; then
+    rm -f wp-config.php
+    ln -s ../data/wp-config.php wp-config.php
+fi
+
+# wp-content subdirs: move defaults to data/ then symlink
+mkdir -p wp-content
+for dir in plugins themes uploads; do
+    if [ ! -L "wp-content/$dir" ]; then
+        # If data dir is empty and app dir has content, move defaults over
+        if [ -d "wp-content/$dir" ] && [ -z "$(ls -A /var/www/data/wp-content/$dir 2>/dev/null)" ]; then
+            cp -a "wp-content/$dir/." "/var/www/data/wp-content/$dir/" 2>/dev/null || true
+        fi
+        rm -rf "wp-content/$dir"
+        ln -s "../../data/wp-content/$dir" "wp-content/$dir"
+    fi
+done
+
+# Generate wp-config.php in data if empty or missing
+if [ ! -s /var/www/data/wp-config.php ]; then
+    wp config create --force --skip-check \
         --dbname="$DB_NAME" --dbuser="$DB_USER" \
         --dbpass="$DB_PASSWORD" --dbhost="$DB_HOST"
     wp config set FS_METHOD direct

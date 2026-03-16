@@ -184,7 +184,7 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 
 	// Build common mount flags
 	appMount := []string{"-v", filepath.Join(projectDir, "app") + ":" + containerAppPath + ":rw"}
-	dataMounts := buildDataMountFlags(m, projectDir)
+	dataMount := []string{"-v", filepath.Join(projectDir, "data") + ":/var/www/data:rw"}
 	authKeyMount := []string{"-v", authKeysPath + ":/home/tainer/.ssh/authorized_keys:ro"}
 	certMount := []string{
 		"-v", config.CertFile() + ":/certs/tainer.me.crt:ro",
@@ -192,18 +192,11 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 	}
 	envFile := []string{"--env-file", filepath.Join(projectDir, ".env")}
 
-	// wp-config.php bind mount (WordPress only)
-	var wpConfigMount []string
-	if m.Project.Type == manifest.TypeWordPress {
-		wpConfigMount = wpConfigMountFlag(projectDir)
-	}
-
 	// Start main container (caddy for PHP, node for Node.js)
 	if m.IsPHP() {
 		mainArgs := []string{"run", "-d", "--pod", podName, "--name", prefix + "-caddy-ct"}
 		mainArgs = append(mainArgs, appMount...)
-		mainArgs = append(mainArgs, dataMounts...)
-		mainArgs = append(mainArgs, wpConfigMount...)
+		mainArgs = append(mainArgs, dataMount...)
 		mainArgs = append(mainArgs, authKeyMount...)
 		mainArgs = append(mainArgs, certMount...)
 		mainArgs = append(mainArgs, envFile...)
@@ -217,8 +210,7 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 		phpLimitsFlags := m.Runtime.Limits.EnvFlags()
 		fpmArgs := []string{"run", "-d", "--pod", podName, "--name", prefix + "-phpfpm-ct"}
 		fpmArgs = append(fpmArgs, appMount...)
-		fpmArgs = append(fpmArgs, dataMounts...)
-		fpmArgs = append(fpmArgs, wpConfigMount...)
+		fpmArgs = append(fpmArgs, dataMount...)
 		fpmArgs = append(fpmArgs, envFlags...)
 		fpmArgs = append(fpmArgs, phpLimitsFlags...)
 		fpmArgs = append(fpmArgs, prefix+"-phpfpm")
@@ -228,7 +220,7 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 	} else {
 		mainArgs := []string{"run", "-d", "--pod", podName, "--name", prefix + "-node-ct"}
 		mainArgs = append(mainArgs, appMount...)
-		mainArgs = append(mainArgs, dataMounts...)
+		mainArgs = append(mainArgs, dataMount...)
 		mainArgs = append(mainArgs, authKeyMount...)
 		mainArgs = append(mainArgs, envFile...)
 		mainArgs = append(mainArgs, envFlags...)
@@ -244,7 +236,7 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 		if m.Runtime.Database == manifest.DatabasePostgres {
 			dbMount = "/var/lib/postgresql/data"
 		}
-		dbDataDir := filepath.Join(projectDir, "data", "db")
+		dbDataDir := filepath.Join(projectDir, "db")
 		dbArgs := []string{"run", "-d", "--pod", podName, "--name", prefix + "-db-ct",
 			"-v", dbDataDir + ":" + dbMount + ":rw",
 			"--env-file", filepath.Join(projectDir, ".env"),
@@ -256,29 +248,6 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 		}
 	}
 
-	return nil
-}
-
-func buildDataMountFlags(m *manifest.Manifest, projectDir string) []string {
-	dataDir := filepath.Join(projectDir, "data")
-	containerAppPath := m.ContainerAppPath()
-	var flags []string
-	for _, mount := range m.AllDataMounts() {
-		hostPath := filepath.Join(dataDir, mount)
-		containerPath := containerAppPath + "/" + mount
-		flags = append(flags, "-v", hostPath+":"+containerPath+":rw")
-	}
-	return flags
-}
-
-// wpConfigMountFlag returns the bind mount flag for wp-config.php.
-// Mounts data/wp-config.php at /var/www/html/wp-config.php so edits
-// to data/wp-config.php on the host reflect immediately in the container.
-func wpConfigMountFlag(projectDir string) []string {
-	dataConfig := filepath.Join(projectDir, "data", "wp-config.php")
-	if _, err := os.Stat(dataConfig); err == nil {
-		return []string{"-v", dataConfig + ":/var/www/html/wp-config.php:rw"}
-	}
 	return nil
 }
 
