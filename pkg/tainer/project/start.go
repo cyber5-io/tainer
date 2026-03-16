@@ -140,6 +140,11 @@ func Start(projectDir string) error {
 		fmt.Println("Pod is still running — SSH in to debug.")
 	}
 
+	// 14b. Persist wp-config.php from app/ back to data/ after post-deploy
+	if m.Project.Type == manifest.TypeWordPress {
+		persistWPConfig(projectDir)
+	}
+
 	// 15. Output
 	sshPort := router.SSHPort()
 	portFlag := ""
@@ -181,24 +186,22 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 		return fmt.Errorf("writing authorized_keys: %w", err)
 	}
 
+	// Sync wp-config.php from data/ to app/ before container creation
+	if m.Project.Type == manifest.TypeWordPress {
+		syncWPConfig(projectDir)
+	}
+
 	// Build common mount flags
 	appMount := []string{"-v", filepath.Join(projectDir, "app") + ":" + containerAppPath + ":rw"}
 	dataMounts := buildDataMountFlags(m, projectDir)
 	authKeyMount := []string{"-v", authKeysPath + ":/home/tainer/.ssh/authorized_keys:ro"}
 	envFile := []string{"--env-file", filepath.Join(projectDir, ".env")}
 
-	// wp-config.php mount (WordPress only)
-	var wpConfigMount []string
-	if m.Project.Type == manifest.TypeWordPress {
-		wpConfigMount = wpConfigMountFlag(projectDir)
-	}
-
 	// Start main container (caddy for PHP, node for Node.js)
 	if m.IsPHP() {
 		mainArgs := []string{"run", "-d", "--pod", podName, "--name", prefix + "-caddy-ct"}
 		mainArgs = append(mainArgs, appMount...)
 		mainArgs = append(mainArgs, dataMounts...)
-		mainArgs = append(mainArgs, wpConfigMount...)
 		mainArgs = append(mainArgs, authKeyMount...)
 		mainArgs = append(mainArgs, envFile...)
 		mainArgs = append(mainArgs, envFlags...)
@@ -211,7 +214,6 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 		fpmArgs := []string{"run", "-d", "--pod", podName, "--name", prefix + "-phpfpm-ct"}
 		fpmArgs = append(fpmArgs, appMount...)
 		fpmArgs = append(fpmArgs, dataMounts...)
-		fpmArgs = append(fpmArgs, wpConfigMount...)
 		fpmArgs = append(fpmArgs, envFlags...)
 		fpmArgs = append(fpmArgs, prefix+"-phpfpm")
 		if output, err := exec.Command("tainer", fpmArgs...).CombinedOutput(); err != nil {
@@ -253,21 +255,44 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 
 func buildDataMountFlags(m *manifest.Manifest, projectDir string) []string {
 	dataDir := filepath.Join(projectDir, "data")
+	containerAppPath := m.ContainerAppPath()
 	var flags []string
 	for _, mount := range m.AllDataMounts() {
 		hostPath := filepath.Join(dataDir, mount)
-		containerPath := "/data/" + mount
+		containerPath := containerAppPath + "/" + mount
 		flags = append(flags, "-v", hostPath+":"+containerPath+":rw")
 	}
 	return flags
 }
 
-func wpConfigMountFlag(projectDir string) []string {
+// syncWPConfig copies wp-config.php from data/ to app/ before container creation.
+// data/ is the persistent copy; app/ is what the container sees.
+func syncWPConfig(projectDir string) {
 	dataConfig := filepath.Join(projectDir, "data", "wp-config.php")
-	if _, err := os.Stat(dataConfig); err == nil {
-		return []string{"-v", dataConfig + ":/data/wp-config.php:rw"}
+	appConfig := filepath.Join(projectDir, "app", "wp-config.php")
+
+	dataInfo, dataErr := os.Stat(dataConfig)
+	if dataErr == nil && dataInfo.Size() > 0 {
+		data, err := os.ReadFile(dataConfig)
+		if err == nil {
+			os.WriteFile(appConfig, data, 0644)
+		}
 	}
-	return nil
+}
+
+// persistWPConfig copies wp-config.php from app/ to data/ after post-deploy.
+func persistWPConfig(projectDir string) {
+	appConfig := filepath.Join(projectDir, "app", "wp-config.php")
+	dataConfig := filepath.Join(projectDir, "data", "wp-config.php")
+
+	appInfo, err := os.Stat(appConfig)
+	if err != nil || appInfo.Size() == 0 {
+		return
+	}
+	data, err := os.ReadFile(appConfig)
+	if err == nil {
+		os.WriteFile(dataConfig, data, 0644)
+	}
 }
 
 func updateRouterConfig() error {

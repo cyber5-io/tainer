@@ -179,16 +179,6 @@ func createProjectDirs(cwd string, m *manifest.Manifest) error {
 		}
 	}
 
-	// Create wp-config.php placeholder for WordPress (needed for single-file bind mount)
-	if m.Project.Type == manifest.TypeWordPress {
-		wpConfigPath := filepath.Join(dataDir, "wp-config.php")
-		if _, err := os.Stat(wpConfigPath); os.IsNotExist(err) {
-			if err := os.WriteFile(wpConfigPath, []byte(""), 0644); err != nil {
-				return fmt.Errorf("creating wp-config.php placeholder: %w", err)
-			}
-		}
-	}
-
 	return nil
 }
 

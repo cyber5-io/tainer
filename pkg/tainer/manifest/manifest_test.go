@@ -270,8 +270,8 @@ data:
 func TestDefaultDataMounts(t *testing.T) {
 	wp := &Manifest{Project: ProjectConfig{Type: TypeWordPress}}
 	defaults := wp.DefaultDataMounts()
-	if len(defaults) != 3 {
-		t.Fatalf("expected 3 defaults for WordPress, got %d", len(defaults))
+	if len(defaults) != 1 || defaults[0] != "wp-content" {
+		t.Fatalf("expected [wp-content] for WordPress, got %v", defaults)
 	}
 
 	node := &Manifest{Project: ProjectConfig{Type: TypeNodeJS}}
@@ -283,12 +283,12 @@ func TestDefaultDataMounts(t *testing.T) {
 func TestAllDataMounts_MergesDedupe(t *testing.T) {
 	m := &Manifest{
 		Project: ProjectConfig{Type: TypeWordPress},
-		Data:    DataConfig{Mounts: []string{"wp-content/uploads", "custom/path"}},
+		Data:    DataConfig{Mounts: []string{"wp-content", "custom/path"}},
 	}
 	all := m.AllDataMounts()
-	// Should have 3 defaults + 1 custom (uploads is deduped)
-	if len(all) != 4 {
-		t.Fatalf("expected 4 mounts, got %d: %v", len(all), all)
+	// Should have 1 default + 1 custom (wp-content deduped)
+	if len(all) != 2 {
+		t.Fatalf("expected 2 mounts, got %d: %v", len(all), all)
 	}
 }
 

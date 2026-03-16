@@ -84,7 +84,7 @@ func (m *Manifest) DBPort() string {
 func (m *Manifest) DefaultDataMounts() []string {
 	switch m.Project.Type {
 	case TypeWordPress:
-		return []string{"wp-content/uploads", "wp-content/plugins", "wp-content/themes"}
+		return []string{"wp-content"}
 	default:
 		return nil
 	}

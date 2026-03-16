@@ -5,33 +5,17 @@ cd /var/www/html
 # WP-CLI wrapper: runs as tainer user with sufficient memory
 wp() { su-exec tainer php -d memory_limit=512M /usr/local/bin/wp "$@"; }
 
-# Fix ownership on app dir
+# Fix ownership on app dir and wp-content mount
 chown tainer /var/www/html
+[ -d wp-content ] && chown tainer wp-content
 
 # Download WordPress if not present
 if [ ! -f wp-load.php ]; then
     wp core download
 fi
 
-# Symlink persistent data dirs from app to /data/ mounts
-# Remove WP-shipped dirs/files and replace with symlinks to data mounts
-for dir in wp-content/uploads wp-content/plugins wp-content/themes; do
-    if [ -d "/data/$dir" ]; then
-        rm -rf "/var/www/html/$dir"
-        ln -sf "/data/$dir" "/var/www/html/$dir"
-        chown -h tainer "/var/www/html/$dir"
-    fi
-done
-
-# Symlink wp-config.php to data mount
-if [ -e /data/wp-config.php ]; then
-    rm -f /var/www/html/wp-config.php
-    ln -sf /data/wp-config.php /var/www/html/wp-config.php
-    chown -h tainer /var/www/html/wp-config.php
-fi
-
 # Generate wp-config.php if empty or missing
-if [ ! -s /data/wp-config.php ]; then
+if [ ! -s wp-config.php ]; then
     wp config create --force \
         --dbname="$DB_NAME" --dbuser="$DB_USER" \
         --dbpass="$DB_PASSWORD" --dbhost="$DB_HOST"
