@@ -30,10 +30,18 @@ fi
 # Install WordPress if DB is empty
 if ! su-exec tainer wp core is-installed 2>/dev/null; then
     # Wait for database
+    db_ready=0
     for i in $(seq 1 30); do
-        su-exec tainer wp db check 2>/dev/null && break
+        if su-exec tainer wp db check 2>/dev/null; then
+            db_ready=1
+            break
+        fi
         sleep 1
     done
+    if [ "$db_ready" -ne 1 ]; then
+        echo "ERROR: database not reachable after 30s" >&2
+        exit 1
+    fi
     su-exec tainer wp core install \
         --url="$WP_HOME" --title="Tainer Site" \
         --admin_user=admin --admin_password=admin \
