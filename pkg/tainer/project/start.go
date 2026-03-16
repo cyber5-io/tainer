@@ -253,11 +253,10 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 
 func buildDataMountFlags(m *manifest.Manifest, projectDir string) []string {
 	dataDir := filepath.Join(projectDir, "data")
-	containerAppPath := m.ContainerAppPath()
 	var flags []string
 	for _, mount := range m.AllDataMounts() {
 		hostPath := filepath.Join(dataDir, mount)
-		containerPath := containerAppPath + "/" + mount
+		containerPath := "/data/" + mount
 		flags = append(flags, "-v", hostPath+":"+containerPath+":rw")
 	}
 	return flags
@@ -265,22 +264,8 @@ func buildDataMountFlags(m *manifest.Manifest, projectDir string) []string {
 
 func wpConfigMountFlag(projectDir string) []string {
 	dataConfig := filepath.Join(projectDir, "data", "wp-config.php")
-	appConfig := filepath.Join(projectDir, "app", "wp-config.php")
-
 	if _, err := os.Stat(dataConfig); err == nil {
-		return []string{"-v", dataConfig + ":/var/www/html/wp-config.php:rw"}
-	}
-	if _, err := os.Stat(appConfig); err == nil {
-		data, err := os.ReadFile(appConfig)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not read %s: %v\n", appConfig, err)
-			return nil
-		}
-		if err := os.WriteFile(dataConfig, data, 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not write %s: %v\n", dataConfig, err)
-			return nil
-		}
-		return []string{"-v", dataConfig + ":/var/www/html/wp-config.php:rw"}
+		return []string{"-v", dataConfig + ":/data/wp-config.php:rw"}
 	}
 	return nil
 }

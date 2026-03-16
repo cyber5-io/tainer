@@ -5,24 +5,33 @@ cd /var/www/html
 # WP-CLI wrapper: runs as tainer user with sufficient memory
 wp() { su-exec tainer php -d memory_limit=512M /usr/local/bin/wp "$@"; }
 
-# Fix ownership on mount-point directories created by Podman as root
+# Fix ownership on app dir
 chown tainer /var/www/html
-[ -d wp-content ] && chown -R tainer wp-content
 
 # Download WordPress if not present
 if [ ! -f wp-load.php ]; then
-    if [ -z "$(ls -A wp-content/themes 2>/dev/null)" ]; then
-        # First install — full download, defaults land in data mounts
-        wp core download
-    else
-        # Version swap — core only, preserve existing themes/plugins
-        wp core download --skip-content
-    fi
+    wp core download
 fi
 
-# Generate wp-config.php if empty or missing (writes to data/ via bind mount)
-# Use -s (non-empty) because the wizard creates an empty placeholder file
-if [ ! -s wp-config.php ]; then
+# Symlink persistent data dirs from app to /data/ mounts
+# Remove WP-shipped dirs/files and replace with symlinks to data mounts
+for dir in wp-content/uploads wp-content/plugins wp-content/themes; do
+    if [ -d "/data/$dir" ]; then
+        rm -rf "/var/www/html/$dir"
+        ln -sf "/data/$dir" "/var/www/html/$dir"
+        chown -h tainer "/var/www/html/$dir"
+    fi
+done
+
+# Symlink wp-config.php to data mount
+if [ -e /data/wp-config.php ]; then
+    rm -f /var/www/html/wp-config.php
+    ln -sf /data/wp-config.php /var/www/html/wp-config.php
+    chown -h tainer /var/www/html/wp-config.php
+fi
+
+# Generate wp-config.php if empty or missing
+if [ ! -s /data/wp-config.php ]; then
     wp config create --force \
         --dbname="$DB_NAME" --dbuser="$DB_USER" \
         --dbpass="$DB_PASSWORD" --dbhost="$DB_HOST"

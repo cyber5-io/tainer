@@ -32,7 +32,9 @@ func GenerateCaddyfile(projects []CaddyProject, certPath, keyPath string) string
 	for _, p := range projects {
 		b.WriteString(fmt.Sprintf("%s {\n", p.Domain))
 		b.WriteString(fmt.Sprintf("\ttls %s %s\n", certPath, keyPath))
-		b.WriteString(fmt.Sprintf("\treverse_proxy %s:%s\n", p.IP, p.Port))
+		b.WriteString(fmt.Sprintf("\treverse_proxy %s:%s {\n", p.IP, p.Port))
+		b.WriteString("\t\theader_up X-Forwarded-Proto https\n")
+		b.WriteString("\t}\n")
 		b.WriteString("}\n\n")
 	}
 
