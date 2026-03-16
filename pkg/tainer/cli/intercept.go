@@ -23,6 +23,9 @@ var ProjectStart = project.Start
 // ProjectStop delegates to the project package.
 var ProjectStop = project.Stop
 
+// ProjectDestroy delegates to the project package.
+var ProjectDestroy = project.Destroy
+
 // GetWorkingDir returns the current working directory. Replaceable for testing.
 var GetWorkingDir = os.Getwd
 
@@ -71,6 +74,51 @@ func InterceptStop(cmd *cobra.Command, args []string) (bool, error) {
 // InterceptRestart checks if `tainer restart` should restart a Tainer project.
 func InterceptRestart(cmd *cobra.Command, args []string) (bool, error) {
 	return interceptProjectCommand(cmd, args, "restart")
+}
+
+// InterceptDestroy checks if `tainer destroy` should destroy a Tainer project.
+func InterceptDestroy(cmd *cobra.Command, args []string) (bool, error) {
+	cwd, err := GetWorkingDir()
+	if err != nil {
+		return true, fmt.Errorf("getting working directory: %w", err)
+	}
+
+	force := false
+	for _, a := range os.Args {
+		if a == "--force" || a == "-f" {
+			force = true
+		}
+	}
+
+	// No args: check for tainer.yaml in cwd
+	if len(args) == 0 {
+		if !manifest.Exists(cwd) {
+			return true, fmt.Errorf("no tainer.yaml found in current directory.\n  Run 'tainer init' to create a project, or provide a project name.\n  Usage: tainer destroy [project-name]")
+		}
+		if ProjectDestroy != nil {
+			if err := ProjectDestroy(cwd, force); err != nil {
+				return true, err
+			}
+		}
+		return true, nil
+	}
+
+	// With a single name arg: look up in registry
+	if len(args) == 1 {
+		name := args[0]
+		if p, ok := registry.Get(name); ok {
+			if ProjectDestroy != nil {
+				if err := ProjectDestroy(p.Path, force); err != nil {
+					return true, err
+				}
+			}
+			return true, nil
+		}
+		return true, fmt.Errorf("project %q not found in registry", name)
+	}
+
+	// Multiple args → not a Tainer command
+	return false, nil
 }
 
 func interceptProjectCommand(cmd *cobra.Command, args []string, action string) (bool, error) {
