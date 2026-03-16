@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/containers/podman/v6/pkg/tainer/config"
@@ -148,8 +149,12 @@ func routerInfraContainer() (string, error) {
 }
 
 // SSHPort returns the SSH port the router is listening on.
-// Prefers port 22 if available, falls back to 2222.
+// On macOS, always uses 2222 (privileged ports fail in Podman VM).
+// On Linux, prefers port 22 if available, falls back to 2222.
 func SSHPort() int {
+	if runtime.GOOS == "darwin" {
+		return 2222
+	}
 	if CheckPortConflict(22) == "" {
 		return 22
 	}
