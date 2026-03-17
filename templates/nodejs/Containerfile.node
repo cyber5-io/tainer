@@ -9,6 +9,9 @@ COPY shared/sshd_config /etc/ssh/sshd_config
 
 WORKDIR /app
 
+# Install nodemon globally for hot reload in dev
+RUN yarn global add nodemon
+
 # Enable polling for file watcher (virtio-fs doesn't propagate inotify from host)
 ENV CHOKIDAR_USEPOLLING=true
 ENV WATCHPACK_POLLING=true

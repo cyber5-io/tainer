@@ -11,7 +11,7 @@ if [ ! -f package.json ]; then
   "name": "tainer-app",
   "version": "1.0.0",
   "scripts": {
-    "start": "node index.js"
+    "start": "nodemon --legacy-watch index.js"
   }
 }
 PKGEOF
