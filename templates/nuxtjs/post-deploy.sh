@@ -1,8 +1,8 @@
 #!/bin/sh
 set -e
-cd /app
+cd /var/www/html
 
-# Create a starter Nuxt app if app/ is empty
+# Create a starter Nuxt app if html/ is empty
 if [ ! -f package.json ]; then
     echo "Creating starter Nuxt app..."
 
@@ -33,12 +33,12 @@ CFGEOF
 <template>
   <div style="font-family: system-ui; max-width: 600px; margin: 80px auto; padding: 0 20px">
     <h1>Tainer - Nuxt.js</h1>
-    <p>Your Nuxt project is ready. Edit <code>app/app.vue</code> to get started.</p>
+    <p>Your Nuxt project is ready. Edit <code>html/app.vue</code> on host to get started.</p>
   </div>
 </template>
 VUEEOF
 
-    chown -R tainer /app
+    chown -R tainer /var/www/html
 fi
 
 # Link to globally pre-installed packages or install from yarn.lock

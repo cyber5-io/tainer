@@ -7,7 +7,7 @@ RUN apk add --no-cache su-exec openssh-server postgresql-client mariadb-client b
 RUN ssh-keygen -A
 COPY shared/sshd_config /etc/ssh/sshd_config
 
-WORKDIR /app
+WORKDIR /var/www/html
 
 # Pre-install Nuxt so first start doesn't OOM
 RUN yarn global add nuxt@3

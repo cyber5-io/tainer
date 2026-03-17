@@ -126,19 +126,18 @@ func (m *Manifest) DBPort() string {
 }
 
 // ContainerMountBase returns the base path for top-level mounts in the container.
-// PHP: /var/www, Node.js: /
 func (m *Manifest) ContainerMountBase() string {
-	if m.IsPHP() {
-		return "/var/www"
-	}
-	return "/"
+	return "/var/www"
 }
 
+// ContainerAppPath returns the container path where source code is mounted.
 func (m *Manifest) ContainerAppPath() string {
-	if m.IsNode() {
-		return "/app"
-	}
 	return "/var/www/html"
+}
+
+// HostAppDir returns the name of the source code directory on the host.
+func (m *Manifest) HostAppDir() string {
+	return "html"
 }
 
 func Exists(dir string) bool {
@@ -196,7 +195,7 @@ func (m *Manifest) validate() error {
 	if m.IsNode() && m.Runtime.Node == "" {
 		return fmt.Errorf("node version required for %s projects", m.Project.Type)
 	}
-	reserved := map[string]bool{"app": true, "data": true, "db": true}
+	reserved := map[string]bool{"html": true, "data": true, "db": true}
 	for _, mount := range m.Mounts {
 		if mount == "" {
 			return fmt.Errorf("mount name cannot be empty")

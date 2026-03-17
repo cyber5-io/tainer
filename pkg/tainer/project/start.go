@@ -188,7 +188,7 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 	}
 
 	// Build common mount flags
-	appMount := []string{"-v", filepath.Join(projectDir, "app") + ":" + containerAppPath + ":rw"}
+	appMount := []string{"-v", filepath.Join(projectDir, m.HostAppDir()) + ":" + containerAppPath + ":rw"}
 	mountBase := m.ContainerMountBase()
 	dataMount := []string{"-v", filepath.Join(projectDir, "data") + ":" + mountBase + "/data:rw"}
 	// Custom mounts (from tainer mount add)

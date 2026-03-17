@@ -18,11 +18,8 @@ fi
 mkdir -p /home/tainer/.ssh
 
 # Symlink app directory from home for easy navigation
-if [ -d /var/www/html ] && [ ! -e /home/tainer/www ]; then
-    ln -s /var/www/html /home/tainer/www
-fi
-if [ -d /app ] && [ ! -e /home/tainer/app ]; then
-    ln -s /app /home/tainer/app
+if [ -d /var/www/html ] && [ ! -e /home/tainer/html ]; then
+    ln -s /var/www/html /home/tainer/html
 fi
 
 # MySQL/MariaDB client config for passwordless 'mysql' command

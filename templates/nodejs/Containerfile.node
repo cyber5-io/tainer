@@ -7,7 +7,7 @@ RUN apk add --no-cache su-exec openssh-server postgresql-client mariadb-client b
 RUN ssh-keygen -A
 COPY shared/sshd_config /etc/ssh/sshd_config
 
-WORKDIR /app
+WORKDIR /var/www/html
 
 # Install nodemon globally for hot reload in dev
 RUN yarn global add nodemon

@@ -145,7 +145,7 @@ func Run(cwd string) error {
 	if err := createProjectDirs(cwd, m); err != nil {
 		return err
 	}
-	fmt.Println("Created app/ and data/ directories")
+	fmt.Printf("Created %s/ and data/ directories\n", m.HostAppDir())
 
 	// Generate .env
 	envPath := filepath.Join(cwd, ".env")
@@ -165,10 +165,10 @@ func Run(cwd string) error {
 }
 
 func createProjectDirs(cwd string, m *manifest.Manifest) error {
-	// Create app/ (disposable runtime)
-	appDir := filepath.Join(cwd, "app")
+	// Create source directory (html/ for PHP, app/ for Node)
+	appDir := filepath.Join(cwd, m.HostAppDir())
 	if err := os.MkdirAll(appDir, 0755); err != nil {
-		return fmt.Errorf("creating app directory: %w", err)
+		return fmt.Errorf("creating %s directory: %w", m.HostAppDir(), err)
 	}
 
 	// Create data/ (persistent work)

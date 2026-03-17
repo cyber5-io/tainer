@@ -29,6 +29,11 @@ func Generate(m *manifest.Manifest, path string) error {
 
 	var lines []string
 
+	lines = append(lines,
+		"# Tainer",
+		fmt.Sprintf("TAINER_DOMAIN=%s", m.Project.Domain),
+	)
+
 	if m.HasDatabase() {
 		dbPassword := randomPassword(32)
 		rootPassword := randomPassword(32)

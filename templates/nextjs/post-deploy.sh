@@ -1,8 +1,8 @@
 #!/bin/sh
 set -e
-cd /app
+cd /var/www/html
 
-# Create a starter Next.js app if app/ is empty
+# Create a starter Next.js app if html/ is empty
 if [ ! -f package.json ]; then
     echo "Creating starter Next.js app..."
 
@@ -43,13 +43,13 @@ export default function Home() {
   return (
     <div style={{ fontFamily: 'system-ui', maxWidth: 600, margin: '80px auto', padding: '0 20px' }}>
       <h1>Tainer - Next.js</h1>
-      <p>Your Next.js project is ready. Edit <code>app/app/page.tsx</code> to get started.</p>
+      <p>Your Next.js project is ready. Edit <code>html/app/page.tsx</code> to get started.</p>
     </div>
   );
 }
 PAGEEOF
 
-    chown -R tainer /app
+    chown -R tainer /var/www/html
 fi
 
 # Link to globally pre-installed packages or install from yarn.lock

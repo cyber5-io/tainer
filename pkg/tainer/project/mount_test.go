@@ -57,7 +57,7 @@ func TestMountAdd_RejectsDotDot(t *testing.T) {
 }
 
 func TestMountAdd_RejectsReserved(t *testing.T) {
-	for _, name := range []string{"app", "data", "db"} {
+	for _, name := range []string{"html", "data", "db"} {
 		dir := t.TempDir()
 		err := MountAdd(dir, name)
 		if err == nil {

@@ -76,7 +76,7 @@ func validateMountName(name string) error {
 	if strings.Contains(name, "/") || strings.Contains(name, "..") {
 		return fmt.Errorf("mount name must be a simple directory name: %q", name)
 	}
-	reserved := map[string]bool{"app": true, "data": true, "db": true}
+	reserved := map[string]bool{"html": true, "data": true, "db": true}
 	if reserved[name] {
 		return fmt.Errorf("mount name %q is reserved", name)
 	}

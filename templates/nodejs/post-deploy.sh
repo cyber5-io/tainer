@@ -1,8 +1,8 @@
 #!/bin/sh
 set -e
-cd /app
+cd /var/www/html
 
-# Create a starter Node.js app if app/ is empty
+# Create a starter Node.js app if html/ is empty
 if [ ! -f package.json ]; then
     echo "Creating starter Node.js app..."
 
@@ -25,7 +25,7 @@ const server = http.createServer((req, res) => {
 <html><head><title>Tainer - Node.js</title></head>
 <body style="font-family:system-ui;max-width:600px;margin:80px auto;padding:0 20px">
 <h1>Tainer - Node.js</h1>
-<p>Your Node.js project is ready. Edit <code>app/index.js</code> to get started.</p>
+<p>Your Node.js project is ready. Edit <code>html/index.js</code> to get started.</p>
 <p>Node ${process.version}</p>
 </body></html>`);
 });
@@ -35,7 +35,7 @@ server.listen(3000, () => {
 });
 JSEOF
 
-    chown -R tainer /app
+    chown -R tainer /var/www/html
 fi
 
 # Install dependencies if needed

@@ -10,8 +10,8 @@ while [ ! -f /tmp/.tainer-ready ] && [ "$waited" -lt 300 ]; do
 done
 
 # If app has been set up by post-deploy, start it
-if [ -f /app/package.json ]; then
-    cd /app
+if [ -f /var/www/html/package.json ]; then
+    cd /var/www/html
     exec su-exec tainer yarn start
 fi
 

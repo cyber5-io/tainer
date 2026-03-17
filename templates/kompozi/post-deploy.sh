@@ -1,6 +1,6 @@
 #!/bin/sh
 set -e
-cd /app
+cd /var/www/html
 
 # Clone Kompozi repo if not already present (idempotent)
 if [ ! -f package.json ]; then
@@ -8,12 +8,17 @@ if [ ! -f package.json ]; then
     tmp=$(mktemp -d)
     chmod 777 "$tmp"
     su-exec tainer git clone --depth 1 https://github.com/cyber5-io/kompozi.git "$tmp/kompozi"
-    cp -a "$tmp/kompozi/." /app/
-    rm -rf /app/.git "$tmp"
-    chown -R tainer /app
+    cp -a "$tmp/kompozi/." /var/www/html/
+    rm -rf /var/www/html/.git "$tmp"
+    chown -R tainer /var/www/html
 
     # Override start script for local dev mode
-    su-exec tainer sed -i 's/"start": "next start"/"start": "next dev"/' /app/package.json
+    su-exec tainer sed -i 's/"start": "next start"/"start": "next dev"/' /var/www/html/package.json
+
+    # Add tainer domain to allowedDevOrigins for HMR WebSocket
+    if [ -f next.config.mjs ]; then
+        su-exec tainer sed -i "s/allowedDevOrigins: \[/allowedDevOrigins: ['$TAINER_DOMAIN', /" /var/www/html/next.config.mjs
+    fi
 fi
 
 # Install dependencies
