@@ -55,14 +55,10 @@ fi
 
 pfctl -f "$PF_CONF" 2>/dev/null || :
 
-# Install templates to the installing user's config directory.
+# Set up user config directory.
 REAL_USER=$(stat -f '%Su' /dev/console)
 if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
     REAL_HOME=$(dscl . -read "/Users/$REAL_USER" NFSHomeDirectory | awk '{print $2}')
-    TEMPLATES_DEST="$REAL_HOME/.config/tainer/templates"
-
-    mkdir -p "$TEMPLATES_DEST"
-    cp -R /opt/tainer/templates/* "$TEMPLATES_DEST/"
 
     # Install TLS wildcard cert for *.tainer.me
     CERTS_DIR="$REAL_HOME/.config/tainer/certs"

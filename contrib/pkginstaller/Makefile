@@ -33,12 +33,11 @@ packagedir: package_root Distribution welcome.html
 	cp krunkit.entitlements $(PACKAGE_DIR)/
 
 package_root: clean-pkgroot
-	mkdir -p $(PACKAGE_ROOT)/tainer/bin $(PACKAGE_ROOT)/tainer/lib $(PACKAGE_ROOT)/tainer/templates $(PACKAGE_ROOT)/tainer/certs
+	mkdir -p $(PACKAGE_ROOT)/tainer/bin $(PACKAGE_ROOT)/tainer/lib $(PACKAGE_ROOT)/tainer/certs
 	cp $(HELPERS_DIR)/bin/gvproxy $(PACKAGE_ROOT)/tainer/bin/
 	cp $(HELPERS_DIR)/bin/vfkit $(PACKAGE_ROOT)/tainer/bin/
 	cp $(HELPERS_DIR)/bin/krunkit $(PACKAGE_ROOT)/tainer/bin/
 	cp $(HELPERS_DIR)/lib/*.dylib $(PACKAGE_ROOT)/tainer/lib/
-	cp -R ../../templates/* $(PACKAGE_ROOT)/tainer/templates/
 	cp certs/tainer.me.crt $(PACKAGE_ROOT)/tainer/certs/
 	cp certs/tainer.me.key $(PACKAGE_ROOT)/tainer/certs/
 	cp scripts/uninstall.sh $(PACKAGE_ROOT)/tainer/bin/uninstall.sh
