@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 )
 
@@ -28,8 +29,12 @@ func IsRunning() bool {
 }
 
 // EnsureRunning makes sure the machine is initialized and started.
-// Returns nil if the machine is already running.
+// On Linux, podman runs natively — no machine needed.
 func EnsureRunning() error {
+	if runtime.GOOS == "linux" {
+		return nil
+	}
+
 	if IsRunning() {
 		return nil
 	}

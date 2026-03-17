@@ -21,7 +21,7 @@ import (
 	"github.com/containers/podman/v6/pkg/checkpoint/crutils"
 	"github.com/containers/podman/v6/pkg/domain/entities"
 	"github.com/containers/podman/v6/pkg/parallel"
-	"github.com/containers/podman/v6/version"
+	"github.com/containers/podman/v6/version/rawversion"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -77,20 +77,36 @@ Options:
 {{end}}
 `
 
+// rootUsageTemplate is the usage template for the root tainer command.
+// Shows only tainer commands and hides podman-specific options.
+const rootUsageTemplate = `Usage:
+  tainer [command]
+
+Available Commands:{{range .Commands}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}
+
+Options:
+  --help      Help for tainer
+  --version   Show tainer version
+
+Use "tainer [command] --help" for more information about a command.
+Use "tainer --podman-help" for advanced Podman commands.
+`
+
 var (
 	rootCmd = &cobra.Command{
 		// In shell completion, there is `.exe` suffix on Windows.
 		// This does not provide the same experience across platforms
 		// and was mentioned in [#16499](https://github.com/containers/podman/issues/16499).
 		Use:                   strings.TrimSuffix(filepath.Base(os.Args[0]), ".exe") + " [options]",
-		Long:                  "Manage pods, containers and images",
+		Long:                  "Local development environments made simple",
 		SilenceUsage:          true,
 		SilenceErrors:         true,
 		TraverseChildren:      true,
 		PersistentPreRunE:     persistentPreRunE,
 		RunE:                  validate.SubCommandExists,
 		PersistentPostRunE:    persistentPostRunE,
-		Version:               version.Version.String(),
+		Version:               rawversion.TainerVersion,
 		DisableFlagsInUseLine: true,
 	}
 
@@ -131,7 +147,7 @@ func init() {
 		}
 		return pflag.NormalizedName(name)
 	})
-	rootCmd.SetUsageTemplate(usageTemplate)
+	rootCmd.SetUsageTemplate(rootUsageTemplate)
 }
 
 func Execute() {

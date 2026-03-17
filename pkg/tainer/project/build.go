@@ -3,73 +3,79 @@ package project
 import (
 	"fmt"
 	"os/exec"
-	"path/filepath"
-	"strings"
 
-	"github.com/containers/podman/v6/pkg/tainer/config"
 	"github.com/containers/podman/v6/pkg/tainer/manifest"
 )
 
-// BuildImages builds all container images for a project from templates.
-func BuildImages(m *manifest.Manifest) error {
-	tmplDir := filepath.Join(config.TemplatesDir(), string(m.Project.Type))
-	prefix := fmt.Sprintf("tainer-%s", m.Project.Name)
+const imageRegistry = "ghcr.io/cyber5-io/tainer"
 
-	// Build main container (Caddy+SSHD for PHP, Node for Node.js)
+// RegistryImage returns the registry image reference with a specific tag.
+// Example: RegistryImage("nextjs", "15") → "ghcr.io/cyber5-io/tainer-nextjs:15"
+func RegistryImage(name, tag string) string {
+	return fmt.Sprintf("%s-%s:%s", imageRegistry, name, tag)
+}
+
+// MainImage returns the registry image for the project's main container.
+func MainImage(m *manifest.Manifest) string {
+	name := string(m.Project.Type)
+	tag := "latest"
+
+	switch m.Project.Type {
+	case manifest.TypeWordPress, manifest.TypePHP:
+		tag = m.Runtime.PHP
+	case manifest.TypeNodeJS:
+		tag = m.Runtime.Node
+	case manifest.TypeNextJS:
+		tag = frameworkVersion(m.Project.Type)
+	case manifest.TypeNuxtJS:
+		tag = frameworkVersion(m.Project.Type)
+	}
+
+	return RegistryImage(name, tag)
+}
+
+// frameworkVersion maps project types to their framework version tag.
+// These correspond to the pre-built images on the registry.
+func frameworkVersion(pt manifest.ProjectType) string {
+	switch pt {
+	case manifest.TypeNextJS:
+		return "15"
+	case manifest.TypeNuxtJS:
+		return "3"
+	default:
+		return "latest"
+	}
+}
+
+// PullImages pulls all required container images for a project from the registry.
+func PullImages(m *manifest.Manifest) error {
+	// Main container
+	if err := pullImage(MainImage(m)); err != nil {
+		return fmt.Errorf("pulling %s image: %w", m.Project.Type, err)
+	}
+
+	// PHP projects also need a shared phpfpm container
 	if m.IsPHP() {
-		// Alpine PHP packages use version without dots: 8.4 → 84
-		alpinePHP := strings.ReplaceAll(m.Runtime.PHP, ".", "")
-		if err := buildImage(
-			filepath.Join(tmplDir, "Containerfile.caddy"),
-			prefix+"-caddy",
-			map[string]string{"PHP_VERSION": alpinePHP},
-		); err != nil {
-			return fmt.Errorf("building caddy image: %w", err)
-		}
-		if err := buildImage(
-			filepath.Join(tmplDir, "Containerfile.phpfpm"),
-			prefix+"-phpfpm",
-			map[string]string{"PHP_VERSION": m.Runtime.PHP},
-		); err != nil {
-			return fmt.Errorf("building phpfpm image: %w", err)
-		}
-	} else {
-		if err := buildImage(
-			filepath.Join(tmplDir, "Containerfile.node"),
-			prefix+"-node",
-			map[string]string{"NODE_VERSION": m.Runtime.Node},
-		); err != nil {
-			return fmt.Errorf("building node image: %w", err)
+		if err := pullImage(RegistryImage("phpfpm", m.Runtime.PHP)); err != nil {
+			return fmt.Errorf("pulling phpfpm image: %w", err)
 		}
 	}
 
-	// Build database image
+	// Database
 	if m.HasDatabase() {
-		dbFile := fmt.Sprintf("Containerfile.%s", m.Runtime.Database)
-		if err := buildImage(
-			filepath.Join(tmplDir, dbFile),
-			prefix+"-db",
-			nil,
-		); err != nil {
-			return fmt.Errorf("building database image: %w", err)
+		if err := pullImage(RegistryImage(string(m.Runtime.Database), "latest")); err != nil {
+			return fmt.Errorf("pulling database image: %w", err)
 		}
 	}
 
 	return nil
 }
 
-func buildImage(containerfile, tag string, buildArgs map[string]string) error {
-	args := []string{"build", "-f", containerfile, "-t", tag}
-	for k, v := range buildArgs {
-		args = append(args, "--build-arg", fmt.Sprintf("%s=%s", k, v))
-	}
-	// Build context must be templates/ root so COPY shared/... paths resolve
-	args = append(args, config.TemplatesDir())
-
-	cmd := exec.Command("tainer", args...)
+func pullImage(image string) error {
+	cmd := exec.Command("tainer", "pull", image)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%s: %s", tag, string(output))
+		return fmt.Errorf("%s: %s", image, string(output))
 	}
 	return nil
 }

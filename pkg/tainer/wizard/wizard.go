@@ -89,9 +89,10 @@ func Run(cwd string) error {
 	// Project type
 	fmt.Println("\nProject type:")
 	for i, pt := range projectTypes {
-		fmt.Printf("  %d. %s\n", i+1, pt.Label)
+		fmt.Printf("  %d) %s\n", i+1, pt.Label)
 	}
-	typeIdx, err := promptInt(reader, "> ", 1, len(projectTypes))
+	fmt.Printf("Choose [1-%d]: ", len(projectTypes))
+	typeIdx, err := promptInt(reader, "", 1, len(projectTypes))
 	if err != nil {
 		return err
 	}
@@ -226,15 +227,26 @@ func promptInt(reader *bufio.Reader, prompt string, min, max int) (int, error) {
 }
 
 func promptChoice(reader *bufio.Reader, label string, choices []string, defaultVal string) (string, error) {
-	var parts []string
-	for _, c := range choices {
+	// Single option — auto-select, no question
+	if len(choices) == 1 {
+		fmt.Printf("\n%s: %s\n", label, choices[0])
+		return choices[0], nil
+	}
+
+	// Find default index
+	defaultIdx := 1
+	for i, c := range choices {
 		if c == defaultVal {
-			parts = append(parts, fmt.Sprintf("[%s]", c))
-		} else {
-			parts = append(parts, c)
+			defaultIdx = i + 1
+			break
 		}
 	}
-	fmt.Printf("\n%s: (default: %s)\n  %s\n> ", label, defaultVal, strings.Join(parts, " / "))
+
+	fmt.Printf("\n%s:\n", label)
+	for i, c := range choices {
+		fmt.Printf("  %d) %s\n", i+1, c)
+	}
+	fmt.Printf("Choose [1-%d] (default: %d): ", len(choices), defaultIdx)
 	input, err := reader.ReadString('\n')
 	if err != nil {
 		return "", err
@@ -243,10 +255,9 @@ func promptChoice(reader *bufio.Reader, label string, choices []string, defaultV
 	if input == "" {
 		return defaultVal, nil
 	}
-	for _, c := range choices {
-		if input == c {
-			return input, nil
-		}
+	var n int
+	if _, err := fmt.Sscan(input, &n); err != nil || n < 1 || n > len(choices) {
+		return "", fmt.Errorf("please enter a number between 1 and %d", len(choices))
 	}
-	return "", fmt.Errorf("invalid choice: %q", input)
+	return choices[n-1], nil
 }

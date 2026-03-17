@@ -1,6 +1,8 @@
 package project
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -98,9 +100,9 @@ func Start(projectDir string) error {
 		return err
 	}
 
-	// 9. Build images
-	fmt.Println("Building images...")
-	if err := BuildImages(m); err != nil {
+	// 9. Pull images
+	fmt.Println("Pulling images...")
+	if err := PullImages(m); err != nil {
 		return err
 	}
 
@@ -110,10 +112,28 @@ func Start(projectDir string) error {
 		fmt.Printf("%s is already running\n", m.Project.Name)
 		return nil
 	}
+	// If pod exists but is stopped, check if manifest changed since last start.
+	// Remove stale pod so containers are recreated with current settings.
+	if podExists(podName) {
+		storedManifest := getPodLabel(podName, "tainer.manifest-hash")
+		currentHash := manifestHash(projectDir)
+		if storedManifest != currentHash {
+			fmt.Println("Configuration changed, recreating containers...")
+			exec.Command("tainer", "pod", "rm", "-f", podName).CombinedOutput()
+		} else {
+			// No changes — just restart the existing pod
+			fmt.Println("Starting pod...")
+			if output, err := exec.Command("tainer", "pod", "start", podName).CombinedOutput(); err != nil {
+				return fmt.Errorf("starting pod: %s", string(output))
+			}
+			goto postStart
+		}
+	}
 	if err := createProjectPod(m, podName, netName, projectDir, uid, gid); err != nil {
 		return err
 	}
 
+postStart:
 	// 11. Start router
 	if !router.IsRouterRunning() {
 		router.WriteCaddyfile(config.CaddyfilePath(), nil, "/certs/tainer.me.crt", "/certs/tainer.me.key")
@@ -166,6 +186,7 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 		"--add-host", fmt.Sprintf("%s:127.0.0.1", m.Project.Domain),
 		"--label", fmt.Sprintf("tainer.project=%s", m.Project.Name),
 		"--label", fmt.Sprintf("tainer.manifest=%s", filepath.Join(projectDir, manifest.FileName)),
+		"--label", fmt.Sprintf("tainer.manifest-hash=%s", manifestHash(projectDir)),
 		"--label", fmt.Sprintf("tainer.domain=%s", m.Project.Domain),
 	}
 	if output, err := exec.Command("tainer", createArgs...).CombinedOutput(); err != nil {
@@ -211,7 +232,7 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 		mainArgs = append(mainArgs, certMount...)
 		mainArgs = append(mainArgs, envFile...)
 		mainArgs = append(mainArgs, envFlags...)
-		mainArgs = append(mainArgs, prefix+"-caddy")
+		mainArgs = append(mainArgs, MainImage(m))
 		if output, err := exec.Command("tainer", mainArgs...).CombinedOutput(); err != nil {
 			return fmt.Errorf("starting main container: %s", string(output))
 		}
@@ -223,7 +244,7 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 		fpmArgs = append(fpmArgs, dataMount...)
 		fpmArgs = append(fpmArgs, envFlags...)
 		fpmArgs = append(fpmArgs, phpLimitsFlags...)
-		fpmArgs = append(fpmArgs, prefix+"-phpfpm")
+		fpmArgs = append(fpmArgs, RegistryImage("phpfpm", m.Runtime.PHP))
 		if output, err := exec.Command("tainer", fpmArgs...).CombinedOutput(); err != nil {
 			return fmt.Errorf("starting PHP-FPM: %s", string(output))
 		}
@@ -234,7 +255,7 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 		mainArgs = append(mainArgs, authKeyMount...)
 		mainArgs = append(mainArgs, envFile...)
 		mainArgs = append(mainArgs, envFlags...)
-		mainArgs = append(mainArgs, prefix+"-node")
+		mainArgs = append(mainArgs, MainImage(m))
 		if output, err := exec.Command("tainer", mainArgs...).CombinedOutput(); err != nil {
 			return fmt.Errorf("starting Node container: %s", string(output))
 		}
@@ -252,7 +273,7 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 			"--env-file", filepath.Join(projectDir, ".env"),
 		}
 		dbArgs = append(dbArgs, envFlags...)
-		dbArgs = append(dbArgs, prefix+"-db")
+		dbArgs = append(dbArgs, RegistryImage(string(m.Runtime.Database), "latest"))
 		if output, err := exec.Command("tainer", dbArgs...).CombinedOutput(); err != nil {
 			return fmt.Errorf("starting database: %s", string(output))
 		}
@@ -322,22 +343,39 @@ func getProjectIP(podName string) string {
 	return strings.TrimSpace(string(output))
 }
 
-func runPostDeploy(m *manifest.Manifest, podName string) error {
-	tmplDir := filepath.Join(config.TemplatesDir(), string(m.Project.Type))
-	script := filepath.Join(tmplDir, "post-deploy.sh")
-	if _, err := os.Stat(script); err != nil {
-		return nil // no post-deploy script
+func podExists(podName string) bool {
+	cmd := exec.Command("tainer", "pod", "inspect", "--format", "{{.Name}}", podName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return false
 	}
+	return strings.TrimSpace(string(output)) != ""
+}
 
+func getPodLabel(podName, label string) string {
+	cmd := exec.Command("tainer", "pod", "inspect", "--format",
+		fmt.Sprintf("{{index .Labels %q}}", label), podName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
+
+func manifestHash(projectDir string) string {
+	data, err := os.ReadFile(filepath.Join(projectDir, manifest.FileName))
+	if err != nil {
+		return ""
+	}
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:8])
+}
+
+func runPostDeploy(m *manifest.Manifest, podName string) error {
 	ct := mainContainerName(m, podName)
 
-	destPath := "/tmp/post-deploy.sh"
-	cpCmd := exec.Command("tainer", "cp", script, ct+":"+destPath)
-	if output, err := cpCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("copying post-deploy script: %s", string(output))
-	}
-
-	cmd := exec.Command("tainer", "exec", ct, "sh", destPath)
+	// Post-deploy script is baked into the image at /opt/tainer/post-deploy.sh
+	cmd := exec.Command("tainer", "exec", ct, "sh", "/opt/tainer/post-deploy.sh")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()

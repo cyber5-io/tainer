@@ -77,6 +77,25 @@ func main() {
 	os.Exit(0)
 }
 
+// tainerVisibleCommands lists the commands shown in default help.
+// All other commands are hidden but still functional.
+var tainerVisibleCommands = map[string]bool{
+	"init":    true,
+	"start":   true,
+	"stop":    true,
+	"restart": true,
+	"destroy": true,
+	"list":    true,
+	"pods":    true,
+	"status":  true,
+	"exec":    true,
+	"mount":   true,
+	"update":  true,
+	"version": true,
+	"machine": true,
+	"help":    true,
+}
+
 func parseCommands() *cobra.Command {
 	cfg := registry.PodmanConfig()
 	for _, c := range registry.Commands {
@@ -118,6 +137,16 @@ func parseCommands() *cobra.Command {
 			}
 		}
 		addCommand(c)
+	}
+
+	// Hide all commands not in the tainer visible set.
+	// Track seen names to hide duplicates (e.g., podman's "update" vs ours).
+	seen := make(map[string]bool)
+	for _, cmd := range rootCmd.Commands() {
+		if !tainerVisibleCommands[cmd.Name()] || seen[cmd.Name()] {
+			cmd.Hidden = true
+		}
+		seen[cmd.Name()] = true
 	}
 
 	if err := terminal.SetConsole(); err != nil {
