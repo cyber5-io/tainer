@@ -17,8 +17,8 @@ import (
 )
 
 // Destroy removes all Tainer resources for a project without deleting project files.
-// If volumes is true, also removes db/ and data/ directories.
-func Destroy(projectDir string, force bool, volumes ...bool) error {
+// If nuke is true, also removes the entire project directory contents.
+func Destroy(projectDir string, force, nuke bool) error {
 	if err := machine.EnsureRunning(); err != nil {
 		return err
 	}
@@ -28,12 +28,10 @@ func Destroy(projectDir string, force bool, volumes ...bool) error {
 		return err
 	}
 
-	removeVolumes := len(volumes) > 0 && volumes[0]
-
 	if !force {
 		msg := fmt.Sprintf("Destroy project %s? This will stop all containers.", m.Project.Name)
-		if removeVolumes {
-			msg += " Data and database directories will be PERMANENTLY DELETED."
+		if nuke {
+			msg = fmt.Sprintf("NUKE project %s? This will stop all containers and DELETE ALL PROJECT FILES.", m.Project.Name)
 		}
 		fmt.Printf("%s [y/N] ", msg)
 		reader := bufio.NewReader(os.Stdin)
@@ -84,23 +82,21 @@ func Destroy(projectDir string, force bool, volumes ...bool) error {
 		}
 	}
 
-	// 9. Remove volumes if requested
-	if removeVolumes {
-		dbDir := filepath.Join(projectDir, "db")
-		if err := os.RemoveAll(dbDir); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not remove %s: %v\n", dbDir, err)
+	if nuke {
+		// Remove everything in the project directory
+		entries, err := os.ReadDir(projectDir)
+		if err == nil {
+			for _, entry := range entries {
+				os.RemoveAll(filepath.Join(projectDir, entry.Name()))
+			}
 		}
-		dataDir := filepath.Join(projectDir, "data")
-		if err := os.RemoveAll(dataDir); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not remove %s: %v\n", dataDir, err)
-		}
-		fmt.Println("Removed db/ and data/ directories.")
+		fmt.Printf("%s nuked.\n", m.Project.Name)
+	} else {
+		// Clean up local state files only
+		os.Remove(filepath.Join(projectDir, ".tainer.local.yaml"))
+		os.Remove(filepath.Join(projectDir, ".tainer-authorized_keys"))
+		fmt.Printf("%s destroyed. Project files preserved.\n", m.Project.Name)
 	}
 
-	// Clean up local state files
-	os.Remove(filepath.Join(projectDir, ".tainer.local.yaml"))
-	os.Remove(filepath.Join(projectDir, ".tainer-authorized_keys"))
-
-	fmt.Printf("%s destroyed. Project files preserved.\n", m.Project.Name)
 	return nil
 }

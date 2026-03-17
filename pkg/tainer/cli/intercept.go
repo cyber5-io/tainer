@@ -24,8 +24,8 @@ var ProjectStart = project.Start
 var ProjectStop = project.Stop
 
 // ProjectDestroy delegates to the project package.
-var ProjectDestroy = func(dir string, force bool, volumes ...bool) error {
-	return project.Destroy(dir, force, volumes...)
+var ProjectDestroy = func(dir string, force, nuke bool) error {
+	return project.Destroy(dir, force, nuke)
 }
 
 // GetWorkingDir returns the current working directory. Replaceable for testing.
@@ -86,23 +86,23 @@ func InterceptDestroy(cmd *cobra.Command, args []string) (bool, error) {
 	}
 
 	force := false
-	volumes := false
+	nuke := false
 	for _, a := range os.Args {
 		if a == "--force" || a == "-f" {
 			force = true
 		}
-		if a == "--volumes" {
-			volumes = true
+		if a == "--nuke" {
+			nuke = true
 		}
 	}
 
 	// No args: check for tainer.yaml in cwd
 	if len(args) == 0 {
 		if !manifest.Exists(cwd) {
-			return true, fmt.Errorf("no tainer.yaml found in current directory.\n  Run 'tainer init' to create a project, or provide a project name.\n  Usage: tainer destroy [project-name] [--volumes]")
+			return true, fmt.Errorf("no tainer.yaml found in current directory.\n  Run 'tainer init' to create a project, or provide a project name.\n  Usage: tainer destroy [project-name] [--nuke]")
 		}
 		if ProjectDestroy != nil {
-			if err := ProjectDestroy(cwd, force, volumes); err != nil {
+			if err := ProjectDestroy(cwd, force, nuke); err != nil {
 				return true, err
 			}
 		}
@@ -114,7 +114,7 @@ func InterceptDestroy(cmd *cobra.Command, args []string) (bool, error) {
 		name := args[0]
 		if p, ok := registry.Get(name); ok {
 			if ProjectDestroy != nil {
-				if err := ProjectDestroy(p.Path, force, volumes); err != nil {
+				if err := ProjectDestroy(p.Path, force, nuke); err != nil {
 					return true, err
 				}
 			}
