@@ -80,8 +80,9 @@ if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
     fi
     if [ ! -f "$KEYS_DIR/sshpiper_host_ed25519" ]; then
         ssh-keygen -t ed25519 -f "$KEYS_DIR/sshpiper_host_ed25519" -N "" -q
-        chmod 644 "$KEYS_DIR/sshpiper_host_ed25519"
     fi
+    # sshpiper runs as non-root inside the container and needs to read the host key
+    chmod 644 "$KEYS_DIR/sshpiper_host_ed25519"
 
     chown -R "$REAL_USER" "$REAL_HOME/.config/tainer"
 
