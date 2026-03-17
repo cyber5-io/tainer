@@ -82,8 +82,15 @@ if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
 
     chown -R "$REAL_USER" "$REAL_HOME/.config/tainer"
 
+    # Clean up stale tainer machine from previous installs.
+    # Leftover connections cause "unable to connect to Podman socket" errors.
+    # Only remove tainer-specific machines — leave any podman machines untouched.
+    sudo -u "$REAL_USER" /opt/tainer/bin/tainer machine stop tainer-machine-default 2>/dev/null || :
+    sudo -u "$REAL_USER" /opt/tainer/bin/tainer machine rm -f tainer-machine-default 2>/dev/null || :
+    sudo -u "$REAL_USER" /opt/tainer/bin/tainer system connection rm tainer-machine-default 2>/dev/null || :
+    sudo -u "$REAL_USER" /opt/tainer/bin/tainer system connection rm tainer-machine-default-root 2>/dev/null || :
+
     # Initialize the Tainer machine with 1/4 of system memory.
-    # Other users get auto-initialized on first tainer command.
     MEM_BYTES=$(sysctl -n hw.memsize)
     MEM_MB=$(( MEM_BYTES / 1024 / 1024 / 4 ))
     # Floor at 4096 MB minimum for Next.js dev workloads

@@ -64,7 +64,7 @@ if [ -L /opt/podman/lib ]; then
     rmdir /opt/podman 2>/dev/null || :
 fi
 
-# --- 8. Remove user config ---
+# --- 8. Remove user config and container state ---
 
 if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
     REAL_HOME=$(dscl . -read "/Users/$REAL_USER" NFSHomeDirectory | awk '{print $2}')
@@ -72,6 +72,8 @@ if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
         echo "Removing user config at $REAL_HOME/.config/tainer..."
         rm -rf "$REAL_HOME/.config/tainer"
     fi
+    # Remove tainer machine state (leaves podman machines intact)
+    rm -rf "$REAL_HOME/.local/share/containers/podman/machine/tainer-machine-default" 2>/dev/null || :
 fi
 
 # --- 9. Remove /opt/tainer ---
