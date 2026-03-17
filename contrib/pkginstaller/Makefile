@@ -12,12 +12,12 @@ PACKAGE_DIR ?= out/packaging
 PACKAGE_ROOT ?= root
 PKG_NAME := tainer-installer-macos-$(GOARCH).pkg
 
+# Extract Tainer product version from rawversion/version.go
+TAINER_VERSION := $(shell grep 'const TainerVersion' ../../version/rawversion/version.go | sed 's/.*"\(.*\)"/\1/')
+
 default: pkginstaller
 
-tainer_version:
-	make -B -C ../../ test/version/version
-
-packagedir: tainer_version package_root Distribution welcome.html
+packagedir: package_root Distribution welcome.html
 	mkdir -p $(PACKAGE_DIR)
 	cp -r Resources $(PACKAGE_DIR)/
 	cp welcome.html $(PACKAGE_DIR)/Resources/
@@ -26,7 +26,7 @@ packagedir: tainer_version package_root Distribution welcome.html
 	cp -r $(PACKAGE_ROOT) $(PACKAGE_DIR)/
 	cp package.sh $(PACKAGE_DIR)/
 	cd $(PACKAGE_DIR) && pkgbuild --analyze --root ./root component.plist
-	../../test/version/version > $(PACKAGE_DIR)/VERSION
+	echo -n $(TAINER_VERSION) > $(PACKAGE_DIR)/VERSION
 	echo -n $(ARCH) > $(PACKAGE_DIR)/ARCH
 	cp ../../LICENSE $(PACKAGE_DIR)/Resources/LICENSE.txt
 	cp vfkit.entitlements $(PACKAGE_DIR)/
@@ -42,8 +42,8 @@ package_root: clean-pkgroot
 	cp scripts/uninstall.sh $(PACKAGE_ROOT)/tainer/bin/uninstall.sh
 	chmod a+x $(PACKAGE_ROOT)/tainer/bin/*
 
-%: %.in tainer_version
-	@sed -e 's/__VERSION__/'$(shell ../../test/version/version)'/g' $< >$@
+%: %.in
+	@sed -e 's/__VERSION__/$(TAINER_VERSION)/g' $< >$@
 
 pkginstaller: packagedir
 	cd $(PACKAGE_DIR) && ./package.sh ..
@@ -56,7 +56,7 @@ notarize: _notarize
 
 .PHONY: clean clean-pkgroot
 clean:
-	rm -rf $(PACKAGE_ROOT) $(PACKAGE_DIR) out Distribution welcome.html ../../test/version/version
+	rm -rf $(PACKAGE_ROOT) $(PACKAGE_DIR) out Distribution welcome.html
 
 clean-pkgroot:
 	rm -rf $(PACKAGE_ROOT) $(PACKAGE_DIR) Distribution welcome.html
