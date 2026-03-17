@@ -26,11 +26,55 @@ nameserver 127.0.0.1
 port 7753
 RESOLVER
 
-# Initialize the Tainer machine for the installing user.
-# Other users get auto-initialized on first tainer command.
+# Set up pf firewall redirect: port 22 -> 2222 on loopback.
+# Podman's gvproxy can't bind privileged ports on macOS, so we use pf to
+# let users SSH on the standard port 22.
+PF_ANCHOR="/etc/pf.anchors/tainer"
+PF_CONF="/etc/pf.conf"
+
+cat > "$PF_ANCHOR" <<'PFANCHOR'
+rdr pass on lo0 inet proto tcp from any to 127.0.0.1 port 22 -> 127.0.0.1 port 2222
+PFANCHOR
+
+if ! grep -q 'anchor "tainer"' "$PF_CONF" 2>/dev/null; then
+    # Backup original pf.conf before modifying
+    cp "$PF_CONF" "${PF_CONF}.tainer-backup"
+
+    # Insert rdr-anchor before the existing dummynet-anchor (or at end of anchors)
+    if grep -q 'dummynet-anchor' "$PF_CONF"; then
+        sed -i '' '/dummynet-anchor/i\
+rdr-anchor "tainer"
+' "$PF_CONF"
+    else
+        echo 'rdr-anchor "tainer"' >> "$PF_CONF"
+    fi
+
+    # Append load anchor at the end
+    echo 'load anchor "tainer" from "/etc/pf.anchors/tainer"' >> "$PF_CONF"
+fi
+
+pfctl -f "$PF_CONF" 2>/dev/null || :
+
+# Install templates to the installing user's config directory.
 REAL_USER=$(stat -f '%Su' /dev/console)
 if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
-    sudo -u "$REAL_USER" /opt/tainer/bin/tainer machine init || :
+    REAL_HOME=$(dscl . -read "/Users/$REAL_USER" NFSHomeDirectory | awk '{print $2}')
+    TEMPLATES_DEST="$REAL_HOME/.config/tainer/templates"
+
+    mkdir -p "$TEMPLATES_DEST"
+    cp -R /opt/tainer/templates/* "$TEMPLATES_DEST/"
+    chown -R "$REAL_USER" "$REAL_HOME/.config/tainer"
+
+    # Initialize the Tainer machine with 1/4 of system memory.
+    # Other users get auto-initialized on first tainer command.
+    MEM_BYTES=$(sysctl -n hw.memsize)
+    MEM_MB=$(( MEM_BYTES / 1024 / 1024 / 4 ))
+    # Floor at 4096 MB minimum for Next.js dev workloads
+    if [ "$MEM_MB" -lt 4096 ]; then
+        MEM_MB=4096
+    fi
+
+    sudo -u "$REAL_USER" /opt/tainer/bin/tainer machine init --memory "$MEM_MB" || :
     sudo -u "$REAL_USER" /opt/tainer/bin/tainer machine set --rootful || :
     sudo -u "$REAL_USER" /opt/tainer/bin/tainer machine start || :
 fi

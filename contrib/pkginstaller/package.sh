@@ -85,7 +85,7 @@ sign "${libDir}/libvirglrenderer.1.dylib"
 sign "${libDir}/libepoxy.0.dylib"
 sign "${libDir}/libMoltenVK.dylib"
 
-pkgbuild --identifier com.cyber5.tainer --version "${version}" \
+pkgbuild --identifier io.cyber5.tainer --version "${version}" \
   --scripts "${BASEDIR}/scripts" \
   --root "${BASEDIR}/root" \
   --install-location /opt \
