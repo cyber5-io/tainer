@@ -9,6 +9,7 @@ import (
 	"github.com/containers/podman/v6/cmd/podman/registry"
 	"github.com/containers/podman/v6/cmd/podman/validate"
 	"github.com/containers/podman/v6/pkg/domain/entities"
+	"github.com/containers/podman/v6/version/rawversion"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"go.podman.io/common/pkg/completion"
@@ -90,26 +91,25 @@ func version(cmd *cobra.Command, _ []string) error {
 	return rpt.Execute(versions)
 }
 
-const versionTemplate = `{{with .Client -}}
-Client:\tTainer Engine
+var versionTemplate = `Tainer:\t` + rawversion.TainerVersion + `
+{{with .Client}}
+Client:\tPodman Engine
 Version:\t{{.Version}}
 API Version:\t{{.APIVersion}}
 Go Version:\t{{.GoVersion}}
 {{if .GitCommit -}}Git Commit:\t{{.GitCommit}}\n{{end -}}
 Built:\t{{.BuiltTime}}
-{{if .BuildOrigin -}}Build Origin:\t{{.BuildOrigin}}\n{{end -}}
 OS/Arch:\t{{.OsArch}}
 {{- end}}
 
 {{- if .Server }}{{with .Server}}
 
-Server:\tTainer Engine
+Server:\tPodman Engine
 Version:\t{{.Version}}
 API Version:\t{{.APIVersion}}
 Go Version:\t{{.GoVersion}}
 {{if .GitCommit -}}Git Commit:\t{{.GitCommit}}\n{{end -}}
 Built:\t{{.BuiltTime}}
-{{if .BuildOrigin -}}Build Origin:\t{{.BuildOrigin}}\n{{end -}}
 OS/Arch:\t{{.OsArch}}
 {{- end}}{{- end}}
 `
