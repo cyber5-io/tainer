@@ -63,6 +63,26 @@ if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
 
     mkdir -p "$TEMPLATES_DEST"
     cp -R /opt/tainer/templates/* "$TEMPLATES_DEST/"
+
+    # Install TLS wildcard cert for *.tainer.me
+    CERTS_DIR="$REAL_HOME/.config/tainer/certs"
+    mkdir -p "$CERTS_DIR"
+    cp /opt/tainer/certs/tainer.me.crt "$CERTS_DIR/"
+    cp /opt/tainer/certs/tainer.me.key "$CERTS_DIR/"
+    chmod 644 "$CERTS_DIR/tainer.me.crt"
+    chmod 600 "$CERTS_DIR/tainer.me.key"
+
+    # Generate SSH keys for sshpiper and project containers.
+    KEYS_DIR="$REAL_HOME/.config/tainer/keys"
+    mkdir -p "$KEYS_DIR"
+    if [ ! -f "$KEYS_DIR/tainer_rsa" ]; then
+        ssh-keygen -t rsa -b 4096 -f "$KEYS_DIR/tainer_rsa" -N "" -q
+    fi
+    if [ ! -f "$KEYS_DIR/sshpiper_host_ed25519" ]; then
+        ssh-keygen -t ed25519 -f "$KEYS_DIR/sshpiper_host_ed25519" -N "" -q
+        chmod 644 "$KEYS_DIR/sshpiper_host_ed25519"
+    fi
+
     chown -R "$REAL_USER" "$REAL_HOME/.config/tainer"
 
     # Initialize the Tainer machine with 1/4 of system memory.

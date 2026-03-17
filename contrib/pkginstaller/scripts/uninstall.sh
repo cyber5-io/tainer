@@ -81,6 +81,7 @@ rm -rf /opt/tainer
 
 # --- 10. Forget the package receipt ---
 
-pkgutil --forget io.cyber5.tainer 2>/dev/null || :
+pkgutil --forget io.cyber5.tainer >/dev/null 2>&1 || :
+echo "Package receipt removed."
 
 echo "Tainer has been uninstalled."
