@@ -91,25 +91,11 @@ func version(cmd *cobra.Command, _ []string) error {
 	return rpt.Execute(versions)
 }
 
-var versionTemplate = `Tainer:\t` + rawversion.TainerVersion + `
-{{with .Client}}
-Client:\tPodman Engine
-Version:\t{{.Version}}
-API Version:\t{{.APIVersion}}
+var versionTemplate = `{{with .Client -}}
+Tainer:\t` + rawversion.TainerVersion + `
+Podman Engine:\t{{.Version}}
 Go Version:\t{{.GoVersion}}
-{{if .GitCommit -}}Git Commit:\t{{.GitCommit}}\n{{end -}}
 Built:\t{{.BuiltTime}}
 OS/Arch:\t{{.OsArch}}
 {{- end}}
-
-{{- if .Server }}{{with .Server}}
-
-Server:\tPodman Engine
-Version:\t{{.Version}}
-API Version:\t{{.APIVersion}}
-Go Version:\t{{.GoVersion}}
-{{if .GitCommit -}}Git Commit:\t{{.GitCommit}}\n{{end -}}
-Built:\t{{.BuiltTime}}
-OS/Arch:\t{{.OsArch}}
-{{- end}}{{- end}}
 `
