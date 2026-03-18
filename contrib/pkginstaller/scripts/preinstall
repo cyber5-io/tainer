@@ -15,13 +15,12 @@ if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
         sudo -u "$REAL_USER" podman machine stop 2>/dev/null || :
     fi
 
-    # Stop old tainer machine (works for both pre-0.1.8 and current)
+    # Stop and fully remove old tainer machine (works for both pre-0.1.8 and current).
+    # Must rm before removing connections — machine rm needs connections to exist.
     if [ -x /opt/tainer/bin/tainer ]; then
-        echo "Stopping tainer machine..."
+        echo "Removing tainer machine..."
         sudo -u "$REAL_USER" /opt/tainer/bin/tainer machine stop 2>/dev/null || :
-        # Remove stale connection entries that block fresh init
-        sudo -u "$REAL_USER" /opt/tainer/bin/tainer system connection rm tainer-machine-default 2>/dev/null || :
-        sudo -u "$REAL_USER" /opt/tainer/bin/tainer system connection rm tainer-machine-default-root 2>/dev/null || :
+        sudo -u "$REAL_USER" /opt/tainer/bin/tainer machine rm -f 2>/dev/null || :
     fi
 
     # Clean up old tainer machine state from podman paths (pre-0.1.8 leftovers)

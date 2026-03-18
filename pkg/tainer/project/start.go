@@ -12,6 +12,7 @@ import (
 	"github.com/containers/podman/v6/pkg/tainer/config"
 	"github.com/containers/podman/v6/pkg/tainer/dns"
 	"github.com/containers/podman/v6/pkg/tainer/identity"
+	"github.com/containers/podman/v6/pkg/tainer/machine"
 	"github.com/containers/podman/v6/pkg/tainer/manifest"
 	"github.com/containers/podman/v6/pkg/tainer/network"
 	projRegistry "github.com/containers/podman/v6/pkg/tainer/registry"
@@ -165,8 +166,13 @@ postStart:
 		fmt.Println("Pod is still running — SSH in to debug.")
 	}
 
-	// 15. Output
+	// 15. Check SSH connectivity and fix pf if needed
 	sshPort := router.SSHPort()
+	if sshPort == 22 && !machine.CheckSSH() {
+		fmt.Println("\nEnabling SSH port redirect (requires admin password)...")
+		machine.EnablePF()
+		sshPort = router.SSHPort()
+	}
 	portFlag := ""
 	if sshPort != 22 {
 		portFlag = fmt.Sprintf(" -p %d", sshPort)

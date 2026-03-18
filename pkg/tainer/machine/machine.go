@@ -2,10 +2,12 @@ package machine
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // IsInitialized checks if a tainer machine exists.
@@ -26,6 +28,34 @@ func IsRunning() bool {
 		return false
 	}
 	return strings.TrimSpace(string(output)) == "true"
+}
+
+// CheckSSH tests if the pf redirect from port 22 to 2222 is working.
+func CheckSSH() bool {
+	if runtime.GOOS != "darwin" {
+		return true
+	}
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:22", 1*time.Second)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+// EnablePF enables the macOS pf firewall and loads the tainer anchor.
+func EnablePF() {
+	enableCmd := exec.Command("sudo", "pfctl", "-e", "-q")
+	enableCmd.Stdin = os.Stdin
+	enableCmd.Stdout = os.Stdout
+	enableCmd.Stderr = os.Stderr
+	enableCmd.Run()
+
+	loadCmd := exec.Command("sudo", "pfctl", "-f", "/etc/pf.conf", "-q")
+	loadCmd.Stdin = os.Stdin
+	loadCmd.Stdout = os.Stdout
+	loadCmd.Stderr = os.Stderr
+	loadCmd.Run()
 }
 
 // EnsureRunning makes sure the machine is initialized and started.

@@ -53,6 +53,7 @@ rdr-anchor "tainer"
     echo 'load anchor "tainer" from "/etc/pf.anchors/tainer"' >> "$PF_CONF"
 fi
 
+pfctl -e 2>/dev/null || :
 pfctl -f "$PF_CONF" 2>/dev/null || :
 
 # Set up user config directory.
