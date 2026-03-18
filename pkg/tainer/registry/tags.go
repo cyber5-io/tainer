@@ -22,7 +22,8 @@ type tagList struct {
 // FetchTags queries the ghcr.io OCI registry for available tags of a given image.
 // Returns sorted version tags (filters out non-version tags like "latest").
 func FetchTags(image string) ([]string, error) {
-	url := fmt.Sprintf("%s/%s/%s/tags/list", registryBase, org, image)
+	fullImage := "tainer-" + image
+	url := fmt.Sprintf("%s/%s/%s/tags/list", registryBase, org, fullImage)
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(url)
@@ -32,8 +33,9 @@ func FetchTags(image string) ([]string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
 		// Try with token auth — ghcr.io requires a token even for public images
-		token, err := getAnonymousToken(image)
+		token, err := getAnonymousToken(fullImage)
 		if err != nil {
 			return nil, fmt.Errorf("getting registry token: %w", err)
 		}
