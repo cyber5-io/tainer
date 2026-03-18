@@ -3,24 +3,30 @@
 set -euxo pipefail
 
 BASEDIR=$(dirname "$0")
-OUTPUT=$1
+REPOROOT="${BASEDIR}/../.."
+OUTPUT=${1:-${BASEDIR}/out}
 CODESIGN_IDENTITY=${CODESIGN_IDENTITY:--}
 PRODUCTSIGN_IDENTITY=${PRODUCTSIGN_IDENTITY:-mock}
 NO_CODESIGN=${NO_CODESIGN:-0}
 HELPER_BINARIES_DIR="/opt/tainer/bin"
 BUILD_ORIGIN="pkginstaller"
 
-tmpBin="contrib/pkginstaller/tmp-bin"
+tmpBin="${BASEDIR}/tmp-bin"
 
 binDir="${BASEDIR}/root/tainer/bin"
 libDir="${BASEDIR}/root/tainer/lib"
 docDir="${BASEDIR}/root/tainer/docs/man/man1"
 
-version=$(cat "${BASEDIR}/VERSION")
-arch=$(cat "${BASEDIR}/ARCH")
+# Read version from source of truth
+version=$(grep 'const TainerVersion' "${REPOROOT}/version/rawversion/version.go" | sed 's/.*"\(.*\)".*/\1/')
+goArch=${ARCH:-arm64}
+
+# Generate Distribution and welcome.html from templates
+sed "s/__VERSION__/${version}/g" "${BASEDIR}/Distribution.in" > "${BASEDIR}/Distribution"
+sed "s/__VERSION__/${version}/g" "${BASEDIR}/welcome.html.in" > "${BASEDIR}/welcome.html"
 
 function build_tainer() {
-  pushd "$1"
+  pushd "${REPOROOT}"
 
   # Build docs if possible (requires GNU man/grep, skip on macOS)
   if make tainer-remote-darwin-docs 2>/dev/null; then
@@ -30,26 +36,13 @@ function build_tainer() {
     echo "Skipping man page generation (GNU tools not available)"
   fi
 
-  case ${goArch} in
-  arm64)
-    build_tainer_arch ${goArch}
-    cp "${tmpBin}/tainer-${goArch}"  "contrib/pkginstaller/out/packaging/${binDir}/tainer"
-    cp "${tmpBin}/tainer-mac-helper-${goArch}" "contrib/pkginstaller/out/packaging/${binDir}/tainer-mac-helper"
-    ;;
-  *)
-    echo -n "Unknown arch: ${goArch}"
-    ;;
-  esac
+  make -B GOARCH="${goArch}" tainer-remote HELPER_BINARIES_DIR="${HELPER_BINARIES_DIR}" BUILD_ORIGIN="${BUILD_ORIGIN}"
+  make -B GOARCH="${goArch}" tainer-mac-helper
+  mkdir -p "${tmpBin}"
+  cp bin/darwin/tainer "${tmpBin}/tainer-${goArch}"
+  cp bin/darwin/tainer-mac-helper "${tmpBin}/tainer-mac-helper-${goArch}"
 
   popd
-}
-
-function build_tainer_arch(){
-    make -B GOARCH="$1" tainer-remote HELPER_BINARIES_DIR="${HELPER_BINARIES_DIR}" BUILD_ORIGIN="${BUILD_ORIGIN}"
-    make -B GOARCH="$1" tainer-mac-helper
-    mkdir -p "${tmpBin}"
-    cp bin/darwin/tainer "${tmpBin}/tainer-$1"
-    cp bin/darwin/tainer-mac-helper "${tmpBin}/tainer-mac-helper-$1"
 }
 
 function sign() {
@@ -64,12 +57,11 @@ function sign() {
   codesign --deep --sign "${CODESIGN_IDENTITY}" --timestamp --force ${opts} "$1"
 }
 
-goArch="${arch}"
-if [ "${goArch}" = aarch64 ]; then
-  goArch=arm64
-fi
+build_tainer
 
-build_tainer "../../../../"
+# Copy built binaries into packaging root
+cp "${tmpBin}/tainer-${goArch}" "${binDir}/tainer"
+cp "${tmpBin}/tainer-mac-helper-${goArch}" "${binDir}/tainer-mac-helper"
 
 # krunkit has hardcoded rpath /opt/podman/lib — can't patch (packed __LINKEDIT).
 # Postinstall creates a symlink /opt/podman/lib -> /opt/tainer/lib as a workaround.
@@ -84,6 +76,9 @@ sign "${libDir}/libkrun-efi.dylib"
 sign "${libDir}/libvirglrenderer.1.dylib"
 sign "${libDir}/libepoxy.0.dylib"
 sign "${libDir}/libMoltenVK.dylib"
+
+# Generate component plist
+pkgbuild --analyze --root "${BASEDIR}/root" "${BASEDIR}/component.plist"
 
 pkgbuild --identifier io.cyber5.tainer --version "${version}" \
   --scripts "${BASEDIR}/scripts" \
@@ -103,3 +98,6 @@ if [ ! "${NO_CODESIGN}" -eq "1" ]; then
 else
   mv "${OUTPUT}/tainer-unsigned.pkg" "${OUTPUT}/tainer-installer-macos-${goArch}.pkg"
 fi
+rm -f "${OUTPUT}/tainer-unsigned.pkg"
+
+echo "Built: ${OUTPUT}/tainer-installer-macos-${goArch}.pkg (v${version})"
