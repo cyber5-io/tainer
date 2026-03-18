@@ -27,6 +27,7 @@ type localState struct {
 		Subnet string `yaml:"subnet"`
 		Name   string `yaml:"name"`
 	} `yaml:"network"`
+	ManifestHash string `yaml:"manifest_hash,omitempty"`
 }
 
 // Start executes the full tainer start flow for a project directory.
@@ -86,8 +87,11 @@ func Start(projectDir string) error {
 	}
 	netName := network.NetworkName(m.Project.Name)
 
-	// Save local state
+	// Read existing local state (preserves manifest_hash across restarts)
 	ls := localState{}
+	if data, err := os.ReadFile(filepath.Join(projectDir, ".tainer.local.yaml")); err == nil {
+		yaml.Unmarshal(data, &ls)
+	}
 	ls.Network.Subnet = subnet
 	ls.Network.Name = netName
 	lsData, _ := yaml.Marshal(ls)
@@ -100,28 +104,21 @@ func Start(projectDir string) error {
 		return err
 	}
 
-	// 9. Pull images
-	fmt.Println("Pulling images...")
-	if err := PullImages(m); err != nil {
-		return err
-	}
-
-	// 10. Create and start project pod
+	// 9. Check pod state and decide what to do
 	podName := fmt.Sprintf("tainer-%s", m.Project.Name)
+	currentHash := manifestHash(projectDir)
 	if isPodRunning(podName) {
 		fmt.Printf("%s is already running\n", m.Project.Name)
 		return nil
 	}
-	// If pod exists but is stopped, check if manifest changed since last start.
-	// Remove stale pod so containers are recreated with current settings.
+
 	if podExists(podName) {
 		storedManifest := getPodLabel(podName, "tainer.manifest-hash")
-		currentHash := manifestHash(projectDir)
 		if storedManifest != currentHash {
 			fmt.Println("Configuration changed, recreating containers...")
 			exec.Command("tainer", "pod", "rm", "-f", podName).CombinedOutput()
 		} else {
-			// No changes — just restart the existing pod
+			// No changes — just restart the existing pod, skip pull
 			fmt.Println("Starting pod...")
 			if output, err := exec.Command("tainer", "pod", "start", podName).CombinedOutput(); err != nil {
 				return fmt.Errorf("starting pod: %s", string(output))
@@ -129,6 +126,18 @@ func Start(projectDir string) error {
 			goto postStart
 		}
 	}
+
+	// 10. Pull images (only when config changed or first run)
+	if ls.ManifestHash != currentHash {
+		fmt.Println("Pulling images...")
+		if err := PullImages(m); err != nil {
+			return err
+		}
+		ls.ManifestHash = currentHash
+		lsData, _ = yaml.Marshal(ls)
+		os.WriteFile(filepath.Join(projectDir, ".tainer.local.yaml"), lsData, 0644)
+	}
+
 	if err := createProjectPod(m, podName, netName, projectDir, uid, gid); err != nil {
 		return err
 	}
