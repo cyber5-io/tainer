@@ -96,6 +96,14 @@ type RuntimeConfig struct {
 	Node     string       `yaml:"node,omitempty"`
 	Database DatabaseType `yaml:"database"`
 	Limits   PHPLimits    `yaml:"limits,omitempty"`
+	Shell    string       `yaml:"shell,omitempty"`
+}
+
+func (m *Manifest) ShellOrDefault() string {
+	if m.Runtime.Shell != "" {
+		return m.Runtime.Shell
+	}
+	return "zsh"
 }
 
 func (m *Manifest) IsPHP() bool {

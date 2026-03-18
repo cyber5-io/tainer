@@ -214,6 +214,7 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 
 	containerAppPath := m.ContainerAppPath()
 	envFlags := identity.EnvFlags(uid, gid)
+	shellEnv := []string{"-e", fmt.Sprintf("TAINER_SHELL=%s", m.ShellOrDefault())}
 
 	// Inject SSH public key into authorized_keys
 	pubKey, err := os.ReadFile(config.PublicKey())
@@ -249,6 +250,7 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 		mainArgs = append(mainArgs, certMount...)
 		mainArgs = append(mainArgs, envFile...)
 		mainArgs = append(mainArgs, envFlags...)
+		mainArgs = append(mainArgs, shellEnv...)
 		mainArgs = append(mainArgs, MainImage(m))
 		if output, err := exec.Command("tainer", mainArgs...).CombinedOutput(); err != nil {
 			return fmt.Errorf("starting main container: %s", string(output))
@@ -272,6 +274,7 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 		mainArgs = append(mainArgs, authKeyMount...)
 		mainArgs = append(mainArgs, envFile...)
 		mainArgs = append(mainArgs, envFlags...)
+		mainArgs = append(mainArgs, shellEnv...)
 		mainArgs = append(mainArgs, MainImage(m))
 		if output, err := exec.Command("tainer", mainArgs...).CombinedOutput(); err != nil {
 			return fmt.Errorf("starting Node container: %s", string(output))
