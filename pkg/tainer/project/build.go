@@ -5,6 +5,7 @@ import (
 	"os/exec"
 
 	"github.com/containers/podman/v6/pkg/tainer/manifest"
+	tainerRegistry "github.com/containers/podman/v6/pkg/tainer/registry"
 )
 
 const imageRegistry = "ghcr.io/cyber5-io/tainer"
@@ -75,7 +76,11 @@ func pullImage(image string) error {
 	cmd := exec.Command("tainer", "pull", image)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%s: %s", image, string(output))
+		if tainerRegistry.ImageExistsLocally(image) {
+			fmt.Printf("  Warning: could not reach registry (offline?), using cached %s\n", image)
+			return nil
+		}
+		return fmt.Errorf("%s is not available locally and registry is unreachable (offline?): %s", image, string(output))
 	}
 	return nil
 }

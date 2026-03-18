@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -66,6 +67,43 @@ func FetchTags(image string) ([]string, error) {
 	}
 	sort.Strings(versions)
 	return versions, nil
+}
+
+// LocalTags queries locally cached images for available version tags of a given image name.
+// For example, LocalTags("phpfpm") returns tags from cached "ghcr.io/cyber5-io/tainer-phpfpm:*" images.
+func LocalTags(image string) []string {
+	prefix := fmt.Sprintf("ghcr.io/%s/tainer-%s:", org, image)
+	cmd := exec.Command("tainer", "images", "--format", "{{.Repository}}:{{.Tag}}", "--noheading")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil
+	}
+
+	seen := make(map[string]bool)
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		tag := strings.TrimPrefix(line, prefix)
+		if tag == "latest" || tag == "<none>" || strings.Contains(tag, "-") {
+			continue
+		}
+		if len(tag) > 0 && tag[0] >= '0' && tag[0] <= '9' {
+			seen[tag] = true
+		}
+	}
+
+	var tags []string
+	for t := range seen {
+		tags = append(tags, t)
+	}
+	sort.Strings(tags)
+	return tags
+}
+
+// ImageExistsLocally returns true if the given image reference is available in local storage.
+func ImageExistsLocally(image string) bool {
+	return exec.Command("tainer", "image", "exists", image).Run() == nil
 }
 
 func getAnonymousToken(image string) (string, error) {
