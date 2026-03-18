@@ -83,6 +83,7 @@ func BuildManifest(name string, pt manifest.ProjectType, version string, db mani
 	} else {
 		m.Runtime.Node = version
 	}
+	m.Runtime.Shell = "zsh"
 	return m
 }
 
