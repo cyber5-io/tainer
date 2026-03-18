@@ -38,6 +38,8 @@ func Start(projectDir string) error {
 		return err
 	}
 
+	fmt.Printf("Starting %s...\n", m.Project.Name)
+
 	// 1b. Detect uid/gid for container injection
 	uid, gid, err := identity.Detect(projectDir)
 	if err != nil {
@@ -168,7 +170,7 @@ postStart:
 	}
 
 	// 14. Run post-deploy (idempotent)
-	fmt.Println("Running post-deploy checks...")
+	fmt.Println("Setting up...")
 	if err := runPostDeploy(m, podName); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: post-deploy failed: %v\n", err)
 		fmt.Println("Pod is still running — SSH in to debug.")

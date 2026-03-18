@@ -57,10 +57,8 @@ func EnsureRunning() error {
 		}
 	}
 
-	fmt.Println("Starting Tainer machine...")
+	fmt.Println("Starting Tainer...")
 	startCmd := exec.Command("tainer", "machine", "start")
-	startCmd.Stdout = os.Stdout
-	startCmd.Stderr = os.Stderr
 	if err := startCmd.Run(); err != nil {
 		return fmt.Errorf("machine start failed: %w", err)
 	}
