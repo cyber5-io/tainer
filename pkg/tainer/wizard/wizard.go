@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	phpVersions  = []string{"8.1", "8.2", "8.3", "8.4", "8.5"}
+	phpVersions  = []string{"7.4", "8.1", "8.2", "8.3", "8.4", "8.5"}
 	nodeVersions = []string{"20", "22", "24"}
 	projectTypes = []struct {
 		Type  manifest.ProjectType
