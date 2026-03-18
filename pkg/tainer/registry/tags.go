@@ -1,0 +1,89 @@
+package registry
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"sort"
+	"strings"
+	"time"
+)
+
+const (
+	registryBase = "https://ghcr.io/v2"
+	org          = "cyber5-io"
+)
+
+type tagList struct {
+	Tags []string `json:"tags"`
+}
+
+// FetchTags queries the ghcr.io OCI registry for available tags of a given image.
+// Returns sorted version tags (filters out non-version tags like "latest").
+func FetchTags(image string) ([]string, error) {
+	url := fmt.Sprintf("%s/%s/%s/tags/list", registryBase, org, image)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("querying registry: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		// Try with token auth — ghcr.io requires a token even for public images
+		token, err := getAnonymousToken(image)
+		if err != nil {
+			return nil, fmt.Errorf("getting registry token: %w", err)
+		}
+		req, _ := http.NewRequest("GET", url, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err = client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("querying registry with token: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("registry returned status %d", resp.StatusCode)
+		}
+	}
+
+	var tl tagList
+	if err := json.NewDecoder(resp.Body).Decode(&tl); err != nil {
+		return nil, fmt.Errorf("decoding tags: %w", err)
+	}
+
+	// Filter to version-like tags only (e.g., "8.1", "8.2", "22", "7.4")
+	var versions []string
+	for _, tag := range tl.Tags {
+		if tag == "latest" || strings.Contains(tag, "-") {
+			continue
+		}
+		// Must start with a digit
+		if len(tag) > 0 && tag[0] >= '0' && tag[0] <= '9' {
+			versions = append(versions, tag)
+		}
+	}
+	sort.Strings(versions)
+	return versions, nil
+}
+
+func getAnonymousToken(image string) (string, error) {
+	scope := fmt.Sprintf("repository:%s/%s:pull", org, image)
+	url := fmt.Sprintf("https://ghcr.io/token?scope=%s&service=ghcr.io", scope)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+	return result.Token, nil
+}

@@ -14,9 +14,9 @@ import (
 )
 
 var (
-	phpVersions  = []string{"8.1", "8.2", "8.3", "8.4", "8.5"}
-	nodeVersions = []string{"20", "22", "24"}
-	projectTypes = []struct {
+	defaultPHPVersions  = []string{"8.1", "8.2", "8.3", "8.4", "8.5"}
+	defaultNodeVersions = []string{"20", "22", "24"}
+	projectTypes        = []struct {
 		Type  manifest.ProjectType
 		Label string
 	}{
@@ -28,6 +28,22 @@ var (
 		{manifest.TypeKompozi, "Kompozi"},
 	}
 )
+
+func phpVersions() []string {
+	tags, err := registry.FetchTags("phpfpm")
+	if err != nil || len(tags) == 0 {
+		return defaultPHPVersions
+	}
+	return tags
+}
+
+func nodeVersions() []string {
+	tags, err := registry.FetchTags("node")
+	if err != nil || len(tags) == 0 {
+		return defaultNodeVersions
+	}
+	return tags
+}
 
 func DefaultDatabase(pt manifest.ProjectType) manifest.DatabaseType {
 	switch pt {
@@ -101,9 +117,9 @@ func Run(cwd string) error {
 	// Runtime version
 	var version string
 	if selectedType == manifest.TypeWordPress || selectedType == manifest.TypePHP {
-		version, err = promptChoice(reader, "PHP version", phpVersions, DefaultPHPVersion())
+		version, err = promptChoice(reader, "PHP version", phpVersions(), DefaultPHPVersion())
 	} else {
-		version, err = promptChoice(reader, "Node version", nodeVersions, DefaultNodeVersion())
+		version, err = promptChoice(reader, "Node version", nodeVersions(), DefaultNodeVersion())
 	}
 	if err != nil {
 		return err
