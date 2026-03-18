@@ -73,7 +73,8 @@ if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
         rm -rf "$REAL_HOME/.config/tainer"
     fi
     # Remove tainer machine state (leaves podman machines intact)
-    rm -rf "$REAL_HOME/.local/share/containers/podman/machine/tainer-machine-default" 2>/dev/null || :
+    rm -rf "$REAL_HOME/.local/share/containers/tainer" 2>/dev/null || :
+    rm -rf "$REAL_HOME/.config/containers/tainer" 2>/dev/null || :
 fi
 
 # --- 9. Remove /opt/tainer ---

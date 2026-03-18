@@ -20,7 +20,7 @@ func dockerClaimHelperInstalled() bool {
 		return false
 	}
 
-	labelName := fmt.Sprintf("com.github.containers.podman.helper-%s", u.Username)
+	labelName := fmt.Sprintf("com.github.containers.tainer.helper-%s", u.Username)
 	fileName := filepath.Join("/Library", "LaunchDaemons", labelName+".plist")
 	info, err := os.Stat(fileName)
 	return err == nil && info.Mode().IsRegular()
@@ -32,7 +32,7 @@ func claimDockerSock() bool {
 		return false
 	}
 
-	helperSock := fmt.Sprintf("/var/run/podman-helper-%s.socket", u.Username)
+	helperSock := fmt.Sprintf("/var/run/tainer-helper-%s.socket", u.Username)
 	con, err := net.DialTimeout("unix", helperSock, time.Second*5)
 	if err != nil {
 		return false
@@ -59,5 +59,5 @@ func findClaimHelper() string {
 		return ""
 	}
 
-	return filepath.Join(filepath.Dir(exe), "podman-mac-helper")
+	return filepath.Join(filepath.Dir(exe), "tainer-mac-helper")
 }

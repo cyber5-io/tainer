@@ -28,7 +28,7 @@ const launchConfig = `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.github.containers.podman.helper-{{.User}}</string>
+	<string>com.github.containers.tainer.helper-{{.User}}</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>{{.Program}}</string>
@@ -49,7 +49,7 @@ const launchConfig = `<?xml version="1.0" encoding="UTF-8"?>
 			<key>SockFamily</key>
 			<string>Unix</string>
 			<key>SockPathName</key>
-			<string>/private/var/run/podman-helper-{{.User}}.socket</string>
+			<string>/private/var/run/tainer-helper-{{.User}}.socket</string>
 			<key>SockPathOwner</key>
 			<integer>{{.UID}}</integer>
 			<key>SockPathMode</key>
@@ -89,7 +89,7 @@ func install(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
-	labelName := fmt.Sprintf("com.github.containers.podman.helper-%s.plist", userName)
+	labelName := fmt.Sprintf("com.github.containers.tainer.helper-%s.plist", userName)
 	fileName := filepath.Join("/Library", "LaunchDaemons", labelName)
 
 	if err := fileutils.Exists(fileName); err == nil || !errors.Is(err, fs.ErrNotExist) {
@@ -102,7 +102,7 @@ func install(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
-	target := filepath.Join(homeDir, ".local", "share", "containers", "podman", "machine", "podman.sock")
+	target := filepath.Join(homeDir, ".local", "share", "containers", "tainer", "machine", "tainer.sock")
 	var buf bytes.Buffer
 	t := template.Must(template.New("launchdConfig").Parse(launchConfig))
 	err = t.Execute(&buf, launchParams{prog, userName, uid, target})
@@ -205,7 +205,7 @@ func installExecutable(user string) (string, error) {
 		return "", err
 	}
 
-	targetDir := filepath.Join(installPrefix, "podman", "helper", user)
+	targetDir := filepath.Join(installPrefix, "tainer", "helper", user)
 	if err := os.MkdirAll(targetDir, mode755); err != nil {
 		return "", fmt.Errorf("could not create helper directory structure: %w", err)
 	}

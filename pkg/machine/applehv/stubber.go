@@ -37,7 +37,7 @@ func (a *AppleHVStubber) UseProviderNetworkSetup() bool {
 }
 
 func (a *AppleHVStubber) RequireExclusiveActive() bool {
-	return true
+	return false
 }
 
 func (a *AppleHVStubber) CreateVM(opts define.CreateVMOpts, mc *vmconfigs.MachineConfig, ignBuilder *ignition.IgnitionBuilder) error {

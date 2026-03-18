@@ -159,8 +159,8 @@ func resolveAPIURI(uri []string) (string, error) {
 			return "", err
 		}
 
-		socketName := "podman.sock"
-		socketPath := filepath.Join(xdg, "podman", socketName)
+		socketName := "tainer.sock"
+		socketPath := filepath.Join(xdg, "tainer", socketName)
 		if err := os.MkdirAll(filepath.Dir(socketPath), 0o700); err != nil {
 			return "", err
 		}

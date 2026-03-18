@@ -2,6 +2,34 @@
 
 set -e
 
+REAL_USER=$(stat -f '%Su' /dev/console)
+
+# --- Stop running machines before replacing binaries ---
+# Only one VM can be active at a time (applehv provider limitation).
+# The OLD binary is still in place here, so it can find and stop
+# machines on whatever paths it was built for.
+if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
+    # Stop podman's machine if podman is installed
+    if command -v podman &>/dev/null; then
+        echo "Stopping podman machine..."
+        sudo -u "$REAL_USER" podman machine stop 2>/dev/null || :
+    fi
+
+    # Stop old tainer machine (works for both pre-0.1.8 and current)
+    if [ -x /opt/tainer/bin/tainer ]; then
+        echo "Stopping tainer machine..."
+        sudo -u "$REAL_USER" /opt/tainer/bin/tainer machine stop 2>/dev/null || :
+        # Remove stale connection entries that block fresh init
+        sudo -u "$REAL_USER" /opt/tainer/bin/tainer system connection rm tainer-machine-default 2>/dev/null || :
+        sudo -u "$REAL_USER" /opt/tainer/bin/tainer system connection rm tainer-machine-default-root 2>/dev/null || :
+    fi
+
+    # Clean up old tainer machine state from podman paths (pre-0.1.8 leftovers)
+    REAL_HOME=$(dscl . -read "/Users/$REAL_USER" NFSHomeDirectory | awk '{print $2}')
+    rm -rf "$REAL_HOME/.local/share/containers/podman/machine/applehv/tainer-machine-default" 2>/dev/null || :
+    rm -rf "$REAL_HOME/.config/containers/podman/machine/applehv/tainer-machine-default" 2>/dev/null || :
+fi
+
 rm -rf /opt/tainer
 
 if [ ! -d "/etc/paths.d" ]; then

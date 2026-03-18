@@ -92,7 +92,7 @@ func DefaultAPIAddress() string {
 			logrus.Warnf("Failed to get rootless runtime dir for DefaultAPIAddress: %s", err)
 			return DefaultRootAPIAddress
 		}
-		return "unix://" + filepath.Join(xdg, "podman", "podman.sock")
+		return "unix://" + filepath.Join(xdg, "tainer", "tainer.sock")
 	}
 	return DefaultRootAPIAddress
 }

@@ -63,7 +63,7 @@ func setupForwardingLinks(hostSocket, dataDir *define.VMFile) (string, machine.A
 	}
 
 	dataPath := filepath.Dir(dataDir.GetPath())
-	userGlobalSocket, err := define.NewMachineFile(filepath.Join(dataPath, "podman.sock"), nil)
+	userGlobalSocket, err := define.NewMachineFile(filepath.Join(dataPath, "tainer.sock"), nil)
 	if err != nil {
 		return "", 0, err
 	}

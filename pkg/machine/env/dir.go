@@ -43,7 +43,7 @@ func GetMachineDirs(vmType define.VMType) (*define.MachineDirs, error) {
 		return nil, err
 	}
 
-	rtDir = filepath.Join(rtDir, "podman")
+	rtDir = filepath.Join(rtDir, "tainer")
 	configDir, err := GetConfDir(vmType)
 	if err != nil {
 		return nil, err
@@ -101,7 +101,7 @@ func DataDirPrefix() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dataDir := filepath.Join(data, "containers", "podman", "machine")
+	dataDir := filepath.Join(data, "containers", "tainer", "machine")
 	return dataDir, nil
 }
 
@@ -126,7 +126,7 @@ func ConfDirPrefix() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	confDir := filepath.Join(conf, "containers", "podman", "machine")
+	confDir := filepath.Join(conf, "containers", "tainer", "machine")
 	return confDir, nil
 }
 
@@ -139,9 +139,15 @@ func GetSSHIdentityPath(name string) (string, error) {
 	return filepath.Join(datadir, name), nil
 }
 
-func WithPodmanPrefix(name string) string {
-	if !strings.HasPrefix(name, "podman") {
-		name = "podman-" + name
+func WithTainerPrefix(name string) string {
+	if !strings.HasPrefix(name, "tainer") {
+		name = "tainer-" + name
 	}
 	return name
+}
+
+// WithPodmanPrefix is kept for backward compatibility.
+// Deprecated: Use WithTainerPrefix instead.
+func WithPodmanPrefix(name string) string {
+	return WithTainerPrefix(name)
 }

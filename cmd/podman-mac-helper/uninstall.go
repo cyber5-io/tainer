@@ -33,7 +33,7 @@ func uninstall(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
-	labelName := fmt.Sprintf("com.github.containers.podman.helper-%s", userName)
+	labelName := fmt.Sprintf("com.github.containers.tainer.helper-%s", userName)
 	fileName := filepath.Join("/Library", "LaunchDaemons", labelName+".plist")
 
 	if err = runDetectErr("launchctl", "unload", fileName); err != nil {
@@ -53,7 +53,7 @@ func uninstall(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	helperPath := filepath.Join(installPrefix, "podman", "helper", userName)
+	helperPath := filepath.Join(installPrefix, "tainer", "helper", userName)
 	if err := os.RemoveAll(helperPath); err != nil {
 		return fmt.Errorf("could not remove helper binary path: %s", helperPath)
 	}
@@ -72,7 +72,7 @@ func uninstall(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("could not read dockerSock symlink: %v", err)
 	} else {
 		// Check if the target of the symlink matches the expected target
-		expectedTarget := filepath.Join(homeDir, ".local", "share", "containers", "podman", "machine", "podman.sock")
+		expectedTarget := filepath.Join(homeDir, ".local", "share", "containers", "tainer", "machine", "tainer.sock")
 		if target != expectedTarget {
 			// If the targets do not match, print the information and return with nothing left to do
 			fmt.Printf("dockerSock does not point to the expected target: %v\n", target)

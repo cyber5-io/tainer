@@ -3,4 +3,4 @@
 package registry
 
 // DefaultRootAPIPath is the default path of the REST socket
-const DefaultRootAPIPath = "/run/podman/podman.sock"
+const DefaultRootAPIPath = "/run/tainer/tainer.sock"

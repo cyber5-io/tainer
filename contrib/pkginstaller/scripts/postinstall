@@ -82,13 +82,6 @@ if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
 
     chown -R "$REAL_USER" "$REAL_HOME/.config/tainer"
 
-    # Nuke all container/machine state from previous tainer or podman installs.
-    # Corrupted state, stale connections, or leftover VMs prevent clean init.
-    # CLI commands (machine rm, system connection rm) fail on corrupt state,
-    # so we delete the files directly.
-    rm -rf "$REAL_HOME/.local/share/containers/podman" 2>/dev/null || :
-    rm -rf "$REAL_HOME/.config/containers/podman" 2>/dev/null || :
-
     # Initialize the Tainer machine with 1/4 of system memory.
     MEM_BYTES=$(sysctl -n hw.memsize)
     MEM_MB=$(( MEM_BYTES / 1024 / 1024 / 4 ))
