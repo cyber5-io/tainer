@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 80">
+  <defs>
+    <style>@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;700');</style>
+  </defs>
+
+  <rect x="4" y="6" width="32" height="68" rx="5" fill="rgba(78,158,244,0.14)"/>
+  <rect x="64" y="6" width="32" height="68" rx="5" fill="rgba(255,107,53,0.14)"/>
+  <path d="M30,6 L8,6 L8,74 L30,74"   fill="none" stroke="#4E9EF4" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M70,6 L92,6 L92,74 L70,74" fill="none" stroke="#FF6B35" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="32" y1="30" x2="68" y2="30" stroke="#00D4AA" stroke-width="7" stroke-linecap="round"/>
+  <line x1="32" y1="50" x2="68" y2="50" stroke="#00D4AA" stroke-width="7" stroke-linecap="round"/>
+  <text x="112" y="46" font-family="'JetBrains Mono',monospace" font-weight="700" font-size="30" fill="#DCE6F8" letter-spacing="-1.2">tainer</text>
+  <text x="224" y="46" font-family="'JetBrains Mono',monospace" font-weight="300" font-size="30" fill="#00D4AA" letter-spacing="-1.2">.dev/</text>
+</svg>
