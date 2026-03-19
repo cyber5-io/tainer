@@ -3,6 +3,7 @@ package tainer
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/containers/podman/v6/cmd/podman/registry"
 	"github.com/containers/podman/v6/pkg/tainer/config"
@@ -66,11 +67,12 @@ var configRestoreCmd = &cobra.Command{
 			return fmt.Errorf("no backup found for project '%s'", projectName)
 		}
 
-		if err := config.Restore(projectName, cwd); err != nil {
+		restored, err := config.Restore(projectName, cwd)
+		if err != nil {
 			return fmt.Errorf("restore failed: %w", err)
 		}
 
-		fmt.Printf("Restored config for '%s'\n", projectName)
+		fmt.Printf("Restored config for '%s': %s\n", projectName, strings.Join(restored, ", "))
 		return nil
 	},
 }

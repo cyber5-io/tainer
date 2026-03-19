@@ -180,17 +180,24 @@ func interceptProjectCommand(cmd *cobra.Command, args []string, action string) (
 		if !manifest.Exists(cwd) {
 			// Check if a backup exists for this directory and offer to restore
 			if projectName, ok := config.FindBackupForPath(cwd); ok {
-				fmt.Printf("Found backup for project '%s'. Restore? (y/n) ", projectName)
-				reader := bufio.NewReader(os.Stdin)
-				answer, _ := reader.ReadString('\n')
-				answer = strings.TrimSpace(strings.ToLower(answer))
-				if answer == "y" || answer == "yes" {
-					if err := config.Restore(projectName, cwd); err != nil {
-						return true, fmt.Errorf("restoring backup: %w", err)
+				missing := config.MissingWithBackup(projectName, cwd)
+				if len(missing) > 0 {
+					fmt.Printf("Missing config files: %s\n", strings.Join(missing, ", "))
+					fmt.Print("Restore from backup? (y/n) ")
+					reader := bufio.NewReader(os.Stdin)
+					answer, _ := reader.ReadString('\n')
+					answer = strings.TrimSpace(strings.ToLower(answer))
+					if answer == "y" || answer == "yes" {
+						restored, err := config.RestoreFiles(projectName, cwd, missing)
+						if err != nil {
+							return true, fmt.Errorf("restoring backup: %w", err)
+						}
+						for _, name := range restored {
+							fmt.Printf("  Restored %s\n", name)
+						}
+					} else {
+						return true, fmt.Errorf("no tainer.yaml found in current directory.\n  Run 'tainer init' to create a project, or provide a project/container name.\n  Usage: tainer %s [project-name|container-name]", action)
 					}
-					fmt.Println("Config restored from backup.")
-				} else {
-					return true, fmt.Errorf("no tainer.yaml found in current directory.\n  Run 'tainer init' to create a project, or provide a project/container name.\n  Usage: tainer %s [project-name|container-name]", action)
 				}
 			} else {
 				return true, fmt.Errorf("no tainer.yaml found in current directory.\n  Run 'tainer init' to create a project, or provide a project/container name.\n  Usage: tainer %s [project-name|container-name]", action)

@@ -25,7 +25,15 @@ type BackupMetadata struct {
 	BackedUp string `json:"backed_up"`
 }
 
-// Backup copies tainer.yaml and .env from projectDir into the backup location
+// configFiles lists all project config files to back up.
+var configFiles = []string{
+	"tainer.yaml",
+	".env",
+	".tainer-authorized_keys",
+	".tainer.local.yaml",
+}
+
+// Backup copies project config files from projectDir into the backup location
 // for the given project name. It overwrites any previous backup.
 func Backup(projectName, projectDir string) error {
 	backupDir := BackupProjectDir(projectName)
@@ -33,17 +41,19 @@ func Backup(projectName, projectDir string) error {
 		return fmt.Errorf("creating backup directory: %w", err)
 	}
 
-	// Copy tainer.yaml
+	// tainer.yaml is required
 	yamlSrc := filepath.Join(projectDir, "tainer.yaml")
 	if err := copyFile(yamlSrc, filepath.Join(backupDir, "tainer.yaml")); err != nil {
 		return fmt.Errorf("backing up tainer.yaml: %w", err)
 	}
 
-	// Copy .env (optional — not all projects have one)
-	envSrc := filepath.Join(projectDir, ".env")
-	if _, err := os.Stat(envSrc); err == nil {
-		if err := copyFile(envSrc, filepath.Join(backupDir, ".env")); err != nil {
-			return fmt.Errorf("backing up .env: %w", err)
+	// Back up optional config files
+	for _, name := range configFiles[1:] {
+		src := filepath.Join(projectDir, name)
+		if _, err := os.Stat(src); err == nil {
+			if err := copyFile(src, filepath.Join(backupDir, name)); err != nil {
+				return fmt.Errorf("backing up %s: %w", name, err)
+			}
 		}
 	}
 
@@ -64,27 +74,72 @@ func Backup(projectName, projectDir string) error {
 	return nil
 }
 
-// Restore copies backed-up tainer.yaml and .env back into projectDir.
-func Restore(projectName, projectDir string) error {
+// Restore copies all backed-up config files back into projectDir.
+// Returns the list of files that were restored.
+func Restore(projectName, projectDir string) ([]string, error) {
 	backupDir := BackupProjectDir(projectName)
 
 	yamlSrc := filepath.Join(backupDir, "tainer.yaml")
 	if _, err := os.Stat(yamlSrc); err != nil {
-		return fmt.Errorf("no backup found for project %q", projectName)
+		return nil, fmt.Errorf("no backup found for project %q", projectName)
 	}
 
-	if err := copyFile(yamlSrc, filepath.Join(projectDir, "tainer.yaml")); err != nil {
-		return fmt.Errorf("restoring tainer.yaml: %w", err)
-	}
-
-	envSrc := filepath.Join(backupDir, ".env")
-	if _, err := os.Stat(envSrc); err == nil {
-		if err := copyFile(envSrc, filepath.Join(projectDir, ".env")); err != nil {
-			return fmt.Errorf("restoring .env: %w", err)
+	var restored []string
+	for _, name := range configFiles {
+		src := filepath.Join(backupDir, name)
+		if _, err := os.Stat(src); err == nil {
+			if err := copyFile(src, filepath.Join(projectDir, name)); err != nil {
+				return restored, fmt.Errorf("restoring %s: %w", name, err)
+			}
+			restored = append(restored, name)
 		}
 	}
 
-	return nil
+	return restored, nil
+}
+
+// RestoreFiles copies only the specified files from backup into projectDir.
+func RestoreFiles(projectName, projectDir string, files []string) ([]string, error) {
+	backupDir := BackupProjectDir(projectName)
+	var restored []string
+	for _, name := range files {
+		src := filepath.Join(backupDir, name)
+		if _, err := os.Stat(src); err == nil {
+			if err := copyFile(src, filepath.Join(projectDir, name)); err != nil {
+				return restored, fmt.Errorf("restoring %s: %w", name, err)
+			}
+			restored = append(restored, name)
+		}
+	}
+	return restored, nil
+}
+
+// MissingWithBackup returns config files that are missing from projectDir but exist in backup.
+func MissingWithBackup(projectName, projectDir string) []string {
+	backupDir := BackupProjectDir(projectName)
+	var missing []string
+	for _, name := range configFiles {
+		projPath := filepath.Join(projectDir, name)
+		backupPath := filepath.Join(backupDir, name)
+		if _, err := os.Stat(projPath); os.IsNotExist(err) {
+			if _, err := os.Stat(backupPath); err == nil {
+				missing = append(missing, name)
+			}
+		}
+	}
+	return missing
+}
+
+// BackedUpFiles returns which config files exist in the backup for a project.
+func BackedUpFiles(projectName string) []string {
+	backupDir := BackupProjectDir(projectName)
+	var files []string
+	for _, name := range configFiles {
+		if _, err := os.Stat(filepath.Join(backupDir, name)); err == nil {
+			files = append(files, name)
+		}
+	}
+	return files
 }
 
 // BackupExists checks whether a backup exists for the given project name.

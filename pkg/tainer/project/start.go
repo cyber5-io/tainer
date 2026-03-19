@@ -1,6 +1,7 @@
 package project
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -40,6 +41,9 @@ func Start(projectDir string) error {
 	}
 
 	fmt.Printf("Starting %s...\n", m.Project.Name)
+
+	// 1a. Restore missing config files from backup
+	restoreMissingConfigs(m.Project.Name, projectDir)
 
 	// 1b. Detect uid/gid for container injection
 	uid, gid, err := identity.Detect(projectDir)
@@ -400,6 +404,34 @@ func manifestHash(projectDir string) string {
 	}
 	h := sha256.Sum256(data)
 	return hex.EncodeToString(h[:8])
+}
+
+// restoreMissingConfigs checks for missing .env or .tainer.local.yaml and
+// offers to restore them from backup. Skips tainer.yaml since that's handled
+// by the intercept layer before Start() is called.
+func restoreMissingConfigs(projectName, projectDir string) {
+	if !config.BackupExists(projectName) {
+		return
+	}
+	// MissingWithBackup checks all config files, but tainer.yaml is already
+	// guaranteed to exist at this point (intercept handles that case).
+	missing := config.MissingWithBackup(projectName, projectDir)
+	if len(missing) == 0 {
+		return
+	}
+
+	fmt.Printf("Missing config files: %s\n", strings.Join(missing, ", "))
+	fmt.Print("Restore from backup? (y/n) ")
+	reader := bufio.NewReader(os.Stdin)
+	answer, _ := reader.ReadString('\n')
+	answer = strings.TrimSpace(strings.ToLower(answer))
+	if answer != "y" && answer != "yes" {
+		return
+	}
+	restored, _ := config.RestoreFiles(projectName, projectDir, missing)
+	for _, name := range restored {
+		fmt.Printf("  Restored %s\n", name)
+	}
 }
 
 func runPostDeploy(m *manifest.Manifest, podName string) error {
