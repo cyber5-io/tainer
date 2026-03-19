@@ -2,6 +2,7 @@ package update
 
 import (
 	"archive/zip"
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,25 +13,30 @@ import (
 	"time"
 
 	"github.com/containers/podman/v6/pkg/tainer/config"
+	"github.com/containers/podman/v6/pkg/tainer/manifest"
+	"github.com/containers/podman/v6/pkg/tainer/project"
+	tainerRegistry "github.com/containers/podman/v6/pkg/tainer/registry"
 	"github.com/containers/podman/v6/pkg/tainer/tls"
 )
 
 const (
-	ghReleasesAPI  = "https://api.github.com/repos/cyber5-io/tainer/releases/latest"
+	ghReleasesAPI   = "https://api.github.com/repos/cyber5-io/tainer/releases/latest"
 	maxDownloadSize = 100 * 1024 * 1024 // 100 MB
 )
 
 var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 type githubRelease struct {
-	Assets []struct {
+	TagName string `json:"tag_name"`
+	Assets  []struct {
 		Name               string `json:"name"`
 		BrowserDownloadURL string `json:"browser_download_url"`
 	} `json:"assets"`
 }
 
-// Run downloads the latest templates and TLS cert from GitHub Releases.
-func Run() error {
+// RunTemplates downloads the latest templates and TLS cert from GitHub Releases.
+// This is the original update behavior (templates + TLS).
+func RunTemplates() error {
 	fmt.Println("Checking for updates...")
 
 	release, err := getLatestRelease()
@@ -57,6 +63,72 @@ func Run() error {
 			fmt.Fprintf(os.Stderr, "Warning: could not update TLS cert: %v\n", err)
 		} else {
 			fmt.Println("TLS certificate updated")
+		}
+	}
+
+	return nil
+}
+
+// RunImages pulls latest images for a project.
+// If projectName is empty, it attempts to detect the project from the current directory.
+func RunImages(projectName string) error {
+	var projectDir string
+
+	if projectName == "" {
+		// Detect from current directory
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("getting working directory: %w", err)
+		}
+
+		if !manifest.Exists(cwd) {
+			fmt.Println("Not in a Tainer project directory.")
+			fmt.Println()
+			fmt.Println("Usage:")
+			fmt.Println("  tainer update            Pull latest images for the current project directory")
+			fmt.Println("  tainer update <name>     Pull latest images for a named project")
+			fmt.Println("  tainer update core       Self-update the tainer binary from GitHub Releases")
+			return nil
+		}
+		projectDir = cwd
+		name, found := tainerRegistry.FindByPath(cwd)
+		if found {
+			projectName = name
+		}
+	} else {
+		// Look up named project in registry
+		p, ok := tainerRegistry.Get(projectName)
+		if !ok {
+			return fmt.Errorf("project %q not found in registry — start it first with 'tainer start'", projectName)
+		}
+		projectDir = p.Path
+	}
+
+	// Load manifest
+	m, err := manifest.LoadFromDir(projectDir)
+	if err != nil {
+		return fmt.Errorf("loading manifest: %w", err)
+	}
+
+	if projectName == "" {
+		projectName = m.Project.Name
+	}
+
+	fmt.Printf("Pulling latest images for %s...\n", projectName)
+	if err := project.PullImages(m); err != nil {
+		return fmt.Errorf("pulling images: %w", err)
+	}
+	fmt.Println("Images updated")
+
+	// Check if pod is running
+	podName := fmt.Sprintf("tainer-%s", projectName)
+	if project.IsPodRunning(podName) {
+		fmt.Print("Images updated. Restart to apply? (y/n) ")
+		reader := bufio.NewReader(os.Stdin)
+		answer, _ := reader.ReadString('\n')
+		answer = strings.TrimSpace(strings.ToLower(answer))
+		if answer == "y" || answer == "yes" {
+			fmt.Println("Restart the project with: tainer restart")
 		}
 	}
 

@@ -110,7 +110,7 @@ func Start(projectDir string) error {
 	// 9. Check pod state and decide what to do
 	podName := fmt.Sprintf("tainer-%s", m.Project.Name)
 	currentHash := manifestHash(projectDir)
-	if isPodRunning(podName) {
+	if IsPodRunning(podName) {
 		fmt.Printf("%s is already running\n", m.Project.Name)
 		return nil
 	}
@@ -348,7 +348,8 @@ func mainContainerName(m *manifest.Manifest, podName string) string {
 	return podName + "-node-ct"
 }
 
-func isPodRunning(podName string) bool {
+// IsPodRunning returns true if the named pod is in Running state.
+func IsPodRunning(podName string) bool {
 	cmd := exec.Command("tainer", "pod", "inspect", "--format", "{{.State}}", podName)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
