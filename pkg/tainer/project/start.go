@@ -197,6 +197,11 @@ postStart:
 		openURL(fmt.Sprintf("https://%s", m.Project.Domain))
 	}
 
+	// Auto-backup config files on successful start
+	if err := config.Backup(m.Project.Name, projectDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: config backup failed: %v\n", err)
+	}
+
 	return nil
 }
 

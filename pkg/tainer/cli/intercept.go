@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/containers/podman/v6/pkg/tainer/config"
 	"github.com/containers/podman/v6/pkg/tainer/machine"
 	"github.com/containers/podman/v6/pkg/tainer/manifest"
 	"github.com/containers/podman/v6/pkg/tainer/project"
@@ -175,7 +178,23 @@ func interceptProjectCommand(cmd *cobra.Command, args []string, action string) (
 	// No args: check for tainer.yaml in cwd
 	if len(args) == 0 && cmd.Flags().NFlag() == 0 {
 		if !manifest.Exists(cwd) {
-			return true, fmt.Errorf("no tainer.yaml found in current directory.\n  Run 'tainer init' to create a project, or provide a project/container name.\n  Usage: tainer %s [project-name|container-name]", action)
+			// Check if a backup exists for this directory and offer to restore
+			if projectName, ok := config.FindBackupForPath(cwd); ok {
+				fmt.Printf("Found backup for project '%s'. Restore? (y/n) ", projectName)
+				reader := bufio.NewReader(os.Stdin)
+				answer, _ := reader.ReadString('\n')
+				answer = strings.TrimSpace(strings.ToLower(answer))
+				if answer == "y" || answer == "yes" {
+					if err := config.Restore(projectName, cwd); err != nil {
+						return true, fmt.Errorf("restoring backup: %w", err)
+					}
+					fmt.Println("Config restored from backup.")
+				} else {
+					return true, fmt.Errorf("no tainer.yaml found in current directory.\n  Run 'tainer init' to create a project, or provide a project/container name.\n  Usage: tainer %s [project-name|container-name]", action)
+				}
+			} else {
+				return true, fmt.Errorf("no tainer.yaml found in current directory.\n  Run 'tainer init' to create a project, or provide a project/container name.\n  Usage: tainer %s [project-name|container-name]", action)
+			}
 		}
 
 		// Ensure machine is running before project actions
