@@ -66,12 +66,14 @@ func DefaultPHPVersion() string  { return "8.4" }
 func DefaultNodeVersion() string { return "22" }
 
 func BuildManifest(name string, pt manifest.ProjectType, version string, db manifest.DatabaseType, subdomain string) *manifest.Manifest {
+	autoOpen := true
 	m := &manifest.Manifest{
 		Version: 1,
 		Project: manifest.ProjectConfig{
-			Name:   name,
-			Type:   pt,
-			Domain: subdomain + ".tainer.me",
+			Name:     name,
+			Type:     pt,
+			Domain:   subdomain + ".tainer.me",
+			AutoOpen: &autoOpen,
 		},
 		Runtime: manifest.RuntimeConfig{
 			Database: db,
