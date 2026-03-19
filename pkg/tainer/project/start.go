@@ -192,8 +192,10 @@ postStart:
 	fmt.Printf("  https://%s\n", m.Project.Domain)
 	fmt.Printf("  ssh%s %s@ssh.tainer.me\n", portFlag, m.Project.Name)
 
-	// Auto-open browser
-	openURL(fmt.Sprintf("https://%s", m.Project.Domain))
+	// Auto-open browser (unless disabled via auto-open: false in tainer.yaml)
+	if m.Project.AutoOpen == nil || *m.Project.AutoOpen {
+		openURL(fmt.Sprintf("https://%s", m.Project.Domain))
+	}
 
 	return nil
 }

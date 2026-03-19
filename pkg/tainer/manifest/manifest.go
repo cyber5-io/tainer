@@ -39,9 +39,10 @@ type Manifest struct {
 }
 
 type ProjectConfig struct {
-	Name   string      `yaml:"name"`
-	Type   ProjectType `yaml:"type"`
-	Domain string      `yaml:"domain"`
+	Name     string      `yaml:"name"`
+	Type     ProjectType `yaml:"type"`
+	Domain   string      `yaml:"domain"`
+	AutoOpen *bool       `yaml:"auto-open,omitempty"`
 }
 
 type PHPLimits struct {
