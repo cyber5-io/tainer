@@ -115,10 +115,9 @@ func RunImages(projectName string) error {
 	}
 
 	fmt.Printf("Pulling latest images for %s...\n", projectName)
-	if err := project.PullImages(m); err != nil {
+	if err := project.PullImagesVerbose(m); err != nil {
 		return fmt.Errorf("pulling images: %w", err)
 	}
-	fmt.Println("Images updated")
 
 	// Check if pod is running
 	podName := fmt.Sprintf("tainer-%s", projectName)
@@ -147,9 +146,12 @@ func ghRequest(url string) (*http.Response, error) {
 func getLatestRelease() (*githubRelease, error) {
 	resp, err := ghRequest(ghReleasesAPI)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not reach GitHub: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("no releases published yet")
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API returned HTTP %d", resp.StatusCode)
 	}

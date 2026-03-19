@@ -3,6 +3,7 @@ package project
 import (
 	"fmt"
 	"os/exec"
+	"strings"
 
 	"github.com/containers/podman/v6/pkg/tainer/manifest"
 	tainerRegistry "github.com/containers/podman/v6/pkg/tainer/registry"
@@ -72,6 +73,24 @@ func PullImages(m *manifest.Manifest) error {
 	return nil
 }
 
+// PullImagesVerbose pulls images and shows pull output (for tainer update).
+func PullImagesVerbose(m *manifest.Manifest) error {
+	if err := pullImageVerbose(MainImage(m)); err != nil {
+		return fmt.Errorf("pulling %s image: %w", m.Project.Type, err)
+	}
+	if m.IsPHP() {
+		if err := pullImageVerbose(RegistryImage("phpfpm", m.Runtime.PHP)); err != nil {
+			return fmt.Errorf("pulling phpfpm image: %w", err)
+		}
+	}
+	if m.HasDatabase() {
+		if err := pullImageVerbose(RegistryImage(string(m.Runtime.Database), "latest")); err != nil {
+			return fmt.Errorf("pulling database image: %w", err)
+		}
+	}
+	return nil
+}
+
 func pullImage(image string) error {
 	cmd := exec.Command("tainer", "pull", image)
 	output, err := cmd.CombinedOutput()
@@ -82,5 +101,23 @@ func pullImage(image string) error {
 		}
 		return fmt.Errorf("%s is not available locally and registry is unreachable (offline?): %s", image, string(output))
 	}
+	return nil
+}
+
+func pullImageVerbose(image string) error {
+	// Strip registry prefix for cleaner output
+	short := strings.TrimPrefix(image, imageRegistry+"-")
+	fmt.Printf("  %s... ", short)
+	cmd := exec.Command("tainer", "pull", image)
+	_, err := cmd.CombinedOutput()
+	if err != nil {
+		if tainerRegistry.ImageExistsLocally(image) {
+			fmt.Println("[CACHED]")
+			return nil
+		}
+		fmt.Println("[FAIL]")
+		return fmt.Errorf("could not pull %s", short)
+	}
+	fmt.Println("[OK]")
 	return nil
 }
