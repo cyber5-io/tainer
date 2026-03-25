@@ -3,6 +3,7 @@ package wizard
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -11,6 +12,15 @@ import (
 	"github.com/containers/podman/v6/pkg/tainer/tui"
 	"github.com/containers/podman/v6/pkg/tainer/validate"
 )
+
+// tickMsg drives the welcome screen text animation.
+type tickMsg time.Time
+
+// versionsFetchedMsg delivers async version fetch results.
+type versionsFetchedMsg struct {
+	php, node []string
+	msg       string
+}
 
 // Result holds the user's choices from the wizard.
 type Result struct {
@@ -78,6 +88,9 @@ type model struct {
 
 	// confirm screen
 	confirmIdx int // 0 = Create Project, 1 = Start Pod
+
+	// welcome animation
+	animTick int // current tick (drives character reveal)
 }
 
 // ---------------------------------------------------------------------------
@@ -133,26 +146,37 @@ func dbChoices(pt manifest.ProjectType) []string {
 // ---------------------------------------------------------------------------
 
 func initialModel(cwd, dirName string) model {
-	php, phpMsg := fetchPHPVersions()
-	node, nodeMsg := fetchNodeVersions()
-	msg := phpMsg
-	if msg == "" {
-		msg = nodeMsg
-	}
 	return model{
 		step:         stepWelcome,
 		cwd:          cwd,
 		dirName:      dirName,
-		phpVersions:  php,
-		nodeVersions: node,
-		versionMsg:   msg,
+		phpVersions:  defaultPHPVersions,
+		nodeVersions: defaultNodeVersions,
 		width:        80,
 		height:       24,
 	}
 }
 
+func fetchVersionsCmd() tea.Cmd {
+	return func() tea.Msg {
+		php, phpMsg := fetchPHPVersions()
+		node, nodeMsg := fetchNodeVersions()
+		msg := phpMsg
+		if msg == "" {
+			msg = nodeMsg
+		}
+		return versionsFetchedMsg{php: php, node: node, msg: msg}
+	}
+}
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
+}
+
 func (m model) Init() tea.Cmd {
-	return nil
+	return tea.Batch(tickCmd(), fetchVersionsCmd())
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -160,6 +184,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		return m, nil
+	case versionsFetchedMsg:
+		m.phpVersions = msg.php
+		m.nodeVersions = msg.node
+		m.versionMsg = msg.msg
+		return m, nil
+	case tickMsg:
+		if m.step == stepWelcome {
+			m.animTick++
+			// Repeat name shimmer every ~900 ticks (45s at 50ms/tick)
+			// nameDelay(8) + name(11) + 2 = 21 ticks for first shimmer cycle
+			// After full intro (50 ticks), keep ticking for periodic shimmer
+			return m, tickCmd()
+		}
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -427,7 +465,7 @@ func (m model) View() string {
 	var body string
 
 	if m.step == stepWelcome {
-		header = tui.Banner("", "Create a new project", innerW)
+		header = tui.Banner("", "Create a new project", innerW, m.animTick)
 	} else {
 		header = m.renderHeader(innerW)
 		body = m.renderBody()

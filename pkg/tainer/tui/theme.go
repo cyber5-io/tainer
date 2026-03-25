@@ -158,9 +158,31 @@ func FullScreen(frame string, termW, termH int) string {
 	return lipgloss.Place(termW, termH, lipgloss.Center, lipgloss.Center, frame)
 }
 
+// shimmerText renders text with a bright highlight sweeping across it.
+// pos is the center of the shimmer window (negative = no shimmer yet, >= len = done).
+// Each rune at the shimmer position is rendered in a bright highlight color.
+func shimmerText(runes []rune, pos int, baseStyles []lipgloss.Style, highlight lipgloss.Color) string {
+	var buf strings.Builder
+	for i, r := range runes {
+		dist := pos - i
+		if dist == 0 {
+			// Center of shimmer — bright highlight
+			buf.WriteString(lipgloss.NewStyle().Bold(true).Foreground(highlight).Render(string(r)))
+		} else if dist == 1 || dist == -1 {
+			// Flanking — slightly bright
+			buf.WriteString(lipgloss.NewStyle().Foreground(highlight).Render(string(r)))
+		} else {
+			buf.WriteString(baseStyles[i].Render(string(r)))
+		}
+	}
+	return buf.String()
+}
+
 // Banner renders the full logo lockup centered, with optional subtitle below.
-func Banner(title, subtitle string, width int) string {
-	logo := LogoFull()
+// animTick drives the shimmer animation (negative = fully revealed, no animation).
+func Banner(title, subtitle string, width, animTick int) string {
+	logo := Logo()
+	c := Colors()
 
 	var lines []string
 	lines = append(lines, "")
@@ -169,12 +191,90 @@ func Banner(title, subtitle string, width int) string {
 	}
 	lines = append(lines, "")
 	lines = append(lines, "")
-	if title != "" {
-		lines = append(lines, CenterText(TitleStyle().Render(title), width))
+
+	// Build "tainer.dev/" with per-character base styles
+	nameText := "tainer"
+	nameSuffix := ".dev/"
+	fullName := nameText + nameSuffix
+	nameRunes := []rune(fullName)
+	tainerLen := len([]rune(nameText))
+
+	nameStyles := make([]lipgloss.Style, len(nameRunes))
+	for i := range nameRunes {
+		if i < tainerLen {
+			nameStyles[i] = lipgloss.NewStyle().Bold(true).Foreground(c.Text)
+		} else {
+			nameStyles[i] = lipgloss.NewStyle().Foreground(c.Teal)
+		}
 	}
-	if subtitle != "" {
-		lines = append(lines, CenterText(SubtitleStyle().Render(subtitle), width))
+
+	// Shimmer timing
+	const nameDelay = 8      // ticks before first name shimmer
+	const shimmerGap = 6     // ticks between name and subtitle shimmer
+	const repeatInterval = 900 // re-shimmer name every ~45s (900 * 50ms)
+
+	highlight := lipgloss.Color("#FFFFFF")
+
+	// Helper: render name normally (no shimmer)
+	renderNameStatic := func() string {
+		return lipgloss.NewStyle().Bold(true).Foreground(c.Text).Render(nameText) +
+			lipgloss.NewStyle().Foreground(c.Teal).Render(nameSuffix)
 	}
+
+	if animTick < 0 {
+		// Fully revealed — no animation
+		lines = append(lines, CenterText(renderNameStatic(), width))
+		if subtitle != "" {
+			lines = append(lines, "")
+			lines = append(lines, CenterText(SubtitleStyle().Render(subtitle), width))
+		}
+	} else {
+		// Intro finishes after subtitle shimmer completes
+		subtitleStart := nameDelay + len(nameRunes) + 2
+		subtitleShimmerStart := subtitleStart + shimmerGap
+		introEnd := subtitleShimmerStart + len([]rune(subtitle)) + 2
+
+		// Determine name shimmer position
+		var nameShimmerPos int
+		if animTick < introEnd {
+			// Initial intro shimmer
+			nameShimmerPos = animTick - nameDelay
+		} else {
+			// Repeating shimmer: every repeatInterval ticks after intro
+			elapsed := animTick - introEnd
+			cyclePos := elapsed % repeatInterval
+			nameShimmerPos = cyclePos - (repeatInterval - len(nameRunes) - 4)
+		}
+
+		if nameShimmerPos >= -1 && nameShimmerPos <= len(nameRunes)+1 {
+			lines = append(lines, CenterText(shimmerText(nameRunes, nameShimmerPos, nameStyles, highlight), width))
+		} else {
+			lines = append(lines, CenterText(renderNameStatic(), width))
+		}
+
+		// Subtitle
+		if subtitle != "" {
+			if animTick >= subtitleStart {
+				lines = append(lines, "")
+				// Only shimmer subtitle during intro
+				subtitleShimmerPos := animTick - subtitleShimmerStart
+				subtitleRunes := []rune(subtitle)
+				if subtitleShimmerPos >= -1 && subtitleShimmerPos <= len(subtitleRunes)+1 {
+					subtitleStyles := make([]lipgloss.Style, len(subtitleRunes))
+					for i := range subtitleRunes {
+						subtitleStyles[i] = SubtitleStyle()
+					}
+					lines = append(lines, CenterText(shimmerText(subtitleRunes, subtitleShimmerPos, subtitleStyles, highlight), width))
+				} else {
+					lines = append(lines, CenterText(SubtitleStyle().Render(subtitle), width))
+				}
+			} else {
+				lines = append(lines, "")
+				lines = append(lines, "")
+			}
+		}
+	}
+
 	lines = append(lines, "")
 
 	return strings.Join(lines, "\n")
