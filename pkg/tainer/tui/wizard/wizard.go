@@ -21,6 +21,7 @@ type Result struct {
 	Database  manifest.DatabaseType
 	Subdomain string
 	Cancelled bool
+	StartPod  bool
 }
 
 type step int
@@ -33,7 +34,7 @@ const (
 	stepDatabase
 	stepSubdomain
 	stepConfirm
-	totalSteps = 7
+	userSteps = 6 // steps 1-6 shown in progress
 )
 
 var (
@@ -58,21 +59,30 @@ type model struct {
 	dirName  string
 	result   Result
 	quitting bool
+	width    int
+	height   int
 
-	// text input state
+	// text input
 	textInput  string
 	textCursor int
 	inputError string
 
-	// horizontal choice state
+	// horizontal choice
 	choices   []string
 	choiceIdx int
 
-	// version data (fetched once)
+	// version data
 	phpVersions  []string
 	nodeVersions []string
-	versionMsg   string // offline notice
+	versionMsg   string
+
+	// confirm screen
+	confirmIdx int // 0 = Create Project, 1 = Start Pod
 }
+
+// ---------------------------------------------------------------------------
+// Version fetching
+// ---------------------------------------------------------------------------
 
 func fetchPHPVersions() ([]string, string) {
 	tags, err := registry.FetchTags("phpfpm")
@@ -118,6 +128,10 @@ func dbChoices(pt manifest.ProjectType) []string {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// BubbleTea lifecycle
+// ---------------------------------------------------------------------------
+
 func initialModel(cwd, dirName string) model {
 	php, phpMsg := fetchPHPVersions()
 	node, nodeMsg := fetchNodeVersions()
@@ -132,6 +146,8 @@ func initialModel(cwd, dirName string) model {
 		phpVersions:  php,
 		nodeVersions: node,
 		versionMsg:   msg,
+		width:        80,
+		height:       24,
 	}
 }
 
@@ -141,32 +157,33 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
 	return m, nil
 }
 
+// ---------------------------------------------------------------------------
+// Key handling (unchanged logic)
+// ---------------------------------------------------------------------------
+
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
-
-	// Global quit
 	if key == "ctrl+c" {
 		m.result.Cancelled = true
 		m.quitting = true
 		return m, tea.Quit
 	}
-
 	switch m.step {
 	case stepWelcome:
 		return m.handleWelcome(key)
 	case stepName:
 		return m.handleName(key)
-	case stepType:
-		return m.handleChoice(key)
-	case stepVersion:
-		return m.handleChoice(key)
-	case stepDatabase:
+	case stepType, stepVersion, stepDatabase:
 		return m.handleChoice(key)
 	case stepSubdomain:
 		return m.handleSubdomain(key)
@@ -261,7 +278,6 @@ func (m model) handleChoice(key string) (tea.Model, tea.Cmd) {
 			m.choices = dbc
 			defDB := string(defaultDatabase(m.result.Type))
 			m.choiceIdx = findIndex(m.choices, defDB)
-			// Auto-advance if single choice
 			if len(m.choices) == 1 {
 				m.result.Database = manifest.DatabaseType(m.choices[0])
 				m.step = stepSubdomain
@@ -310,8 +326,17 @@ func (m model) handleSubdomain(key string) (tea.Model, tea.Cmd) {
 func (m model) handleConfirm(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "enter":
+		m.result.StartPod = m.confirmIdx == 1
 		m.quitting = true
 		return m, tea.Quit
+	case "left", "h":
+		if m.confirmIdx > 0 {
+			m.confirmIdx--
+		}
+	case "right", "l":
+		if m.confirmIdx < 1 {
+			m.confirmIdx++
+		}
 	case "esc":
 		m.goBack()
 	}
@@ -375,166 +400,284 @@ func (m *model) goBack() {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// View — full-screen framed layout
+// ---------------------------------------------------------------------------
+
 func (m model) View() string {
+	// After quit, BubbleTea exits alt screen — print to original terminal.
 	if m.quitting {
 		if m.result.Cancelled {
-			return tui.WarningStyle.Render("Cancelled.") + "\n"
+			return tui.WarningStyle().Render("Cancelled.") + "\n"
 		}
 		return ""
 	}
 
-	var b strings.Builder
+	c := tui.Colors()
 
-	// Step indicator
-	if m.step > stepWelcome {
-		stepNum := int(m.step)
-		indicator := fmt.Sprintf("Step %d/%d", stepNum, totalSteps-1)
-		label := stepLabel(m.step)
-		b.WriteString(tui.SubtitleStyle.Render(fmt.Sprintf("%s \u2014 %s", indicator, label)))
-		b.WriteString("\n\n")
+	// Frame fills nearly all the terminal
+	frameW := m.width - 4
+	if frameW < 40 {
+		frameW = 40
+	}
+	innerW := frameW - 6 // border (2) + padding left/right (2+2)
+
+	// === Build the three sections ===
+	var header string
+	var body string
+
+	if m.step == stepWelcome {
+		header = tui.Banner("", "Create a new project", innerW)
+	} else {
+		header = m.renderHeader(innerW)
+		body = m.renderBody()
 	}
 
+	footer := m.renderFooter(innerW)
+
+	// === Assemble ===
+	var sections []string
+	sections = append(sections, header)
+
+	if body != "" {
+		sections = append(sections, "")
+		sections = append(sections, body)
+	}
+
+	// Pad content to fill available height
+	content := strings.Join(sections, "\n")
+	contentH := lipgloss.Height(content)
+	// Reserve: border top/bottom (2) + padding (0) + sep (1) + footer (1) + margin (4)
+	targetH := m.height - 8
+	if targetH < 12 {
+		targetH = 12
+	}
+	if contentH < targetH {
+		content += strings.Repeat("\n", targetH-contentH)
+	}
+
+	// Separator + footer
+	sep := tui.Separator(innerW)
+	inner := content + "\n" + sep + "\n" + footer
+
+	// Render framed — no Background so terminal native bg shows through
+	frame := lipgloss.NewStyle().
+		Width(frameW).
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(c.Blue).
+		Padding(0, 2).
+		Render(inner)
+
+	return tui.FullScreen(frame, m.width, m.height)
+}
+
+// renderHeader builds a breadcrumb trail of previous answers above a separator.
+func (m model) renderHeader(width int) string {
+	c := tui.Colors()
+	chevron := lipgloss.NewStyle().Foreground(c.OrangeDim).Render(" › ")
+	val := lipgloss.NewStyle().Foreground(c.Text)
+
+	var crumbs []string
+	if m.result.Name != "" {
+		crumbs = append(crumbs, val.Render(m.result.Name))
+	}
+	if m.result.TypeLabel != "" {
+		crumbs = append(crumbs, val.Render(m.result.TypeLabel))
+	}
+	if m.result.Version != "" {
+		crumbs = append(crumbs, val.Render(m.result.Version))
+	}
+	if m.result.Database != "" {
+		crumbs = append(crumbs, val.Render(string(m.result.Database)))
+	}
+	if m.result.Subdomain != "" {
+		crumbs = append(crumbs, val.Render(m.result.Subdomain))
+	}
+
+	trail := strings.Join(crumbs, chevron)
+	return "\n" + trail + "\n\n" + tui.Separator(width)
+}
+
+// renderBody builds the step-specific content.
+func (m model) renderBody() string {
 	switch m.step {
-	case stepWelcome:
-		b.WriteString(m.viewWelcome())
 	case stepName:
-		b.WriteString(m.viewName())
+		return m.bodyName()
 	case stepType:
-		b.WriteString(m.viewHorizontalChoice("Project Type"))
+		return m.bodyChoice("Project Type")
 	case stepVersion:
 		label := "PHP Version"
 		if m.result.Type != manifest.TypeWordPress && m.result.Type != manifest.TypePHP {
 			label = "Node Version"
 		}
+		var prefix string
 		if m.versionMsg != "" {
-			b.WriteString(tui.SubtitleStyle.Render("  "+m.versionMsg) + "\n")
+			prefix = "  " + tui.SubtitleStyle().Render(m.versionMsg) + "\n\n"
 		}
-		b.WriteString(m.viewHorizontalChoice(label))
+		return prefix + m.bodyChoice(label)
 	case stepDatabase:
-		b.WriteString(m.viewHorizontalChoice("Database"))
+		return m.bodyChoice("Database")
 	case stepSubdomain:
-		b.WriteString(m.viewSubdomain())
+		return m.bodySubdomain()
 	case stepConfirm:
-		b.WriteString(m.viewConfirm())
+		return m.bodyConfirm()
+	}
+	return ""
+}
+
+// renderFooter builds the status bar: nav hints (left) + progress dots (right).
+func (m model) renderFooter(width int) string {
+	nav := m.navText()
+	left := tui.SubtitleStyle().Render(nav)
+
+	if m.step == stepWelcome {
+		return left
 	}
 
-	return b.String()
+	dots := tui.ProgressDots(int(m.step), userSteps)
+	gap := width - lipgloss.Width(left) - lipgloss.Width(dots)
+	if gap < 1 {
+		gap = 1
+	}
+	return left + strings.Repeat(" ", gap) + dots
 }
 
-func (m model) viewWelcome() string {
-	banner := tui.Banner("tainer init", "Create a new tainer project")
-	return banner + "\n\n" + tui.SubtitleStyle.Render("Press Enter to begin, Esc to cancel") + "\n"
+func (m model) navText() string {
+	switch m.step {
+	case stepWelcome:
+		return "↵ begin   esc cancel"
+	case stepName, stepSubdomain:
+		return "↵ confirm   esc back"
+	case stepType, stepVersion, stepDatabase:
+		return "← → select   ↵ confirm   esc back"
+	case stepConfirm:
+		return "← → select   ↵ confirm   esc back"
+	}
+	return ""
 }
 
-func (m model) viewName() string {
+// ---------------------------------------------------------------------------
+// Step body renderers
+// ---------------------------------------------------------------------------
+
+func (m model) bodyName() string {
 	var b strings.Builder
-	b.WriteString(tui.TitleStyle.Render("Project Name"))
+	b.WriteString("  " + tui.LabelStyle().Render("Project Name"))
 	b.WriteString("\n")
-	b.WriteString(tui.SubtitleStyle.Render(fmt.Sprintf("(default: %s)", m.dirName)))
+	b.WriteString("  " + tui.SubtitleStyle().Render(fmt.Sprintf("default: %s", m.dirName)))
 	b.WriteString("\n\n")
 
-	input := m.textInput
-	cursor := tui.SuccessStyle.Render("\u2588")
-	b.WriteString("  \u25b8 " + tui.SuccessStyle.Render(input) + cursor)
+	cursor := tui.SuccessStyle().Render("\u2588")
+	b.WriteString("  " + tui.SelectedStyle().Render("\u25b8 ") + tui.SuccessStyle().Render(m.textInput) + cursor)
 	b.WriteString("\n")
 
 	if m.inputError != "" {
-		b.WriteString("\n")
-		b.WriteString("  " + tui.ErrorStyle.Render(m.inputError))
-		b.WriteString("\n")
+		b.WriteString("\n  " + tui.ErrorStyle().Render(m.inputError) + "\n")
 	}
 
-	b.WriteString("\n")
-	b.WriteString(tui.SubtitleStyle.Render("Enter to confirm, Esc to go back"))
-	b.WriteString("\n")
 	return b.String()
 }
 
-func (m model) viewHorizontalChoice(title string) string {
+func (m model) bodyChoice(title string) string {
 	var b strings.Builder
-	b.WriteString(tui.TitleStyle.Render(title))
+	b.WriteString("  " + tui.LabelStyle().Render(title))
 	b.WriteString("\n\n  ")
 
 	for i, c := range m.choices {
 		if i == m.choiceIdx {
-			b.WriteString(tui.SelectedStyle.Render("\u25b8 " + c))
+			b.WriteString(tui.SelectedStyle().Render("\u25b8 " + c))
 		} else {
-			b.WriteString(tui.UnselectedStyle.Render("  " + c))
+			b.WriteString(tui.UnselectedStyle().Render("  " + c))
 		}
 		if i < len(m.choices)-1 {
 			b.WriteString("   ")
 		}
 	}
-
-	b.WriteString("\n\n")
-	b.WriteString(tui.SubtitleStyle.Render("\u2190 \u2192 to select, Enter to confirm, Esc to go back"))
 	b.WriteString("\n")
+
 	return b.String()
 }
 
-func (m model) viewSubdomain() string {
+func (m model) bodySubdomain() string {
 	var b strings.Builder
-	b.WriteString(tui.TitleStyle.Render("Subdomain"))
+	b.WriteString("  " + tui.LabelStyle().Render("Subdomain"))
 	b.WriteString("\n")
-	b.WriteString(tui.SubtitleStyle.Render(fmt.Sprintf("(default: %s)", m.result.Name)))
+	b.WriteString("  " + tui.SubtitleStyle().Render(fmt.Sprintf("default: %s", m.result.Name)))
 	b.WriteString("\n\n")
 
-	input := m.textInput
-	cursor := tui.SuccessStyle.Render("\u2588")
-	suffix := tui.SubtitleStyle.Render(".tainer.me")
-	b.WriteString("  \u25b8 " + tui.SuccessStyle.Render(input) + cursor + suffix)
-	b.WriteString("\n\n")
-	b.WriteString(tui.SubtitleStyle.Render("Enter to confirm, Esc to go back"))
+	cursor := tui.SuccessStyle().Render("\u2588")
+	suffix := tui.SubtitleStyle().Render(".tainer.me")
+	b.WriteString("  " + tui.SelectedStyle().Render("\u25b8 ") + tui.SuccessStyle().Render(m.textInput) + cursor + suffix)
 	b.WriteString("\n")
+
 	return b.String()
 }
 
-func (m model) viewConfirm() string {
+func (m model) bodyConfirm() string {
+	c := tui.Colors()
 	var b strings.Builder
 
 	domain := m.result.Subdomain + ".tainer.me"
 
-	summaryLines := []string{
-		fmt.Sprintf("  %s  %s", tui.SubtitleStyle.Render("Name:"), tui.SuccessStyle.Render(m.result.Name)),
-		fmt.Sprintf("  %s  %s", tui.SubtitleStyle.Render("Type:"), tui.SuccessStyle.Render(m.result.TypeLabel)),
-		fmt.Sprintf("  %s  %s", tui.SubtitleStyle.Render("Version:"), tui.SuccessStyle.Render(m.result.Version)),
-		fmt.Sprintf("  %s  %s", tui.SubtitleStyle.Render("Database:"), tui.SuccessStyle.Render(string(m.result.Database))),
-		fmt.Sprintf("  %s  %s", tui.SubtitleStyle.Render("Domain:"), tui.URLStyle.Render(domain)),
+	b.WriteString("  " + tui.LabelStyle().Render("Summary"))
+	b.WriteString("\n\n")
+
+	rows := []struct {
+		label string
+		value string
+		url   bool
+	}{
+		{"Name", m.result.Name, false},
+		{"Type", m.result.TypeLabel, false},
+		{"Version", m.result.Version, false},
+		{"Database", string(m.result.Database), false},
+		{"Domain", domain, true},
 	}
 
-	panel := lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(tui.ColorBorder).
-		Padding(1, 2).
-		Render(strings.Join(summaryLines, "\n"))
+	for _, r := range rows {
+		lbl := tui.SubtitleStyle().Render(fmt.Sprintf("  %-10s", r.label))
+		var val string
+		if r.url {
+			val = tui.URLStyle().Render(r.value)
+		} else {
+			val = tui.SuccessStyle().Render(r.value)
+		}
+		b.WriteString(lbl + " " + val + "\n")
+	}
 
-	b.WriteString(tui.TitleStyle.Render("Summary"))
-	b.WriteString("\n\n")
-	b.WriteString(panel)
-	b.WriteString("\n\n")
-	b.WriteString(tui.SuccessStyle.Render("Enter to create project") + "  " + tui.SubtitleStyle.Render("Esc to go back"))
+	// Action buttons
 	b.WriteString("\n")
+	btnLabels := []string{"  Create Project  ", "  Start Pod  "}
+	for i, label := range btnLabels {
+		var btn string
+		if i == m.confirmIdx {
+			btn = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("#0C1018")).
+				Background(c.Orange).
+				Render(label)
+		} else {
+			btn = lipgloss.NewStyle().
+				Foreground(c.Muted).
+				Border(lipgloss.NormalBorder()).
+				BorderForeground(c.Muted).
+				Render(label)
+		}
+		if i > 0 {
+			b.WriteString("  ")
+		} else {
+			b.WriteString("  ")
+		}
+		b.WriteString(btn)
+	}
+	b.WriteString("\n")
+
 	return b.String()
 }
 
-func stepLabel(s step) string {
-	switch s {
-	case stepName:
-		return "Project Name"
-	case stepType:
-		return "Project Type"
-	case stepVersion:
-		return "Runtime Version"
-	case stepDatabase:
-		return "Database"
-	case stepSubdomain:
-		return "Subdomain"
-	case stepConfirm:
-		return "Confirm"
-	default:
-		return ""
-	}
-}
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 func findIndex(items []string, target string) int {
 	for i, item := range items {
@@ -548,10 +691,10 @@ func findIndex(items []string, target string) int {
 	return 0
 }
 
-// Run launches the TUI wizard and returns the user's selections.
+// Run launches the full-screen TUI wizard and returns the user's selections.
 func Run(cwd, dirName string) (*Result, error) {
 	m := initialModel(cwd, dirName)
-	p := tea.NewProgram(m)
+	p := tea.NewProgram(m, tea.WithAltScreen())
 	finalModel, err := p.Run()
 	if err != nil {
 		return nil, fmt.Errorf("running wizard TUI: %w", err)

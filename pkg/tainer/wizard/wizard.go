@@ -3,6 +3,7 @@ package wizard
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/containers/podman/v6/pkg/tainer/env"
@@ -86,9 +87,26 @@ func Run(cwd string) error {
 		return err
 	}
 	fmt.Println("Project registered")
-	fmt.Println("\nRun 'tainer start' to launch.")
 
+	if result.StartPod {
+		fmt.Println("\nStarting pod...")
+		return startPod()
+	}
+
+	fmt.Println("\nRun 'tainer start' to launch.")
 	return nil
+}
+
+func startPod() error {
+	tainerBin, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("finding tainer binary: %w", err)
+	}
+	cmd := exec.Command(tainerBin, "start")
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 func createProjectDirs(cwd string, m *manifest.Manifest) error {
