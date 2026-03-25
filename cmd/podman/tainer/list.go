@@ -6,11 +6,12 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/containers/podman/v6/cmd/podman/registry"
 	projRegistry "github.com/containers/podman/v6/pkg/tainer/registry"
 	"github.com/containers/podman/v6/pkg/tainer/router"
+	"github.com/containers/podman/v6/pkg/tainer/tui"
+	tuiList "github.com/containers/podman/v6/pkg/tainer/tui/list"
 	"github.com/spf13/cobra"
 )
 
@@ -34,38 +35,42 @@ func listRun(cmd *cobra.Command, args []string) error {
 	}
 
 	projects := projRegistry.All()
+
 	if len(projects) == 0 {
-		fmt.Println("\nNo projects registered. Run 'tainer init' in a project directory to get started.")
+		fmt.Println()
+		fmt.Println(tui.SubtitleStyle().Render("No projects registered. Run 'tainer init' to get started."))
 		return nil
 	}
 
-	// Router status
-	if router.IsRouterRunning() {
-		count := router.RunningProjectCount()
-		fmt.Printf("\nROUTER          STATUS\n")
-		fmt.Printf("tainer-router   running (%d projects)\n\n", count)
-	} else {
-		fmt.Printf("\nROUTER          STATUS\n")
-		fmt.Printf("tainer-router   stopped\n\n")
-	}
-
-	// Project table (sorted by name for deterministic output)
+	// Sort by name
 	names := make([]string, 0, len(projects))
 	for name := range projects {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 4, ' ', 0)
-	fmt.Fprintln(w, "NAME\tTYPE\tDOMAIN\tSTATUS\tPATH")
-	for _, name := range names {
+	// Build project list for TUI
+	tuiProjects := make([]tuiList.Project, len(names))
+	for i, name := range names {
 		p := projects[name]
-		status := getPodStatus(name)
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", name, p.Type, p.Domain, status, p.Path)
+		tuiProjects[i] = tuiList.Project{
+			Name:   name,
+			Type:   p.Type,
+			Domain: p.Domain,
+			Status: getPodStatus(name),
+			Path:   p.Path,
+		}
 	}
-	w.Flush()
 
-	return nil
+	// Router info
+	routerRunning := router.IsRouterRunning()
+	routerCount := 0
+	if routerRunning {
+		routerCount = router.RunningProjectCount()
+	}
+
+	_, err := tuiList.Run(tuiProjects, routerRunning, routerCount)
+	return err
 }
 
 func getPodStatus(projectName string) string {
