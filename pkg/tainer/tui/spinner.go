@@ -9,6 +9,6 @@ import (
 func NewSpinner() spinner.Model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(ColorTeal)
+	s.Style = lipgloss.NewStyle().Foreground(Colors().Teal)
 	return s
 }
