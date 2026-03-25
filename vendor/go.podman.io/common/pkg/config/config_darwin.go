@@ -7,18 +7,16 @@ const (
 )
 
 var defaultHelperBinariesDir = []string{
-	// Tainer install path (primary)
-	"/opt/tainer/bin",
 	// Relative to the binary directory
-	"$BINDIR/../libexec/tainer",
+	"$BINDIR/../libexec/podman",
 	// Homebrew install paths
-	"/usr/local/opt/tainer/libexec/tainer",
-	"/opt/homebrew/opt/tainer/libexec/tainer",
+	"/usr/local/opt/podman/libexec/podman",
+	"/opt/homebrew/opt/podman/libexec/podman",
 	"/opt/homebrew/bin",
 	"/usr/local/bin",
 	// default paths
-	"/usr/local/libexec/tainer",
-	"/usr/local/lib/tainer",
-	"/usr/libexec/tainer",
-	"/usr/lib/tainer",
+	"/usr/local/libexec/podman",
+	"/usr/local/lib/podman",
+	"/usr/libexec/podman",
+	"/usr/lib/podman",
 }

@@ -16,11 +16,10 @@ func selinuxEnabled() bool {
 }
 
 var defaultHelperBinariesDir = []string{
-	"/opt/tainer/bin",
-	"/usr/local/libexec/tainer",
-	"/usr/local/lib/tainer",
-	"/usr/libexec/tainer",
-	"/usr/lib/tainer",
+	"/usr/local/libexec/podman",
+	"/usr/local/lib/podman",
+	"/usr/libexec/podman",
+	"/usr/lib/podman",
 }
 
 // Capabilities returns the capabilities parses the Add and Drop capability
