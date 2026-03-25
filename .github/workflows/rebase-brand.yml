@@ -21,12 +21,34 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Create safety tag
+      - name: Fetch brand branch
+        run: git fetch origin brand
+
+      - name: Check if rebase is needed
+        id: check
         run: |
-          git fetch origin brand
-          git tag "brand-backup-$(date +%Y%m%d%H%M%S)" origin/brand
+          # If brand is an ancestor of main, it has no divergent commits.
+          # A fast-forward is enough — no rebase or tests required.
+          # This is the case for our own feature merges (no upstream changes).
+          if git merge-base --is-ancestor origin/brand main; then
+            echo "needs_rebase=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_rebase=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fast-forward brand to main
+        if: steps.check.outputs.needs_rebase == 'false'
+        run: |
+          git checkout brand
+          git merge --ff-only main
+          git push origin brand
+
+      - name: Create safety tag
+        if: steps.check.outputs.needs_rebase == 'true'
+        run: git tag "brand-backup-$(date +%Y%m%d%H%M%S)" origin/brand
 
       - name: Rebase brand on main
+        if: steps.check.outputs.needs_rebase == 'true'
         id: rebase
         run: |
           git checkout brand
@@ -34,17 +56,17 @@ jobs:
         continue-on-error: true
 
       - name: Run tests
-        if: steps.rebase.outcome == 'success'
+        if: steps.check.outputs.needs_rebase == 'true' && steps.rebase.outcome == 'success'
         id: tests
         run: make localsystem
         continue-on-error: true
 
       - name: Push if clean and tests pass
-        if: steps.rebase.outcome == 'success' && steps.tests.outcome == 'success'
+        if: steps.check.outputs.needs_rebase == 'true' && steps.rebase.outcome == 'success' && steps.tests.outcome == 'success'
         run: git push origin brand --force-with-lease
 
       - name: Create PR if conflicts or test failure
-        if: steps.rebase.outcome == 'failure' || steps.tests.outcome == 'failure'
+        if: steps.check.outputs.needs_rebase == 'true' && (steps.rebase.outcome == 'failure' || steps.tests.outcome == 'failure')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
