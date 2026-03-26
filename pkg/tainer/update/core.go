@@ -21,8 +21,7 @@ func RunCore() error {
 
 	release, err := getLatestRelease()
 	if err != nil {
-		fmt.Println("No updates available.")
-		return nil
+		return fmt.Errorf("checking for updates: %w", err)
 	}
 
 	// Parse remote version from tag (strip leading "v" if present)
