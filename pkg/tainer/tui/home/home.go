@@ -198,8 +198,11 @@ func initialModel(summary ProjectSummary, projects []ProjectEntry) model {
 
 	vp := viewport.New(
 		viewport.WithWidth(80),
-		viewport.WithHeight(20),
+		viewport.WithHeight(10),
 	)
+	// Disable viewport's own key handling — we manage scroll manually
+	vp.KeyMap = viewport.KeyMap{}
+	vp.MouseWheelEnabled = false
 
 	return model{
 		mode:       modeMenu,
@@ -229,24 +232,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		innerW := m.width - 12
-		if innerW < 40 {
-			innerW = 40
-		}
-		m.helpM.SetWidth(innerW)
-		m.viewport.SetWidth(m.width - 10)
-		// Reserve: frame border(2) + sep(1) + help(1) + frame padding(2)
-		vpH := m.height - 6
-		if vpH < 8 {
-			vpH = 8
-		}
-		m.viewport.SetHeight(vpH)
-		m.updateViewportContent()
+		m.recalcViewport()
 		return m, nil
 
 	case tickMsg:
 		m.animTick++
-		m.updateViewportContent()
 		return m, tickCmd()
 
 	case tea.KeyPressMsg:
@@ -259,6 +249,69 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m *model) recalcViewport() {
+	innerW := m.width - 12
+	if innerW < 40 {
+		innerW = 40
+	}
+	m.helpM.SetWidth(innerW)
+	m.viewport.SetWidth(innerW)
+
+	// Viewport height = total frame minus banner, stats, separator, help
+	// Banner is rendered outside viewport; frame border(2) + padding top/bottom are in the frame
+	// Reserve: frame border(2) + frame padding(0,2 → 0 vertical) + sep(1) + help(1) + blank after banner(0)
+	// The banner height varies but is roughly 14 lines (logo 10 + name + subtitle + blanks)
+	// For small terminals we skip the banner, so viewport gets more space
+	bannerH := m.bannerHeight()
+	// frame border(2) + separator(1) + help(1)
+	chrome := 4
+	if m.mode == modeMenu {
+		chrome += 2 // stats line(1) + blank line(1)
+	}
+	vpH := m.height - bannerH - chrome
+	if vpH < 4 {
+		vpH = 4
+	}
+	m.viewport.SetHeight(vpH)
+	m.refreshViewportContent()
+}
+
+func (m model) bannerHeight() int {
+	// Skip banner entirely if terminal height < 20
+	if m.height < 20 {
+		return 0
+	}
+	// 1 blank + 10 logo + 2 blanks + name + blank + subtitle + blank = 17
+	return 17
+}
+
+func (m *model) refreshViewportContent() {
+	content := m.renderScrollableContent()
+	yOff := m.viewport.YOffset()
+	m.viewport.SetContent(content)
+	m.viewport.SetYOffset(yOff)
+}
+
+func (m *model) ensureCursorVisible(cursor, itemCount int) {
+	if itemCount == 0 {
+		return
+	}
+	vpH := m.viewport.Height()
+	// Each item is 1 line; there's a header of ~3 lines in picker mode
+	headerLines := 0
+	if m.mode == modePickProject {
+		headerLines = 3
+	}
+	itemLine := headerLines + cursor
+	yOff := m.viewport.YOffset()
+
+	if itemLine < yOff {
+		m.viewport.SetYOffset(itemLine)
+	} else if itemLine >= yOff+vpH {
+		m.viewport.SetYOffset(itemLine - vpH + 1)
+	}
 }
 
 // ---------- Menu mode ----------
@@ -282,12 +335,14 @@ func (m model) handleMenuKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "up", "k":
 		if m.menuCursor > 0 {
 			m.menuCursor--
-			m.updateViewportContent()
+			m.refreshViewportContent()
+			m.ensureCursorVisible(m.menuCursor, len(commands))
 		}
 	case "down", "j":
 		if m.menuCursor < len(commands)-1 {
 			m.menuCursor++
-			m.updateViewportContent()
+			m.refreshViewportContent()
+			m.ensureCursorVisible(m.menuCursor, len(commands))
 		}
 	case "enter":
 		return m.selectCommand(commands[m.menuCursor])
@@ -311,12 +366,11 @@ func (m model) selectCommand(cmd Command) (model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	// If CWD is a project dir, pre-select it at index 0 (it's sorted first)
 	m.mode = modePickProject
 	m.pickerCmd = cmd
 	m.pickerCursor = 0
+	m.refreshViewportContent()
 	m.viewport.GotoTop()
-	m.updateViewportContent()
 	return m, nil
 }
 
@@ -333,18 +387,21 @@ func (m model) handlePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch k {
 	case "esc":
 		m.mode = modeMenu
+		m.refreshViewportContent()
 		m.viewport.GotoTop()
-		m.updateViewportContent()
+		m.ensureCursorVisible(m.menuCursor, len(commands))
 		return m, nil
 	case "up", "k":
 		if m.pickerCursor > 0 {
 			m.pickerCursor--
-			m.updateViewportContent()
+			m.refreshViewportContent()
+			m.ensureCursorVisible(m.pickerCursor, len(m.projects))
 		}
 	case "down", "j":
 		if m.pickerCursor < len(m.projects)-1 {
 			m.pickerCursor++
-			m.updateViewportContent()
+			m.refreshViewportContent()
+			m.ensureCursorVisible(m.pickerCursor, len(m.projects))
 		}
 	case "enter":
 		p := m.projects[m.pickerCursor]
@@ -359,13 +416,14 @@ func (m model) handlePickerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 // ---------- View ----------
 
-func (m *model) updateViewportContent() {
+func (m model) renderScrollableContent() string {
 	switch m.mode {
 	case modeMenu:
-		m.viewport.SetContent(m.renderMenuContent())
+		return m.renderMenu()
 	case modePickProject:
-		m.viewport.SetContent(m.renderPickerContent())
+		return m.renderPickerContent()
 	}
+	return ""
 }
 
 func (m model) View() tea.View {
@@ -380,6 +438,23 @@ func (m model) View() tea.View {
 	}
 	innerW := frameW - 6 // border(2) + padding(4)
 
+	var sections []string
+
+	// Banner (fixed, outside viewport) — skip if terminal too short
+	if m.height >= 20 {
+		banner := tui.Banner("", "Local development environments", innerW, m.animTick)
+		sections = append(sections, banner)
+	}
+
+	// Stats line (fixed)
+	if m.mode == modeMenu {
+		sections = append(sections, m.renderStats(innerW))
+		sections = append(sections, "")
+	}
+
+	// Scrollable viewport
+	sections = append(sections, m.viewport.View())
+
 	// Separator + help footer
 	sep := tui.Separator(innerW)
 	var helpStr string
@@ -390,7 +465,7 @@ func (m model) View() tea.View {
 		helpStr = m.helpM.View(m.pickerKeys)
 	}
 
-	inner := m.viewport.View() + "\n" + sep + "\n" + helpStr
+	inner := strings.Join(sections, "\n") + "\n" + sep + "\n" + helpStr
 
 	frame := lipgloss.NewStyle().
 		Width(frameW).
@@ -406,25 +481,7 @@ func (m model) View() tea.View {
 	return v
 }
 
-// ---------- Menu content ----------
-
-func (m model) renderMenuContent() string {
-	innerW := m.width - 12
-	if innerW < 40 {
-		innerW = 40
-	}
-
-	var sections []string
-
-	banner := tui.Banner("", "Local development environments", innerW, m.animTick)
-	sections = append(sections, banner)
-	sections = append(sections, m.renderStats(innerW))
-	sections = append(sections, "")
-	sections = append(sections, m.renderMenu())
-	sections = append(sections, "")
-
-	return strings.Join(sections, "\n")
-}
+// ---------- Stats ----------
 
 func (m model) renderStats(innerW int) string {
 	c := tui.Colors()
@@ -466,6 +523,8 @@ func (m model) renderStats(innerW int) string {
 	line := strings.Join(parts, "")
 	return tui.CenterText(line, innerW)
 }
+
+// ---------- Menu rendering ----------
 
 // highlightKey renders a label with the shortcut letter colored and bold.
 func highlightKey(label, shortcutKey string, keyStyle, baseStyle lipgloss.Style) string {
@@ -533,15 +592,10 @@ func (m model) renderMenu() string {
 	return strings.Join(lines, "\n")
 }
 
-// ---------- Picker content ----------
+// ---------- Picker rendering ----------
 
 func (m model) renderPickerContent() string {
 	c := tui.Colors()
-	innerW := m.width - 12
-	if innerW < 40 {
-		innerW = 40
-	}
-
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(c.Text)
 	mutedStyle := lipgloss.NewStyle().Foreground(c.Muted)
 	tealStyle := lipgloss.NewStyle().Foreground(c.Teal)
@@ -557,7 +611,7 @@ func (m model) renderPickerContent() string {
 	for _, p := range m.projects {
 		n := len(p.Name)
 		if p.IsCurrent {
-			n += 4 // " (cwd)" rendered after name
+			n += 6
 		}
 		if n > maxName {
 			maxName = n
