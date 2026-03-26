@@ -1,11 +1,13 @@
 package update
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/containers/podman/v6/version/rawversion"
@@ -30,9 +32,23 @@ func RunCore() error {
 		return fmt.Errorf("could not determine remote version from tag %q", release.TagName)
 	}
 
-	if remoteVersion == currentVersion {
+	cmp := compareSemver(remoteVersion, currentVersion)
+	if cmp == 0 {
 		fmt.Printf("Already up to date (v%s)\n", currentVersion)
 		return nil
+	}
+
+	if cmp < 0 {
+		// Remote is older than current — possible downgrade
+		fmt.Printf("Warning: remote version (v%s) is older than current (v%s)\n", remoteVersion, currentVersion)
+		fmt.Print("Downgrade to this version? (y/n) ")
+		reader := bufio.NewReader(os.Stdin)
+		answer, _ := reader.ReadString('\n')
+		answer = strings.TrimSpace(strings.ToLower(answer))
+		if answer != "y" && answer != "yes" {
+			fmt.Println("Update cancelled.")
+			return nil
+		}
 	}
 
 	fmt.Printf("New version available: v%s -> v%s\n", currentVersion, remoteVersion)
@@ -98,4 +114,33 @@ func RunCore() error {
 
 	fmt.Printf("Updated: v%s -> v%s\n", currentVersion, remoteVersion)
 	return nil
+}
+
+// compareSemver compares two semver strings (without "v" prefix).
+// Returns -1 if a < b, 0 if a == b, 1 if a > b.
+func compareSemver(a, b string) int {
+	aParts := parseSemverParts(a)
+	bParts := parseSemverParts(b)
+	for i := 0; i < 3; i++ {
+		if aParts[i] < bParts[i] {
+			return -1
+		}
+		if aParts[i] > bParts[i] {
+			return 1
+		}
+	}
+	return 0
+}
+
+func parseSemverParts(v string) [3]int {
+	// Strip any pre-release suffix (e.g. "1.0.0-dev" → "1.0.0")
+	if idx := strings.IndexByte(v, '-'); idx >= 0 {
+		v = v[:idx]
+	}
+	parts := strings.SplitN(v, ".", 3)
+	var result [3]int
+	for i := 0; i < 3 && i < len(parts); i++ {
+		result[i], _ = strconv.Atoi(parts[i])
+	}
+	return result
 }
