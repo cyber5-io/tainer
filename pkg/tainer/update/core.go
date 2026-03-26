@@ -75,25 +75,27 @@ func RunCore() error {
 		return fmt.Errorf("setting permissions: %w", err)
 	}
 
-	// Copy to /opt/tainer/bin/tainer using sudo
+	// Install using atomic rename to avoid killing the running binary.
+	// cp overwrites the inode in-place, which crashes the current process on macOS.
+	// Instead: cp to a staging path, then mv (atomic rename) over the target.
+	stagingPath := tainerBinaryPath + ".new"
 	fmt.Printf("Installing to %s (requires sudo)...\n", tainerBinaryPath)
-	cmd := exec.Command("sudo", "cp", tmpFile.Name(), tainerBinaryPath)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-	if err := cmd.Run(); err != nil {
+
+	cpCmd := exec.Command("sudo", "cp", tmpFile.Name(), stagingPath)
+	cpCmd.Stdout = os.Stdout
+	cpCmd.Stderr = os.Stderr
+	cpCmd.Stdin = os.Stdin
+	if err := cpCmd.Run(); err != nil {
+		return fmt.Errorf("staging binary: %w", err)
+	}
+
+	mvCmd := exec.Command("sudo", "mv", stagingPath, tainerBinaryPath)
+	mvCmd.Stdout = os.Stdout
+	mvCmd.Stderr = os.Stderr
+	if err := mvCmd.Run(); err != nil {
 		return fmt.Errorf("installing binary: %w", err)
 	}
 
-	// Verify by running the new binary
-	verifyCmd := exec.Command(tainerBinaryPath, "--version")
-	output, err := verifyCmd.CombinedOutput()
-	if err != nil {
-		fmt.Printf("Updated to v%s (could not verify: %v)\n", remoteVersion, err)
-	} else {
-		fmt.Printf("Updated: v%s -> %s", currentVersion, strings.TrimSpace(string(output)))
-		fmt.Println()
-	}
-
+	fmt.Printf("Updated: v%s -> v%s\n", currentVersion, remoteVersion)
 	return nil
 }
