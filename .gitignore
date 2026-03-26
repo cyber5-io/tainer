@@ -58,3 +58,11 @@ contrib/win-installer/*.wixobj
 contrib/win-installer/*.wixpdb
 contrib/win-installer/*.log
 podman-cleanup-tracer.log*
+
+# Secrets and credentials
+.env
+.env.*
+*.key
+!test/**/*.key
+!vendor/**/*.key
+credentials*.json
