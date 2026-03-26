@@ -6,11 +6,14 @@ import (
 	"os"
 	"strings"
 
+	"charm.land/lipgloss/v2"
 	"github.com/containers/podman/v6/pkg/tainer/config"
 	"github.com/containers/podman/v6/pkg/tainer/machine"
 	"github.com/containers/podman/v6/pkg/tainer/manifest"
 	"github.com/containers/podman/v6/pkg/tainer/project"
 	"github.com/containers/podman/v6/pkg/tainer/registry"
+	"github.com/containers/podman/v6/pkg/tainer/tui"
+	"github.com/containers/podman/v6/pkg/tainer/tui/progress"
 	"github.com/containers/podman/v6/pkg/tainer/wizard"
 	"github.com/spf13/cobra"
 )
@@ -99,35 +102,81 @@ func InterceptDestroy(cmd *cobra.Command, args []string) (bool, error) {
 		}
 	}
 
+	var projectDir string
+
 	// No args: check for tainer.yaml in cwd
 	if len(args) == 0 {
 		if !manifest.Exists(cwd) {
 			return true, fmt.Errorf("no tainer.yaml found in current directory.\n  Run 'tainer init' to create a project, or provide a project name.\n  Usage: tainer destroy [project-name] [--nuke]")
 		}
-		if ProjectDestroy != nil {
-			if err := ProjectDestroy(cwd, force, nuke); err != nil {
-				return true, err
-			}
-		}
-		return true, nil
-	}
-
-	// With a single name arg: look up in registry
-	if len(args) == 1 {
+		projectDir = cwd
+	} else if len(args) == 1 {
 		name := args[0]
 		if p, ok := registry.Get(name); ok {
-			if ProjectDestroy != nil {
-				if err := ProjectDestroy(p.Path, force, nuke); err != nil {
-					return true, err
-				}
-			}
-			return true, nil
+			projectDir = p.Path
+		} else {
+			return true, fmt.Errorf("project %q not found in registry", name)
 		}
-		return true, fmt.Errorf("project %q not found in registry", name)
+	} else {
+		return false, nil
 	}
 
-	// Multiple args → not a Tainer command
-	return false, nil
+	return true, executeDestroy(projectDir, force, nuke)
+}
+
+func executeDestroy(projectDir string, force, nuke bool) error {
+	if err := machine.EnsureRunning(); err != nil {
+		return err
+	}
+
+	steps, name, err := project.DestroySteps(projectDir)
+	if err != nil {
+		return err
+	}
+
+	if nuke {
+		steps = append(steps, project.DestroyNukeStep(projectDir))
+	}
+
+	// Confirmation prompt (unless --force)
+	if !force {
+		c := tui.Colors()
+		orangeStyle := lipgloss.NewStyle().Foreground(c.Orange).Bold(true)
+		textStyle := lipgloss.NewStyle().Foreground(c.Text)
+
+		msg := fmt.Sprintf("Destroy project %s?", name)
+		if nuke {
+			msg = fmt.Sprintf("NUKE project %s? All project files will be deleted.", name)
+		}
+		fmt.Printf("\n  %s %s ", orangeStyle.Render("✖"), textStyle.Render(msg))
+		fmt.Print("[y/N] ")
+		reader := bufio.NewReader(os.Stdin)
+		answer, _ := reader.ReadString('\n')
+		if strings.TrimSpace(strings.ToLower(answer)) != "y" {
+			fmt.Println("  Cancelled.")
+			return nil
+		}
+		fmt.Println()
+	}
+
+	c := tui.Colors()
+	tealStyle := lipgloss.NewStyle().Foreground(c.Teal)
+	textStyle := lipgloss.NewStyle().Foreground(c.Text)
+	mutedStyle := lipgloss.NewStyle().Foreground(c.Muted)
+
+	suffix := " destroyed"
+	if nuke {
+		suffix = " nuked"
+	}
+	footer := []string{
+		tealStyle.Render("✓") + " " + textStyle.Render(name) + mutedStyle.Render(suffix),
+	}
+
+	result, err := progress.Run("Destroying "+name, steps, footer)
+	if err != nil {
+		return err
+	}
+	return result.Err
 }
 
 // InterceptMount checks if `tainer mount add <name>` or `tainer mount del <name>` should be handled.
@@ -238,23 +287,82 @@ func interceptProjectCommand(cmd *cobra.Command, args []string, action string) (
 }
 
 func executeProjectAction(name, path, action string) error {
-	var err error
+	c := tui.Colors()
+	tealStyle := lipgloss.NewStyle().Foreground(c.Teal)
+	textStyle := lipgloss.NewStyle().Foreground(c.Text)
+	mutedStyle := lipgloss.NewStyle().Foreground(c.Muted)
+
 	switch action {
 	case "start":
-		if ProjectStart != nil {
-			err = ProjectStart(path)
+		steps, info, err := project.StartSteps(path)
+		if err != nil {
+			return err
 		}
+
+		// Check if already running before showing TUI
+		podName := fmt.Sprintf("tainer-%s", info.Name)
+		if project.IsPodRunning(podName) {
+			fmt.Printf("%s is already running\n", info.Name)
+			return nil
+		}
+
+		footer := []string{
+			"",
+			tealStyle.Render("✓") + " " + textStyle.Render(info.Name) + mutedStyle.Render(" started"),
+			"  " + tealStyle.Render("https://"+info.Domain),
+			"  " + mutedStyle.Render(info.SSHCmd),
+		}
+
+		result, err := progress.Run("Starting "+info.Name, steps, footer)
+		if err != nil {
+			return err
+		}
+		return result.Err
+
 	case "stop":
-		if ProjectStop != nil {
-			err = ProjectStop(name)
+		steps, err := project.StopSteps(name)
+		if err != nil {
+			return err
 		}
+		footer := []string{
+			tealStyle.Render("✓") + " " + textStyle.Render(name) + mutedStyle.Render(" stopped"),
+		}
+		result, err := progress.Run("Stopping "+name, steps, footer)
+		if err != nil {
+			return err
+		}
+		return result.Err
+
 	case "restart":
-		if ProjectStop != nil {
-			err = ProjectStop(name)
+		// Stop phase
+		stopSteps, err := project.StopSteps(name)
+		if err != nil {
+			return err
 		}
-		if err == nil && ProjectStart != nil {
-			err = ProjectStart(path)
+		stopResult, err := progress.Run("Stopping "+name, stopSteps, nil)
+		if err != nil {
+			return err
 		}
+		if stopResult.Err != nil {
+			return stopResult.Err
+		}
+
+		// Start phase
+		startSteps, info, err := project.StartSteps(path)
+		if err != nil {
+			return err
+		}
+		footer := []string{
+			"",
+			tealStyle.Render("✓") + " " + textStyle.Render(info.Name) + mutedStyle.Render(" restarted"),
+			"  " + tealStyle.Render("https://"+info.Domain),
+			"  " + mutedStyle.Render(info.SSHCmd),
+		}
+		result, err := progress.Run("Starting "+info.Name, startSteps, footer)
+		if err != nil {
+			return err
+		}
+		return result.Err
 	}
-	return err
+	return nil
 }
