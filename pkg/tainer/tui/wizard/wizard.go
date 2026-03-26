@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/containers/podman/v6/pkg/tainer/manifest"
 	"github.com/containers/podman/v6/pkg/tainer/registry"
 	"github.com/containers/podman/v6/pkg/tainer/tui"
@@ -199,7 +199,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tickCmd()
 		}
 		return m, nil
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	}
 	return m, nil
@@ -209,7 +209,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // Key handling (unchanged logic)
 // ---------------------------------------------------------------------------
 
-func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	if key == "ctrl+c" {
 		m.result.Cancelled = true
@@ -442,13 +442,13 @@ func (m *model) goBack() {
 // View — full-screen framed layout
 // ---------------------------------------------------------------------------
 
-func (m model) View() string {
+func (m model) View() tea.View {
 	// After quit, BubbleTea exits alt screen — print to original terminal.
 	if m.quitting {
 		if m.result.Cancelled {
-			return tui.WarningStyle().Render("Cancelled.") + "\n"
+			return tea.NewView(tui.WarningStyle().Render("Cancelled.") + "\n")
 		}
-		return ""
+		return tea.NewView("")
 	}
 
 	c := tui.Colors()
@@ -506,7 +506,9 @@ func (m model) View() string {
 		Padding(0, 2).
 		Render(inner)
 
-	return tui.FullScreen(frame, m.width, m.height)
+	v := tea.NewView(tui.FullScreen(frame, m.width, m.height))
+	v.AltScreen = true
+	return v
 }
 
 // renderHeader builds a breadcrumb trail of previous answers above a separator.
@@ -732,7 +734,7 @@ func findIndex(items []string, target string) int {
 // Run launches the full-screen TUI wizard and returns the user's selections.
 func Run(cwd, dirName string) (*Result, error) {
 	m := initialModel(cwd, dirName)
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m)
 	finalModel, err := p.Run()
 	if err != nil {
 		return nil, fmt.Errorf("running wizard TUI: %w", err)

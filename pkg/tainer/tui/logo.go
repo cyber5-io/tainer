@@ -1,9 +1,10 @@
 package tui
 
 import (
+	"image/color"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 // Logo renders the [=] bracket icon programmatically using half-block characters.
@@ -14,7 +15,7 @@ func Logo() string {
 
 	// Fill colors — composited from SVG rgba(78,158,244,0.14) and rgba(255,107,53,0.14)
 	// against typical dark (#0B0F16) and light (#EEF1FD) terminal backgrounds.
-	var leftFill, rightFill lipgloss.Color
+	var leftFill, rightFill color.Color
 	if IsDarkBackground() {
 		leftFill = lipgloss.Color("#142335")
 		rightFill = lipgloss.Color("#2D1C1A")
@@ -61,7 +62,7 @@ func Logo() string {
 		{B, B, B, B, B, B, B, L, L, L, 0, 0, 0, 0, 0, 0, 0, 0, 0, R, R, R, O, O, O, O, O, O, O},
 	}
 
-	colors := [6]lipgloss.Color{"", c.Blue, c.Teal, c.Orange, leftFill, rightFill}
+	clrs := [6]color.Color{nil, c.Blue, c.Teal, c.Orange, leftFill, rightFill}
 
 	var lines []string
 	for y := 0; y < 20; y += 2 {
@@ -72,15 +73,15 @@ func Logo() string {
 			case top == 0 && bot == 0:
 				buf.WriteRune(' ')
 			case top == bot:
-				buf.WriteString(lipgloss.NewStyle().Foreground(colors[top]).Render("█"))
+				buf.WriteString(lipgloss.NewStyle().Foreground(clrs[top]).Render("█"))
 			case top == 0:
-				buf.WriteString(lipgloss.NewStyle().Foreground(colors[bot]).Render("▄"))
+				buf.WriteString(lipgloss.NewStyle().Foreground(clrs[bot]).Render("▄"))
 			case bot == 0:
-				buf.WriteString(lipgloss.NewStyle().Foreground(colors[top]).Render("▀"))
+				buf.WriteString(lipgloss.NewStyle().Foreground(clrs[top]).Render("▀"))
 			default:
 				buf.WriteString(lipgloss.NewStyle().
-					Foreground(colors[top]).
-					Background(colors[bot]).
+					Foreground(clrs[top]).
+					Background(clrs[bot]).
 					Render("▀"))
 			}
 		}

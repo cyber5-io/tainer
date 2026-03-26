@@ -1,21 +1,23 @@
 package tui
 
 import (
+	"image/color"
+	"os"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 // Palette holds a resolved set of colors for dark or light terminals.
 type Palette struct {
-	Teal      lipgloss.Color
-	TealDim   lipgloss.Color
-	Orange    lipgloss.Color
-	OrangeDim lipgloss.Color
-	Blue      lipgloss.Color
-	Text      lipgloss.Color
-	Muted     lipgloss.Color
-	Border    lipgloss.Color
+	Teal      color.Color
+	TealDim   color.Color
+	Orange    color.Color
+	OrangeDim color.Color
+	Blue      color.Color
+	Text      color.Color
+	Muted     color.Color
+	Border    color.Color
 }
 
 // Colors match the SVG brand kit exactly.
@@ -52,7 +54,7 @@ func resolveTheme() {
 		return
 	}
 	themeResolved = true
-	isDark = lipgloss.HasDarkBackground()
+	isDark = lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
 	if isDark {
 		colors = darkPalette
 	} else {
@@ -159,17 +161,13 @@ func FullScreen(frame string, termW, termH int) string {
 }
 
 // shimmerText renders text with a bright highlight sweeping across it.
-// pos is the center of the shimmer window (negative = no shimmer yet, >= len = done).
-// Each rune at the shimmer position is rendered in a bright highlight color.
-func shimmerText(runes []rune, pos int, baseStyles []lipgloss.Style, highlight lipgloss.Color) string {
+func shimmerText(runes []rune, pos int, baseStyles []lipgloss.Style, highlight color.Color) string {
 	var buf strings.Builder
 	for i, r := range runes {
 		dist := pos - i
 		if dist == 0 {
-			// Center of shimmer — bright highlight
 			buf.WriteString(lipgloss.NewStyle().Bold(true).Foreground(highlight).Render(string(r)))
 		} else if dist == 1 || dist == -1 {
-			// Flanking — slightly bright
 			buf.WriteString(lipgloss.NewStyle().Foreground(highlight).Render(string(r)))
 		} else {
 			buf.WriteString(baseStyles[i].Render(string(r)))
@@ -192,7 +190,6 @@ func Banner(title, subtitle string, width, animTick int) string {
 	lines = append(lines, "")
 	lines = append(lines, "")
 
-	// Build "tainer.dev/" with per-character base styles
 	nameText := "tainer"
 	nameSuffix := ".dev/"
 	fullName := nameText + nameSuffix
@@ -208,39 +205,32 @@ func Banner(title, subtitle string, width, animTick int) string {
 		}
 	}
 
-	// Shimmer timing
-	const nameDelay = 8      // ticks before first name shimmer
-	const shimmerGap = 6     // ticks between name and subtitle shimmer
-	const repeatInterval = 900 // re-shimmer name every ~45s (900 * 50ms)
+	const nameDelay = 8
+	const shimmerGap = 6
+	const repeatInterval = 900
 
 	highlight := lipgloss.Color("#FFFFFF")
 
-	// Helper: render name normally (no shimmer)
 	renderNameStatic := func() string {
 		return lipgloss.NewStyle().Bold(true).Foreground(c.Text).Render(nameText) +
 			lipgloss.NewStyle().Foreground(c.Teal).Render(nameSuffix)
 	}
 
 	if animTick < 0 {
-		// Fully revealed — no animation
 		lines = append(lines, CenterText(renderNameStatic(), width))
 		if subtitle != "" {
 			lines = append(lines, "")
 			lines = append(lines, CenterText(SubtitleStyle().Render(subtitle), width))
 		}
 	} else {
-		// Intro finishes after subtitle shimmer completes
 		subtitleStart := nameDelay + len(nameRunes) + 2
 		subtitleShimmerStart := subtitleStart + shimmerGap
 		introEnd := subtitleShimmerStart + len([]rune(subtitle)) + 2
 
-		// Determine name shimmer position
 		var nameShimmerPos int
 		if animTick < introEnd {
-			// Initial intro shimmer
 			nameShimmerPos = animTick - nameDelay
 		} else {
-			// Repeating shimmer: every repeatInterval ticks after intro
 			elapsed := animTick - introEnd
 			cyclePos := elapsed % repeatInterval
 			nameShimmerPos = cyclePos - (repeatInterval - len(nameRunes) - 4)
@@ -252,11 +242,9 @@ func Banner(title, subtitle string, width, animTick int) string {
 			lines = append(lines, CenterText(renderNameStatic(), width))
 		}
 
-		// Subtitle
 		if subtitle != "" {
 			if animTick >= subtitleStart {
 				lines = append(lines, "")
-				// Only shimmer subtitle during intro
 				subtitleShimmerPos := animTick - subtitleShimmerStart
 				subtitleRunes := []rune(subtitle)
 				if subtitleShimmerPos >= -1 && subtitleShimmerPos <= len(subtitleRunes)+1 {

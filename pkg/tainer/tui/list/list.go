@@ -6,10 +6,13 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	ltable "github.com/charmbracelet/lipgloss/table"
+
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/table"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/containers/podman/v6/pkg/tainer/tui"
 )
 
@@ -46,24 +49,49 @@ func (s sortMode) label() string {
 	}
 }
 
-// displayRow is a project row or a separator.
-type displayRow struct {
-	project   *Project // nil for separator rows
-	separator bool
+// appKeyMap defines the application-level keybindings shown in the help footer.
+type appKeyMap struct {
+	Navigate key.Binding
+	Open     key.Binding
+	Toggle   key.Binding
+	Sort     key.Binding
+	Quit     key.Binding
 }
 
-type model struct {
-	projects   []Project
-	rows       []displayRow
-	cursor     int
-	sort       sortMode
-	router     routerInfo
-	width      int
-	height     int
-	quitting   bool
-	busyName   string // project currently starting/stopping
-	busyAction string // "start" or "stop"
-	spinner    spinner.Model
+func newAppKeyMap() appKeyMap {
+	return appKeyMap{
+		Navigate: key.NewBinding(
+			key.WithKeys("up", "down", "k", "j"),
+			key.WithHelp("↑↓", "navigate"),
+		),
+		Open: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "open"),
+		),
+		Toggle: key.NewBinding(
+			key.WithKeys("s"),
+			key.WithHelp("s", "start"),
+		),
+		Sort: key.NewBinding(
+			key.WithKeys("m"),
+			key.WithHelp("m", "sort:name"),
+		),
+		Quit: key.NewBinding(
+			key.WithKeys("q", "esc", "ctrl+c"),
+			key.WithHelp("q", "quit"),
+		),
+	}
+}
+
+func (km appKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{km.Navigate, km.Open, km.Toggle, km.Sort, km.Quit}
+}
+
+func (km appKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{km.Navigate, km.Open, km.Toggle},
+		{km.Sort, km.Quit},
+	}
 }
 
 type routerInfo struct {
@@ -78,9 +106,26 @@ type podActionMsg struct {
 	err    error
 }
 
+type model struct {
+	projects   []Project
+	sorted     []Project // sorted view of projects
+	table      table.Model
+	helpModel  help.Model
+	keys       appKeyMap
+	sort       sortMode
+	router     routerInfo
+	width      int
+	height     int
+	quitting   bool
+	busyName   string // project currently starting/stopping
+	busyAction string // "start" or "stop"
+	spinner    spinner.Model
+}
+
+// Run starts the interactive list TUI.
 func Run(projects []Project, routerRunning bool, routerCount int) (*Result, error) {
 	m := initialModel(projects, routerRunning, routerCount)
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion())
+	p := tea.NewProgram(m)
 	final, err := p.Run()
 	if err != nil {
 		return nil, fmt.Errorf("running list TUI: %w", err)
@@ -89,107 +134,182 @@ func Run(projects []Project, routerRunning bool, routerCount int) (*Result, erro
 }
 
 func initialModel(projects []Project, routerRunning bool, routerCount int) model {
-	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(tui.Colors().Teal)
+	c := tui.Colors()
+	keys := newAppKeyMap()
+
+	var selected lipgloss.Style
+	if tui.IsDarkBackground() {
+		selected = lipgloss.NewStyle().Bold(true).
+			Background(lipgloss.Color("#FFCC33")).
+			Foreground(lipgloss.Color("#000000"))
+	} else {
+		selected = lipgloss.NewStyle().Bold(true).
+			Background(lipgloss.Color("#2563EB")).
+			Foreground(lipgloss.Color("#FFFFFF"))
+	}
+
+	s := table.Styles{
+		Header:   lipgloss.NewStyle().Bold(true).Foreground(c.Muted).Padding(0, 1),
+		Cell:     lipgloss.NewStyle().Padding(0, 1),
+		Selected: selected,
+	}
+
+	// Unstyled spinner — no ANSI color codes, so it won't break the
+	// table's Selected background highlight across the row.
+	sp := spinner.New()
+	sp.Spinner = spinner.Meter
 
 	m := model{
 		projects: projects,
-		spinner:  s,
+		keys:     keys,
+		spinner:  sp,
+		sort:     sortDefault,
 		router: routerInfo{
 			Running: routerRunning,
 			Count:   routerCount,
 		},
 	}
-	m.buildRows()
+	m.buildSorted()
+
+	helpKeyColor := lipgloss.Color("#FFCC33")
+	if !tui.IsDarkBackground() {
+		helpKeyColor = lipgloss.Color("#2563EB")
+	}
+
+	h := help.New()
+	h.Styles.ShortKey = lipgloss.NewStyle().Foreground(helpKeyColor).Bold(true)
+	h.Styles.ShortDesc = lipgloss.NewStyle().Foreground(c.Muted)
+	h.Styles.ShortSeparator = lipgloss.NewStyle().Foreground(c.Border)
+	m.helpModel = h
+
+	cols := computeColumns(80)
+	t := table.New(
+		table.WithColumns(cols),
+		table.WithRows(m.buildTableRows()),
+		table.WithFocused(true),
+		table.WithStyles(s),
+		table.WithWidth(80),
+		table.WithHeight(20),
+	)
+	m.table = t
+
 	return m
 }
 
-func (m *model) buildRows() {
-	m.rows = nil
+func computeColumns(termWidth int) []table.Column {
+	tableW := termWidth - 8
+	if tableW < 60 {
+		tableW = 60
+	}
+	// Each column gets 2 chars padding from Cell style
+	usable := tableW - 10
+	typeW := 10
+	statusW := 12
+	remaining := usable - typeW - statusW
+	nameW := remaining * 20 / 100
+	domainW := remaining * 30 / 100
+	pathW := remaining - nameW - domainW
+	if nameW < 12 {
+		nameW = 12
+	}
+	if domainW < 16 {
+		domainW = 16
+	}
+	if pathW < 10 {
+		pathW = 10
+	}
+	return []table.Column{
+		{Title: "NAME", Width: nameW},
+		{Title: "TYPE", Width: typeW},
+		{Title: "DOMAIN", Width: domainW},
+		{Title: "STATUS", Width: statusW},
+		{Title: "PATH", Width: pathW},
+	}
+}
+
+func (m *model) buildSorted() {
+	m.sorted = make([]Project, len(m.projects))
+	copy(m.sorted, m.projects)
 
 	switch m.sort {
 	case sortActive:
-		var running, stopped []Project
-		for _, p := range m.projects {
-			if p.Status == "Running" {
-				running = append(running, p)
-			} else {
-				stopped = append(stopped, p)
+		sort.Slice(m.sorted, func(i, j int) bool {
+			ri := m.sorted[i].Status == "Running"
+			rj := m.sorted[j].Status == "Running"
+			if ri != rj {
+				return ri
 			}
-		}
-		sort.Slice(running, func(i, j int) bool { return running[i].Name < running[j].Name })
-		sort.Slice(stopped, func(i, j int) bool { return stopped[i].Name < stopped[j].Name })
-		for i := range running {
-			m.rows = append(m.rows, displayRow{project: &running[i]})
-		}
-		if len(running) > 0 && len(stopped) > 0 {
-			m.rows = append(m.rows, displayRow{separator: true})
-		}
-		for i := range stopped {
-			m.rows = append(m.rows, displayRow{project: &stopped[i]})
-		}
-
+			return m.sorted[i].Name < m.sorted[j].Name
+		})
 	case sortType:
-		types := map[string][]Project{}
-		var typeOrder []string
-		sorted := make([]Project, len(m.projects))
-		copy(sorted, m.projects)
-		sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
-		for _, p := range sorted {
-			if _, ok := types[p.Type]; !ok {
-				typeOrder = append(typeOrder, p.Type)
+		sort.Slice(m.sorted, func(i, j int) bool {
+			if m.sorted[i].Type != m.sorted[j].Type {
+				return m.sorted[i].Type < m.sorted[j].Type
 			}
-			types[p.Type] = append(types[p.Type], p)
-		}
-		sort.Strings(typeOrder)
-		for ti, t := range typeOrder {
-			if ti > 0 {
-				m.rows = append(m.rows, displayRow{separator: true})
-			}
-			for i := range types[t] {
-				m.rows = append(m.rows, displayRow{project: &types[t][i]})
-			}
-		}
-
+			return m.sorted[i].Name < m.sorted[j].Name
+		})
 	default:
-		sorted := make([]Project, len(m.projects))
-		copy(sorted, m.projects)
-		sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
-		for i := range sorted {
-			m.rows = append(m.rows, displayRow{project: &sorted[i]})
-		}
+		sort.Slice(m.sorted, func(i, j int) bool {
+			return m.sorted[i].Name < m.sorted[j].Name
+		})
 	}
-
-	if m.cursor >= len(m.rows) {
-		m.cursor = len(m.rows) - 1
-	}
-	if m.cursor < 0 {
-		m.cursor = 0
-	}
-	m.skipToProject(0)
 }
 
-func (m *model) skipToProject(dir int) {
-	if len(m.rows) == 0 {
-		return
-	}
-	if m.rows[m.cursor].project != nil {
-		return
-	}
-	if dir >= 0 {
-		for m.cursor < len(m.rows)-1 && m.rows[m.cursor].project == nil {
-			m.cursor++
+func (m model) buildTableRows() []table.Row {
+	c := tui.Colors()
+	cursor := m.table.Cursor()
+	tealStyle := lipgloss.NewStyle().Foreground(c.Teal)
+	blueStyle := lipgloss.NewStyle().Foreground(c.Blue)
+
+	rows := make([]table.Row, len(m.sorted))
+	for i, p := range m.sorted {
+		selected := i == cursor
+		status := "○ stopped"
+		domain := p.Domain
+		if p.Status == "Running" {
+			status = "● running"
+			domain = p.Domain + " ↗"
+			// Color running rows — but not the selected row, where
+			// Selected style handles fg/bg and ANSI resets would break it.
+			if !selected {
+				status = tealStyle.Render(status)
+				domain = blueStyle.Render(domain)
+			}
 		}
-	} else {
-		for m.cursor > 0 && m.rows[m.cursor].project == nil {
-			m.cursor--
+		if m.isBusy() && p.Name == m.busyName {
+			if m.busyAction == "start" {
+				status = m.spinner.View() + " starting"
+			} else {
+				status = m.spinner.View() + " stopping"
+			}
 		}
+		rows[i] = table.Row{p.Name, p.Type, domain, status, p.Path}
 	}
+	return rows
 }
 
 func (m model) isBusy() bool {
 	return m.busyName != ""
+}
+
+func (m model) selectedProject() *Project {
+	idx := m.table.Cursor()
+	if idx < 0 || idx >= len(m.sorted) {
+		return nil
+	}
+	return &m.sorted[idx]
+}
+
+func (m *model) updateHelpBindings() {
+	p := m.selectedProject()
+	if p != nil && p.Status == "Running" {
+		m.keys.Toggle.SetHelp("s", "stop")
+		m.keys.Open.SetEnabled(true)
+	} else {
+		m.keys.Toggle.SetHelp("s", "start")
+		m.keys.Open.SetEnabled(false)
+	}
+	m.keys.Sort.SetHelp("m", "sort:"+m.sort.label())
 }
 
 func (m model) Init() tea.Cmd {
@@ -201,12 +321,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		innerW := m.width - 8 // frame border(2) + padding(4) + margin(2)
+		if innerW < 60 {
+			innerW = 60
+		}
+		m.table.SetColumns(computeColumns(m.width))
+		m.table.SetWidth(innerW)
+		// Height: frame border(2) + padding(2) + router(1) + blank(1) +
+		//   separator(1) + path(1) + blank(1) + help(1) = 10
+		tableH := m.height - 10
+		if tableH < 5 {
+			tableH = 5
+		}
+		m.table.SetHeight(tableH)
+		m.table.SetRows(m.buildTableRows())
+		m.helpModel.SetWidth(innerW)
 		return m, nil
 
 	case spinner.TickMsg:
 		if m.isBusy() {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
+			m.table.SetRows(m.buildTableRows())
 			return m, cmd
 		}
 		return m, nil
@@ -224,95 +360,69 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
-			m.buildRows()
+			m.buildSorted()
+			m.table.SetRows(m.buildTableRows())
 		}
+		m.updateHelpBindings()
 		return m, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if m.isBusy() {
-			// Only allow quit while busy
-			if msg.String() == "ctrl+c" {
+			if key.Matches(msg, m.keys.Quit) {
 				m.quitting = true
 				return m, tea.Quit
 			}
 			return m, nil
 		}
-		switch msg.String() {
-		case "q", "ctrl+c", "esc":
+		switch {
+		case key.Matches(msg, m.keys.Quit):
 			m.quitting = true
 			return m, tea.Quit
-		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
-				m.skipToProject(-1)
-			}
-			return m, nil
-		case "down", "j":
-			if m.cursor < len(m.rows)-1 {
-				m.cursor++
-				m.skipToProject(1)
-			}
-			return m, nil
-		case "enter":
+		case key.Matches(msg, m.keys.Open):
 			return m, m.openSelectedDomain()
-		case "s":
+		case key.Matches(msg, m.keys.Toggle):
 			return m, m.toggleSelectedPod()
-		case "m":
+		case key.Matches(msg, m.keys.Sort):
 			m.sort = (m.sort + 1) % 3
-			m.buildRows()
+			m.buildSorted()
+			m.table.SetRows(m.buildTableRows())
+			m.updateHelpBindings()
 			return m, nil
 		}
 
-	case tea.MouseMsg:
+	case tea.MouseWheelMsg:
 		if m.isBusy() {
 			return m, nil
 		}
-		switch msg.Button {
-		case tea.MouseButtonLeft:
-			return m, m.handleClick(msg)
-		case tea.MouseButtonWheelUp:
-			if m.cursor > 0 {
-				m.cursor--
-				m.skipToProject(-1)
-			}
-			return m, nil
-		case tea.MouseButtonWheelDown:
-			if m.cursor < len(m.rows)-1 {
-				m.cursor++
-				m.skipToProject(1)
-			}
+		if msg.Button == tea.MouseWheelUp {
+			m.table.MoveUp(1)
+		} else if msg.Button == tea.MouseWheelDown {
+			m.table.MoveDown(1)
+		}
+		m.table.SetRows(m.buildTableRows())
+		m.updateHelpBindings()
+		return m, nil
+
+	case tea.MouseClickMsg:
+		if m.isBusy() {
 			return m, nil
 		}
 	}
 
-	return m, nil
-}
-
-func (m *model) handleClick(msg tea.MouseMsg) tea.Cmd {
-	frameH := m.totalFrameHeight()
-	frameStartY := (m.height - frameH) / 2
-	// border(1) + padding(1) + router(1) + blank(1) + header(1) + border_line(1) = 6
-	tableDataStartY := frameStartY + 6
-
-	clickedRow := msg.Y - tableDataStartY
-	if clickedRow >= 0 && clickedRow < len(m.rows) && m.rows[clickedRow].project != nil {
-		m.cursor = clickedRow
+	// Let the table handle navigation keys (up/down/pgup/pgdown/g/G)
+	prev := m.table.Cursor()
+	var cmd tea.Cmd
+	m.table, cmd = m.table.Update(msg)
+	if m.table.Cursor() != prev {
+		m.table.SetRows(m.buildTableRows())
 	}
-	return nil
-}
-
-func (m model) totalFrameHeight() int {
-	// border(2) + padding(2) + router(1) + blank(1) + header(1) + border_line(1)
-	// + rows + separator(1) + path_line(1) + blank(1) + footer(1)
-	return 2 + 2 + 1 + 1 + 1 + 1 + len(m.rows) + 1 + 1 + 1 + 1
+	m.updateHelpBindings()
+	return m, cmd
 }
 
 func (m model) openSelectedDomain() tea.Cmd {
-	if m.cursor < 0 || m.cursor >= len(m.rows) || m.rows[m.cursor].project == nil {
-		return nil
-	}
-	p := m.rows[m.cursor].project
-	if p.Status != "Running" {
+	p := m.selectedProject()
+	if p == nil || p.Status != "Running" {
 		return nil
 	}
 	url := "https://" + p.Domain
@@ -323,17 +433,16 @@ func (m model) openSelectedDomain() tea.Cmd {
 }
 
 func (m *model) toggleSelectedPod() tea.Cmd {
-	if m.cursor < 0 || m.cursor >= len(m.rows) || m.rows[m.cursor].project == nil {
+	p := m.selectedProject()
+	if p == nil {
 		return nil
 	}
-	p := m.rows[m.cursor].project
 	name := p.Name
 	path := p.Path
 	action := "start"
 	if p.Status == "Running" {
 		action = "stop"
 	}
-
 	m.busyName = name
 	m.busyAction = action
 
@@ -343,41 +452,28 @@ func (m *model) toggleSelectedPod() tea.Cmd {
 		err := cmd.Run()
 		return podActionMsg{name: name, action: action, err: err}
 	}
-
 	return tea.Batch(m.spinner.Tick, execCmd)
 }
 
 func openBrowser(url string) {
 	switch runtime.GOOS {
 	case "darwin":
-		exec.Command("open", url).Start()
+		exec.Command("open", url).Start() //nolint:errcheck
 	case "linux":
-		exec.Command("xdg-open", url).Start()
+		exec.Command("xdg-open", url).Start() //nolint:errcheck
 	}
 }
 
-// truncatePath shortens a path keeping the beginning and end visible.
-func truncatePath(path string, maxW int) string {
-	if len(path) <= maxW || maxW < 10 {
-		return path
-	}
-	endLen := (maxW - 1) * 3 / 5
-	startLen := maxW - 1 - endLen
-	return path[:startLen] + "…" + path[len(path)-endLen:]
-}
-
-func (m model) View() string {
+func (m model) View() tea.View {
 	if m.quitting {
-		return ""
+		return tea.NewView("")
 	}
 
 	c := tui.Colors()
-	// Frame dimensions
 	frameW := m.width - 4
 	if frameW < 60 {
 		frameW = 60
 	}
-	tableW := frameW - 6 // border(2) + padding(4)
 
 	var sections []string
 
@@ -386,7 +482,8 @@ func (m model) View() string {
 	routerStatus := lipgloss.NewStyle().Foreground(c.Muted).Render("stopped")
 	if m.router.Running {
 		routerDot = lipgloss.NewStyle().Foreground(c.Teal).Render("●")
-		routerStatus = lipgloss.NewStyle().Foreground(c.Teal).Render(fmt.Sprintf("running (%d projects)", m.router.Count))
+		routerStatus = lipgloss.NewStyle().Foreground(c.Teal).Render(
+			fmt.Sprintf("running (%d projects)", m.router.Count))
 	}
 	sections = append(sections, fmt.Sprintf("%s %s  %s",
 		routerDot,
@@ -395,170 +492,34 @@ func (m model) View() string {
 	))
 	sections = append(sections, "")
 
-	// Build table data
-	var tableRows [][]string
-	rowToDisplayIdx := make(map[int]int)
-	for i, row := range m.rows {
-		if row.separator {
-			tableRows = append(tableRows, []string{"", "", "", "", ""})
-		} else {
-			p := row.project
-			status := "● stopped"
-			domain := p.Domain
-			if p.Status == "Running" {
-				status = "● running"
-				domain = p.Domain + " ↗"
-			}
-			// Show spinner for busy project
-			if m.isBusy() && p.Name == m.busyName {
-				if m.busyAction == "start" {
-					status = m.spinner.View() + " starting"
-				} else {
-					status = m.spinner.View() + " stopping"
-				}
-			}
-			pathW := tableW - 16 - 10 - 24 - 14 - 14
-			if pathW < 10 {
-				pathW = 10
-			}
-			tableRows = append(tableRows, []string{
-				p.Name,
-				p.Type,
-				domain,
-				status,
-				truncatePath(p.Path, pathW),
-			})
-		}
-		rowToDisplayIdx[len(tableRows)-1] = i
-	}
+	// Table (with built-in viewport scrolling)
+	sections = append(sections, m.table.View())
 
-	// Highlight colors
-	highlightFg := c.Text
-	highlightBg := lipgloss.Color("#162032")
-	if !tui.IsDarkBackground() {
-		highlightBg = lipgloss.Color("#CBD5E1")
-	}
+	// Separator
+	innerW := frameW - 6 // border(2) + padding(4)
+	sections = append(sections,
+		lipgloss.NewStyle().Foreground(c.Border).Render(strings.Repeat("─", innerW)))
 
-	cursor := m.cursor
-	t := ltable.New().
-		Headers("NAME", "TYPE", "DOMAIN", "STATUS", "PATH").
-		Rows(tableRows...).
-		Width(tableW).
-		Border(lipgloss.NormalBorder()).
-		BorderTop(false).
-		BorderBottom(false).
-		BorderLeft(false).
-		BorderRight(false).
-		BorderColumn(false).
-		BorderHeader(true).
-		BorderStyle(lipgloss.NewStyle().Foreground(c.Border)).
-		StyleFunc(func(row, col int) lipgloss.Style {
-			s := lipgloss.NewStyle().PaddingRight(2)
-
-			if row == ltable.HeaderRow {
-				return s.Bold(true).Foreground(c.Muted)
-			}
-
-			displayIdx, ok := rowToDisplayIdx[row]
-			if ok && m.rows[displayIdx].separator {
-				return s.Foreground(c.Muted)
-			}
-
-			isSelected := ok && displayIdx == cursor
-
-			if isSelected {
-				base := s.Background(highlightBg).Foreground(highlightFg).Bold(true)
-				switch col {
-				case 2:
-					if ok && m.rows[displayIdx].project != nil && m.rows[displayIdx].project.Status == "Running" {
-						return base.Foreground(c.Blue)
-					}
-					return base
-				case 3:
-					if ok && m.rows[displayIdx].project != nil && m.rows[displayIdx].project.Status == "Running" {
-						return base.Foreground(c.Teal)
-					}
-					return base
-				default:
-					return base
-				}
-			}
-
-			switch col {
-			case 0:
-				return s.Bold(true).Foreground(c.Text)
-			case 1:
-				return s.Foreground(c.Muted)
-			case 2:
-				if ok && m.rows[displayIdx].project != nil && m.rows[displayIdx].project.Status == "Running" {
-					return s.Foreground(c.Blue)
-				}
-				return s.Foreground(c.Muted)
-			case 3:
-				if ok && m.rows[displayIdx].project != nil && m.rows[displayIdx].project.Status == "Running" {
-					return s.Foreground(c.Teal)
-				}
-				return s.Foreground(c.Muted)
-			case 4:
-				return s.Foreground(c.Muted)
-			}
-			return s
-		})
-
-	sections = append(sections, t.Render())
-
-	// Separator before footer
-	sections = append(sections, lipgloss.NewStyle().Foreground(c.Border).Render(strings.Repeat("─", tableW)))
-
-	// Path info line (full path of selected project)
+	// Full path of selected project
 	pathLine := ""
-	if m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].project != nil {
-		p := m.rows[m.cursor].project
+	if p := m.selectedProject(); p != nil {
 		pathLine = lipgloss.NewStyle().Foreground(c.Muted).Render("  ") +
 			lipgloss.NewStyle().Foreground(c.Text).Render(p.Path)
 	}
 	sections = append(sections, pathLine)
-
-	// Footer with actions
 	sections = append(sections, "")
 
+	// Help footer
 	if m.isBusy() {
 		busyLabel := "Starting"
 		if m.busyAction == "stop" {
 			busyLabel = "Stopping"
 		}
 		sections = append(sections,
-			lipgloss.NewStyle().Foreground(c.Muted).Render(fmt.Sprintf("  %s %s…", busyLabel, m.busyName)),
-		)
+			lipgloss.NewStyle().Foreground(c.Muted).Render(
+				fmt.Sprintf("  %s %s…", busyLabel, m.busyName)))
 	} else {
-		keyStyle := lipgloss.NewStyle().Bold(true).Foreground(c.Text)
-		descStyle := lipgloss.NewStyle().Foreground(c.Muted)
-		sep := descStyle.Render("    ")
-
-		var parts []string
-		parts = append(parts, keyStyle.Render("↑↓")+descStyle.Render(" navigate"))
-
-		if m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].project != nil {
-			p := m.rows[m.cursor].project
-			if p.Status == "Running" {
-				parts = append(parts,
-					keyStyle.Render("enter")+descStyle.Render(" open"),
-					keyStyle.Render("s")+lipgloss.NewStyle().Foreground(c.Orange).Render(" stop"),
-				)
-			} else {
-				parts = append(parts,
-					keyStyle.Render("s")+lipgloss.NewStyle().Foreground(c.Teal).Render(" start"),
-				)
-			}
-		}
-
-		sortLabel := lipgloss.NewStyle().Foreground(c.Teal).Render(m.sort.label())
-		parts = append(parts,
-			keyStyle.Render("m")+descStyle.Render(" sort:")+sortLabel,
-			keyStyle.Render("q")+descStyle.Render(" quit"),
-		)
-
-		sections = append(sections, "  "+strings.Join(parts, sep))
+		sections = append(sections, m.helpModel.View(m.keys))
 	}
 
 	content := strings.Join(sections, "\n")
@@ -570,5 +531,10 @@ func (m model) View() string {
 		Padding(1, 2).
 		Render(content)
 
-	return tui.FullScreen(frame, m.width, m.height)
+	rendered := tui.FullScreen(frame, m.width, m.height)
+
+	v := tea.NewView(rendered)
+	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
+	return v
 }
