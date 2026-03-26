@@ -611,7 +611,7 @@ func (m model) renderPickerContent() string {
 	for _, p := range m.projects {
 		n := len(p.Name)
 		if p.IsCurrent {
-			n += 6
+			n += 10
 		}
 		if n > maxName {
 			maxName = n
@@ -637,8 +637,8 @@ func (m model) renderPickerContent() string {
 			nameStr = lipgloss.NewStyle().Bold(true).Foreground(c.Text).Render(p.Name)
 		}
 		if p.IsCurrent {
-			nameStr += mutedStyle.Render(" (cwd)")
-			nameLen += 6
+			nameStr += tealStyle.Render(" (current)")
+			nameLen += 10
 		}
 
 		namePad := maxName - nameLen + 2
