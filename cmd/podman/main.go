@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -29,6 +30,8 @@ import (
 	_ "github.com/containers/podman/v6/cmd/podman/volumes"
 	"github.com/containers/podman/v6/pkg/domain/entities"
 	"github.com/containers/podman/v6/pkg/logiface"
+	projRegistry "github.com/containers/podman/v6/pkg/tainer/registry"
+	"github.com/containers/podman/v6/pkg/tainer/tui/home"
 	"github.com/containers/podman/v6/pkg/rootless"
 	"github.com/containers/podman/v6/pkg/terminal"
 	"github.com/sirupsen/logrus"
@@ -154,8 +157,73 @@ func parseCommands() *cobra.Command {
 		os.Exit(1)
 	}
 
+	// Override root RunE to show interactive home screen instead of help text
+	rootCmd.RunE = runHomeScreen
+
 	rootCmd.SetFlagErrorFunc(flagErrorFuncfunc)
 	return rootCmd
+}
+
+func runHomeScreen(cmd *cobra.Command, args []string) error {
+	// If args provided, fall through to standard error handling
+	if len(args) > 0 {
+		return validate.SubCommandExists(cmd, args)
+	}
+
+	// Self-heal stale registry entries
+	projRegistry.SelfHeal()
+
+	// Detect current working directory project
+	cwd, _ := os.Getwd()
+
+	// Build project summary and entries
+	projects := projRegistry.All()
+	summary := home.ProjectSummary{
+		Types: make(map[string]int),
+	}
+	entries := make([]home.ProjectEntry, 0, len(projects))
+	for name, p := range projects {
+		summary.Total++
+		summary.Types[p.Type]++
+		status := "stopped"
+		out, err := exec.Command("tainer", "pod", "inspect",
+			"--format", "{{.State}}", fmt.Sprintf("tainer-%s", name)).CombinedOutput()
+		if err == nil {
+			status = strings.TrimSpace(string(out))
+		}
+		if status == "Running" {
+			summary.Running++
+		}
+		entries = append(entries, home.ProjectEntry{
+			Name:      name,
+			Type:      p.Type,
+			Domain:    p.Domain,
+			Status:    status,
+			Path:      p.Path,
+			IsCurrent: p.Path == cwd,
+		})
+	}
+
+	result, err := home.Run(summary, entries)
+	if err != nil {
+		return err
+	}
+
+	if result.Action == "" {
+		return nil
+	}
+
+	cmdArgs := strings.Fields(result.Action)
+
+	// For project-scoped commands, run from the project directory
+	c := exec.Command("tainer", cmdArgs...)
+	c.Stdin = os.Stdin
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	if result.ProjectDir != "" {
+		c.Dir = result.ProjectDir
+	}
+	return c.Run()
 }
 
 func flagErrorFuncfunc(c *cobra.Command, e error) error {
