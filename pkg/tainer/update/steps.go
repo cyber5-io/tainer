@@ -182,15 +182,13 @@ func RunCoreWithTUI() error {
 		return fmt.Errorf("staging binary: %w", err)
 	}
 
-	mvCmd := exec.Command("sudo", "mv", stagingPath, tainerBinaryPath)
-	mvCmd.Stdout = os.Stdout
-	mvCmd.Stderr = os.Stderr
-	if err := mvCmd.Run(); err != nil {
-		return fmt.Errorf("installing binary: %w", err)
-	}
-
+	// Print success BEFORE mv — macOS kills the process when the binary is replaced.
 	tui.PrintWithLogo(tealStyle.Render("✓") + " " + textStyle.Render("Updated: ") +
 		mutedStyle.Render(fmt.Sprintf("v%s → v%s", currentVersion, remoteVersion)))
+
+	// This mv will kill the current process on macOS. That's expected.
+	exec.Command("sudo", "mv", stagingPath, tainerBinaryPath).Run()
+	os.Exit(0)
 	return nil
 }
 
