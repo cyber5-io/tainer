@@ -101,3 +101,80 @@ func LogoFull() string {
 	name := textStyle.Render("tainer") + tealStyle.Render(".dev/")
 	return icon + "\n\n" + name
 }
+
+// LogoSmallFull returns the small bracket icon with "tainer.dev/" centered below.
+func LogoSmallFull() string {
+	icon := LogoSmall()
+	c := Colors()
+	wordmark := lipgloss.NewStyle().Bold(true).Foreground(c.Text).Render("tainer") +
+		lipgloss.NewStyle().Foreground(c.Teal).Render(".dev/")
+	return icon + "\n\n" + CenterText(wordmark, lipgloss.Width(icon))
+}
+
+// LogoSmall renders a half-size version of the [=] bracket icon.
+// 10 pixel rows x 15 columns = 5 terminal lines.
+// Uses single-pixel-row elements (arms, teal bars) so half-block
+// rendering produces thin lines proportional to the smaller size.
+func LogoSmall() string {
+	c := Colors()
+
+	var leftFill, rightFill color.Color
+	if IsDarkBackground() {
+		leftFill = lipgloss.Color("#142335")
+		rightFill = lipgloss.Color("#2D1C1A")
+	} else {
+		leftFill = lipgloss.Color("#D8E5FC")
+		rightFill = lipgloss.Color("#F0DEE1")
+	}
+
+	const (
+		B = 1 // blue (left bracket)
+		T = 2 // teal (equals bars)
+		O = 3 // orange (right bracket)
+		L = 4 // left fill
+		R = 5 // right fill
+	)
+
+	// 10 pixel rows x 15 columns — each visual element is 1 pixel row,
+	// so half-block rendering produces thin arms and teal bars.
+	grid := [10][15]byte{
+		{B, B, B, L, L, 0, 0, 0, 0, 0, R, R, O, O, O}, // top arm
+		{B, L, L, L, L, 0, 0, 0, 0, 0, R, R, R, R, O}, // fill
+		{B, L, L, L, L, 0, 0, 0, 0, 0, R, R, R, R, O}, // fill
+		{B, L, L, L, T, T, T, T, T, T, T, R, R, R, O}, // teal bar 1
+		{B, L, L, L, L, 0, 0, 0, 0, 0, R, R, R, R, O}, // fill
+		{B, L, L, L, L, 0, 0, 0, 0, 0, R, R, R, R, O}, // fill
+		{B, L, L, L, T, T, T, T, T, T, T, R, R, R, O}, // teal bar 2
+		{B, L, L, L, L, 0, 0, 0, 0, 0, R, R, R, R, O}, // fill
+		{B, L, L, L, L, 0, 0, 0, 0, 0, R, R, R, R, O}, // fill
+		{B, B, B, L, L, 0, 0, 0, 0, 0, R, R, O, O, O}, // bottom arm
+	}
+
+	clrs := [6]color.Color{nil, c.Blue, c.Teal, c.Orange, leftFill, rightFill}
+
+	var lines []string
+	for y := 0; y < 10; y += 2 {
+		var buf strings.Builder
+		for x := 0; x < 15; x++ {
+			top, bot := grid[y][x], grid[y+1][x]
+			switch {
+			case top == 0 && bot == 0:
+				buf.WriteRune(' ')
+			case top == bot:
+				buf.WriteString(lipgloss.NewStyle().Foreground(clrs[top]).Render("█"))
+			case top == 0:
+				buf.WriteString(lipgloss.NewStyle().Foreground(clrs[bot]).Render("▄"))
+			case bot == 0:
+				buf.WriteString(lipgloss.NewStyle().Foreground(clrs[top]).Render("▀"))
+			default:
+				buf.WriteString(lipgloss.NewStyle().
+					Foreground(clrs[top]).
+					Background(clrs[bot]).
+					Render("▀"))
+			}
+		}
+		lines = append(lines, buf.String())
+	}
+
+	return strings.Join(lines, "\n")
+}

@@ -13,6 +13,7 @@ import (
 	"github.com/containers/podman/v6/pkg/tainer/project"
 	"github.com/containers/podman/v6/pkg/tainer/registry"
 	"github.com/containers/podman/v6/pkg/tainer/tui"
+	mountTui "github.com/containers/podman/v6/pkg/tainer/tui/mount"
 	"github.com/containers/podman/v6/pkg/tainer/tui/progress"
 	"github.com/containers/podman/v6/pkg/tainer/wizard"
 	"github.com/spf13/cobra"
@@ -51,7 +52,7 @@ func InterceptInit(cmd *cobra.Command, args []string) (bool, error) {
 	}
 
 	if manifest.Exists(cwd) {
-		return true, fmt.Errorf("tainer.yaml already exists in %s", cwd)
+		return true, tui.StyledError("tainer.yaml already exists in " + cwd)
 	}
 
 	// Ensure machine is running before starting the wizard
@@ -107,7 +108,7 @@ func InterceptDestroy(cmd *cobra.Command, args []string) (bool, error) {
 	// No args: check for tainer.yaml in cwd
 	if len(args) == 0 {
 		if !manifest.Exists(cwd) {
-			return true, fmt.Errorf("no tainer.yaml found in current directory.\n  Run 'tainer init' to create a project, or provide a project name.\n  Usage: tainer destroy [project-name] [--nuke]")
+			return true, tui.StyledError("No tainer.yaml found in current directory.\nRun 'tainer init' to create a project, or provide a project name.\nUsage: tainer destroy [project-name] [--nuke]")
 		}
 		projectDir = cwd
 	} else if len(args) == 1 {
@@ -115,7 +116,7 @@ func InterceptDestroy(cmd *cobra.Command, args []string) (bool, error) {
 		if p, ok := registry.Get(name); ok {
 			projectDir = p.Path
 		} else {
-			return true, fmt.Errorf("project %q not found in registry", name)
+			return true, tui.StyledError(fmt.Sprintf("Project %q not found in registry", name))
 		}
 	} else {
 		return false, nil
@@ -179,43 +180,81 @@ func executeDestroy(projectDir string, force, nuke bool) error {
 	return result.Err
 }
 
-// InterceptMount checks if `tainer mount add <name>` or `tainer mount del <name>` should be handled.
+// InterceptMount handles `tainer mount`, `tainer mount add <name>`, and `tainer mount del <name>`.
 func InterceptMount(cmd *cobra.Command, args []string) (bool, error) {
-	if len(args) == 0 {
-		return true, fmt.Errorf("usage: tainer mount <add|del> <name>\n\nManage custom mounts for a Tainer project.\n\nSubcommands:\n  add <name>   Add a custom mount\n  del <name>   Remove a custom mount")
-	}
-
-	subCmd := args[0]
-	if subCmd != "add" && subCmd != "del" {
-		return true, fmt.Errorf("unknown subcommand %q\nUsage: tainer mount <add|del> <name>", subCmd)
-	}
-
-	if len(args) < 2 {
-		return true, fmt.Errorf("missing name argument\nUsage: tainer mount %s <name>", subCmd)
-	}
-
 	cwd, err := GetWorkingDir()
 	if err != nil {
 		return true, fmt.Errorf("getting working directory: %w", err)
 	}
 
 	if !manifest.Exists(cwd) {
-		return true, fmt.Errorf("no tainer.yaml found in current directory")
+		return true, tui.StyledError("No tainer.yaml found in current directory.\nRun 'tainer init' to create a project first.")
 	}
 
-	name := args[1]
+	m, err := manifest.LoadFromDir(cwd)
+	if err != nil {
+		return true, fmt.Errorf("reading tainer.yaml: %w", err)
+	}
 
-	switch subCmd {
+	// Build internal mounts list
+	internal := []string{"html", "data"}
+	if m.HasDatabase() {
+		internal = append(internal, "db")
+	}
+
+	// No args: launch interactive mount TUI
+	if len(args) == 0 {
+		result, err := mountTui.Run(m.Project.Name, cwd, m.Mounts, internal)
+		if err != nil {
+			return true, err
+		}
+		if result.Restart {
+			return true, executeProjectAction(m.Project.Name, cwd, "restart")
+		}
+		return true, nil
+	}
+
+	subCmd := args[0]
+	if subCmd != "add" && subCmd != "del" {
+		return true, tui.StyledError(fmt.Sprintf("Unknown subcommand %q\nUsage: tainer mount [add|del] <name>", subCmd))
+	}
+
+	if len(args) < 2 {
+		c := tui.Colors()
+		labelStyle := lipgloss.NewStyle().Bold(true).Foreground(c.Blue)
+		mutedStyle := lipgloss.NewStyle().Foreground(c.Muted)
+		content := labelStyle.Render("Usage: ") + mutedStyle.Render("tainer mount "+subCmd+" <name>") +
+			"\n\n" + mutedStyle.Render("Or run 'tainer mount' for interactive mode.")
+		tui.PrintWithLogo(content)
+		return true, nil
+	}
+
+	return true, executeMountAction(cwd, subCmd, args[1])
+}
+
+func executeMountAction(cwd, action, name string) error {
+	c := tui.Colors()
+
+	var err error
+	switch action {
 	case "add":
 		err = project.MountAdd(cwd, name)
 	case "del":
 		err = project.MountDel(cwd, name)
 	}
-
 	if err != nil {
-		return true, err
+		return err
 	}
-	return true, nil
+
+	check := lipgloss.NewStyle().Foreground(c.Teal).Render("✓")
+	msg := "Added mount: " + name
+	if action == "del" {
+		msg = "Removed mount: " + name
+	}
+	content := check + " " + lipgloss.NewStyle().Foreground(c.Text).Render(msg) +
+		"\n" + lipgloss.NewStyle().Foreground(c.Muted).Render("Restart project to apply changes.")
+	tui.PrintWithLogo(content)
+	return nil
 }
 
 func interceptProjectCommand(cmd *cobra.Command, args []string, action string) (bool, error) {
@@ -231,8 +270,15 @@ func interceptProjectCommand(cmd *cobra.Command, args []string, action string) (
 			if projectName, ok := config.FindBackupForPath(cwd); ok {
 				missing := config.MissingWithBackup(projectName, cwd)
 				if len(missing) > 0 {
-					fmt.Printf("Missing config files: %s\n", strings.Join(missing, ", "))
-					fmt.Print("Restore from backup? (y/n) ")
+					c := tui.Colors()
+					orangeStyle := lipgloss.NewStyle().Foreground(c.Orange).Bold(true)
+					textStyle := lipgloss.NewStyle().Foreground(c.Text)
+					mutedStyle := lipgloss.NewStyle().Foreground(c.Muted)
+					fmt.Printf("\n  %s %s %s\n",
+						orangeStyle.Render("!"),
+						textStyle.Render("Missing config files:"),
+						mutedStyle.Render(strings.Join(missing, ", ")))
+					fmt.Printf("  %s ", textStyle.Render("Restore from backup? [y/N]"))
 					reader := bufio.NewReader(os.Stdin)
 					answer, _ := reader.ReadString('\n')
 					answer = strings.TrimSpace(strings.ToLower(answer))
@@ -241,15 +287,17 @@ func interceptProjectCommand(cmd *cobra.Command, args []string, action string) (
 						if err != nil {
 							return true, fmt.Errorf("restoring backup: %w", err)
 						}
+						tealStyle := lipgloss.NewStyle().Foreground(c.Teal)
 						for _, name := range restored {
-							fmt.Printf("  Restored %s\n", name)
+							fmt.Printf("  %s %s\n", tealStyle.Render("✓"), textStyle.Render("Restored "+name))
 						}
+						fmt.Println()
 					} else {
-						return true, fmt.Errorf("no tainer.yaml found in current directory.\n  Run 'tainer init' to create a project, or provide a project/container name.\n  Usage: tainer %s [project-name|container-name]", action)
+						return true, tui.StyledError(fmt.Sprintf("No tainer.yaml found in current directory.\nRun 'tainer init' to create a project, or provide a project/container name.\nUsage: tainer %s [project-name|container-name]", action))
 					}
 				}
 			} else {
-				return true, fmt.Errorf("no tainer.yaml found in current directory.\n  Run 'tainer init' to create a project, or provide a project/container name.\n  Usage: tainer %s [project-name|container-name]", action)
+				return true, tui.StyledError(fmt.Sprintf("No tainer.yaml found in current directory.\nRun 'tainer init' to create a project, or provide a project/container name.\nUsage: tainer %s [project-name|container-name]", action))
 			}
 		}
 
@@ -302,7 +350,7 @@ func executeProjectAction(name, path, action string) error {
 		// Check if already running before showing TUI
 		podName := fmt.Sprintf("tainer-%s", info.Name)
 		if project.IsPodRunning(podName) {
-			fmt.Printf("%s is already running\n", info.Name)
+			tui.PrintWithLogo(textStyle.Render(info.Name) + mutedStyle.Render(" is already running"))
 			return nil
 		}
 

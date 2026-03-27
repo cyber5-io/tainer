@@ -36,7 +36,6 @@ func MountAdd(projectDir, name string) error {
 		return fmt.Errorf("saving manifest: %w", err)
 	}
 
-	fmt.Printf("Added mount: %s. Restart project to apply.\n", name)
 	return nil
 }
 
@@ -65,7 +64,6 @@ func MountDel(projectDir, name string) error {
 		return fmt.Errorf("saving manifest: %w", err)
 	}
 
-	fmt.Printf("Removed mount: %s. Restart project to apply.\nFiles preserved at %s/\n", name, name)
 	return nil
 }
 

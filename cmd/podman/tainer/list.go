@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"charm.land/lipgloss/v2"
 	"github.com/containers/podman/v6/cmd/podman/registry"
 	projRegistry "github.com/containers/podman/v6/pkg/tainer/registry"
 	"github.com/containers/podman/v6/pkg/tainer/router"
@@ -30,15 +31,20 @@ func init() {
 func listRun(cmd *cobra.Command, args []string) error {
 	// Self-heal: prune stale entries
 	pruned := projRegistry.SelfHeal()
-	for _, name := range pruned {
-		fmt.Fprintf(os.Stderr, "Warning: pruned stale project %q (path no longer exists)\n", name)
+	if len(pruned) > 0 {
+		c := tui.Colors()
+		warnStyle := lipgloss.NewStyle().Foreground(c.Orange)
+		mutedStyle := lipgloss.NewStyle().Foreground(c.Muted)
+		for _, name := range pruned {
+			fmt.Fprintf(os.Stderr, "  %s %s\n", warnStyle.Render("!"), mutedStyle.Render("Pruned stale project "+name))
+		}
 	}
 
 	projects := projRegistry.All()
 
 	if len(projects) == 0 {
-		fmt.Println()
-		fmt.Println(tui.SubtitleStyle().Render("No projects registered. Run 'tainer init' to get started."))
+		content := tui.SubtitleStyle().Render("No projects registered. Run 'tainer init' to get started.")
+		tui.PrintWithLogo(content)
 		return nil
 	}
 

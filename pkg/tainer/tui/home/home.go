@@ -600,7 +600,6 @@ func (m model) renderPickerContent() string {
 	mutedStyle := lipgloss.NewStyle().Foreground(c.Muted)
 	tealStyle := lipgloss.NewStyle().Foreground(c.Teal)
 	textStyle := lipgloss.NewStyle().Foreground(c.Text)
-	blueStyle := lipgloss.NewStyle().Foreground(c.Blue)
 
 	var sections []string
 	sections = append(sections, "")
@@ -647,7 +646,7 @@ func (m model) renderPickerContent() string {
 		}
 
 		typeStr := mutedStyle.Render(p.Type)
-		domainStr := blueStyle.Render(p.Domain)
+		domainStr := tui.RenderURL(p.Domain)
 
 		row := fmt.Sprintf("%s %s %s%s%s  %s", pointer, dot, nameStr, strings.Repeat(" ", namePad), typeStr, domainStr)
 		sections = append(sections, row)

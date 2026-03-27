@@ -8,6 +8,7 @@ import (
 	"github.com/containers/podman/v6/pkg/tainer/manifest"
 	"github.com/containers/podman/v6/pkg/tainer/project"
 	projRegistry "github.com/containers/podman/v6/pkg/tainer/registry"
+	"github.com/containers/podman/v6/pkg/tainer/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -19,14 +20,14 @@ var openCmd = &cobra.Command{
 			if p, ok := projRegistry.Get(args[0]); ok {
 				return project.OpenBrowser(p.Path)
 			}
-			return fmt.Errorf("project %q not found", args[0])
+			return tui.StyledError(fmt.Sprintf("Project %q not found.", args[0]))
 		}
 		cwd, err := os.Getwd()
 		if err != nil {
 			return err
 		}
 		if !manifest.Exists(cwd) {
-			return fmt.Errorf("no tainer.yaml found. Run from a project directory or provide a project name.")
+			return tui.StyledError("No tainer.yaml found.\nRun from a project directory or provide a project name.")
 		}
 		return project.OpenBrowser(cwd)
 	},

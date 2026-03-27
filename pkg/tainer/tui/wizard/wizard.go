@@ -678,7 +678,7 @@ func (m model) bodyConfirm() string {
 		lbl := tui.SubtitleStyle().Render(fmt.Sprintf("  %-10s", r.label))
 		var val string
 		if r.url {
-			val = tui.URLStyle().Render(r.value)
+			val = tui.RenderURL(r.value)
 		} else {
 			val = tui.SuccessStyle().Render(r.value)
 		}
