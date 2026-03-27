@@ -29,7 +29,7 @@ var configBackupCmd = &cobra.Command{
 		}
 
 		if !manifest.Exists(cwd) {
-			return fmt.Errorf("no tainer.yaml found in current directory")
+			return tui.StyledError("No tainer.yaml found in current directory.")
 		}
 
 		m, err := manifest.LoadFromDir(cwd)
@@ -65,12 +65,12 @@ var configRestoreCmd = &cobra.Command{
 			// Try to find a backup that matches this path
 			projectName, ok = config.FindBackupForPath(cwd)
 			if !ok {
-				return fmt.Errorf("no backup found for current directory")
+				return tui.StyledError("No backup found for current directory.")
 			}
 		}
 
 		if !config.BackupExists(projectName) {
-			return fmt.Errorf("no backup found for project '%s'", projectName)
+			return tui.StyledError("No backup found for project '" + projectName + "'.")
 		}
 
 		restored, err := config.Restore(projectName, cwd)

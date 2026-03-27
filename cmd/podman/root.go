@@ -21,6 +21,7 @@ import (
 	"github.com/containers/podman/v6/pkg/checkpoint/crutils"
 	"github.com/containers/podman/v6/pkg/domain/entities"
 	"github.com/containers/podman/v6/pkg/parallel"
+	"github.com/containers/podman/v6/pkg/tainer/tui"
 	"github.com/containers/podman/v6/version/rawversion"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -152,15 +153,20 @@ func init() {
 
 func Execute() {
 	if err := rootCmd.ExecuteContext(registry.Context()); err != nil {
-		if registry.GetExitCode() == 0 {
+		// ErrSilent means styled output was already printed — skip cobra error formatting.
+		if errors.Is(err, tui.ErrSilent) {
 			registry.SetExitCode(define.ExecErrorCodeGeneric)
-		}
-		if registry.IsRemote() {
-			if errors.As(err, &bindings.ConnectError{}) {
-				fmt.Fprintln(os.Stderr, "Cannot connect to Tainer. Please verify your connection to the Linux system using `tainer system connection list`, or try `tainer machine init` and `tainer machine start` to manage a new Linux VM")
+		} else {
+			if registry.GetExitCode() == 0 {
+				registry.SetExitCode(define.ExecErrorCodeGeneric)
 			}
+			if registry.IsRemote() {
+				if errors.As(err, &bindings.ConnectError{}) {
+					fmt.Fprintln(os.Stderr, "Cannot connect to Tainer. Please verify your connection to the Linux system using `tainer system connection list`, or try `tainer machine init` and `tainer machine start` to manage a new Linux VM")
+				}
+			}
+			fmt.Fprintln(os.Stderr, formatError(err))
 		}
-		fmt.Fprintln(os.Stderr, formatError(err))
 	}
 
 	_ = shutdown.Stop()

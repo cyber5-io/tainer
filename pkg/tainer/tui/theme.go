@@ -191,6 +191,25 @@ func PrintWithLogo(content string) {
 	fmt.Println()
 }
 
+// PrintErrorWithLogo prints a styled error message with the logo on the right.
+func PrintErrorWithLogo(msg string) {
+	c := Colors()
+	orangeStyle := lipgloss.NewStyle().Foreground(c.Orange).Bold(true)
+	textStyle := lipgloss.NewStyle().Foreground(c.Text)
+	content := orangeStyle.Render("✖") + " " + textStyle.Render(msg)
+	PrintWithLogo(content)
+}
+
+// ErrSilent is returned after styled output has been printed.
+// Callers should check for this with errors.Is and return nil to cobra.
+var ErrSilent = fmt.Errorf("")
+
+// StyledError prints a styled error with logo and returns ErrSilent.
+func StyledError(msg string) error {
+	PrintErrorWithLogo(msg)
+	return ErrSilent
+}
+
 // FullScreen centers the frame in the terminal.
 func FullScreen(frame string, termW, termH int) string {
 	return lipgloss.Place(termW, termH, lipgloss.Center, lipgloss.Center, frame)

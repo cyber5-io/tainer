@@ -52,7 +52,7 @@ func InterceptInit(cmd *cobra.Command, args []string) (bool, error) {
 	}
 
 	if manifest.Exists(cwd) {
-		return true, fmt.Errorf("tainer.yaml already exists in %s", cwd)
+		return true, tui.StyledError("tainer.yaml already exists in " + cwd)
 	}
 
 	// Ensure machine is running before starting the wizard
@@ -108,7 +108,7 @@ func InterceptDestroy(cmd *cobra.Command, args []string) (bool, error) {
 	// No args: check for tainer.yaml in cwd
 	if len(args) == 0 {
 		if !manifest.Exists(cwd) {
-			return true, fmt.Errorf("no tainer.yaml found in current directory.\n  Run 'tainer init' to create a project, or provide a project name.\n  Usage: tainer destroy [project-name] [--nuke]")
+			return true, tui.StyledError("No tainer.yaml found in current directory.\nRun 'tainer init' to create a project, or provide a project name.\nUsage: tainer destroy [project-name] [--nuke]")
 		}
 		projectDir = cwd
 	} else if len(args) == 1 {
@@ -116,7 +116,7 @@ func InterceptDestroy(cmd *cobra.Command, args []string) (bool, error) {
 		if p, ok := registry.Get(name); ok {
 			projectDir = p.Path
 		} else {
-			return true, fmt.Errorf("project %q not found in registry", name)
+			return true, tui.StyledError(fmt.Sprintf("Project %q not found in registry", name))
 		}
 	} else {
 		return false, nil
@@ -188,7 +188,7 @@ func InterceptMount(cmd *cobra.Command, args []string) (bool, error) {
 	}
 
 	if !manifest.Exists(cwd) {
-		return true, fmt.Errorf("no tainer.yaml found in current directory.\n  Run 'tainer init' to create a project first.")
+		return true, tui.StyledError("No tainer.yaml found in current directory.\nRun 'tainer init' to create a project first.")
 	}
 
 	m, err := manifest.LoadFromDir(cwd)
@@ -216,7 +216,7 @@ func InterceptMount(cmd *cobra.Command, args []string) (bool, error) {
 
 	subCmd := args[0]
 	if subCmd != "add" && subCmd != "del" {
-		return true, fmt.Errorf("unknown subcommand %q\nUsage: tainer mount [add|del] <name>", subCmd)
+		return true, tui.StyledError(fmt.Sprintf("Unknown subcommand %q\nUsage: tainer mount [add|del] <name>", subCmd))
 	}
 
 	if len(args) < 2 {
@@ -293,11 +293,11 @@ func interceptProjectCommand(cmd *cobra.Command, args []string, action string) (
 						}
 						fmt.Println()
 					} else {
-						return true, fmt.Errorf("no tainer.yaml found in current directory.\n  Run 'tainer init' to create a project, or provide a project/container name.\n  Usage: tainer %s [project-name|container-name]", action)
+						return true, tui.StyledError(fmt.Sprintf("No tainer.yaml found in current directory.\nRun 'tainer init' to create a project, or provide a project/container name.\nUsage: tainer %s [project-name|container-name]", action))
 					}
 				}
 			} else {
-				return true, fmt.Errorf("no tainer.yaml found in current directory.\n  Run 'tainer init' to create a project, or provide a project/container name.\n  Usage: tainer %s [project-name|container-name]", action)
+				return true, tui.StyledError(fmt.Sprintf("No tainer.yaml found in current directory.\nRun 'tainer init' to create a project, or provide a project/container name.\nUsage: tainer %s [project-name|container-name]", action))
 			}
 		}
 
