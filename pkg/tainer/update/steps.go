@@ -1,6 +1,7 @@
 package update
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -23,12 +24,12 @@ import (
 func RunCoreWithTUI() error {
 	c := tui.Colors()
 	tealStyle := lipgloss.NewStyle().Foreground(c.Teal)
+	textStyle := lipgloss.NewStyle().Foreground(c.Text)
 	mutedStyle := lipgloss.NewStyle().Foreground(c.Muted)
 
 	currentVersion := rawversion.TainerVersion
 	var release *githubRelease
 	var remoteVersion string
-	var downloadURL string
 	var tmpPath string
 
 	steps := []progress.Step{
@@ -47,33 +48,22 @@ func RunCoreWithTUI() error {
 				return nil
 			},
 		},
-	}
-
-	// Run the version check first
-	footer := []string{
-		mutedStyle.Render(fmt.Sprintf("  Current version: v%s", currentVersion)),
-	}
-	result, err := progress.Run("Tainer Update", steps, footer)
-	if err != nil {
-		return err
-	}
-	if result.Err != nil {
-		return result.Err
-	}
-
-	if remoteVersion == currentVersion {
-		fmt.Printf("  %s Already up to date (v%s)\n\n",
-			tealStyle.Render("✓"), currentVersion)
-		return nil
-	}
-
-	// Download step
-	downloadSteps := []progress.Step{
 		{
-			Label: fmt.Sprintf("Downloading v%s", remoteVersion),
+			Label: "Downloading update",
 			Run: func() error {
+				// Check if already up to date
+				if remoteVersion == currentVersion {
+					return nil
+				}
+
+				// Downgrade protection — abort silently, handled after TUI exits
+				cmp := compareSemver(remoteVersion, currentVersion)
+				if cmp < 0 {
+					return nil
+				}
+
 				assetName := fmt.Sprintf("tainer-%s-%s", runtime.GOOS, runtime.GOARCH)
-				downloadURL = findAsset(release, assetName)
+				downloadURL := findAsset(release, assetName)
 				if downloadURL == "" {
 					return fmt.Errorf("no release asset for %s/%s", runtime.GOOS, runtime.GOARCH)
 				}
@@ -110,10 +100,10 @@ func RunCoreWithTUI() error {
 		},
 	}
 
-	downloadFooter := []string{
-		mutedStyle.Render(fmt.Sprintf("  v%s → v%s", currentVersion, remoteVersion)),
+	footer := []string{
+		mutedStyle.Render(fmt.Sprintf("  Current: v%s", currentVersion)),
 	}
-	result, err = progress.Run("Tainer Update", downloadSteps, downloadFooter)
+	result, err := progress.Run("Tainer Update", steps, footer)
 	if err != nil {
 		return err
 	}
@@ -124,9 +114,64 @@ func RunCoreWithTUI() error {
 		return result.Err
 	}
 
+	// Already up to date
+	if remoteVersion == currentVersion {
+		tui.PrintWithLogo(tealStyle.Render("✓") + " " + textStyle.Render("Already up to date") + mutedStyle.Render(" (v"+currentVersion+")"))
+		return nil
+	}
+
+	// Downgrade protection
+	cmp := compareSemver(remoteVersion, currentVersion)
+	if cmp < 0 {
+		orangeStyle := lipgloss.NewStyle().Foreground(c.Orange).Bold(true)
+		fmt.Printf("\n  %s %s\n",
+			orangeStyle.Render("!"),
+			textStyle.Render(fmt.Sprintf("Remote version (v%s) is older than current (v%s)", remoteVersion, currentVersion)))
+		fmt.Printf("  %s ", textStyle.Render("Downgrade? [y/N]"))
+		reader := bufio.NewReader(os.Stdin)
+		answer, _ := reader.ReadString('\n')
+		answer = strings.TrimSpace(strings.ToLower(answer))
+		if answer != "y" && answer != "yes" {
+			fmt.Println("  Cancelled.")
+			return nil
+		}
+		fmt.Println()
+
+		// Need to actually download now
+		assetName := fmt.Sprintf("tainer-%s-%s", runtime.GOOS, runtime.GOARCH)
+		downloadURL := findAsset(release, assetName)
+		if downloadURL == "" {
+			return fmt.Errorf("no release asset for %s/%s", runtime.GOOS, runtime.GOARCH)
+		}
+		tmpFile, err := os.CreateTemp("", "tainer-update-*")
+		if err != nil {
+			return fmt.Errorf("creating temp file: %w", err)
+		}
+		tmpPath = tmpFile.Name()
+		resp, err := ghRequest(downloadURL)
+		if err != nil {
+			tmpFile.Close()
+			os.Remove(tmpPath)
+			return fmt.Errorf("downloading: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			tmpFile.Close()
+			os.Remove(tmpPath)
+			return fmt.Errorf("download returned HTTP %d", resp.StatusCode)
+		}
+		if _, err := io.Copy(tmpFile, io.LimitReader(resp.Body, maxDownloadSize)); err != nil {
+			tmpFile.Close()
+			os.Remove(tmpPath)
+			return fmt.Errorf("saving binary: %w", err)
+		}
+		tmpFile.Close()
+		os.Chmod(tmpPath, 0755)
+	}
+
 	// Install step — needs sudo so runs outside TUI
 	defer os.Remove(tmpPath)
-	fmt.Printf("  Installing to %s (requires sudo)...\n", tainerBinaryPath)
+	fmt.Printf("\n  %s\n", mutedStyle.Render(fmt.Sprintf("Installing to %s (requires sudo)...", tainerBinaryPath)))
 
 	stagingPath := tainerBinaryPath + ".new"
 	cpCmd := exec.Command("sudo", "cp", tmpPath, stagingPath)
@@ -144,8 +189,8 @@ func RunCoreWithTUI() error {
 		return fmt.Errorf("installing binary: %w", err)
 	}
 
-	fmt.Printf("\n  %s Updated: v%s → v%s\n\n",
-		tealStyle.Render("✓"), currentVersion, remoteVersion)
+	tui.PrintWithLogo(tealStyle.Render("✓") + " " + textStyle.Render("Updated: ") +
+		mutedStyle.Render(fmt.Sprintf("v%s → v%s", currentVersion, remoteVersion)))
 	return nil
 }
 
@@ -165,12 +210,14 @@ func RunImagesWithTUI(projectName string) error {
 			return fmt.Errorf("getting working directory: %w", err)
 		}
 		if !manifest.Exists(cwd) {
-			fmt.Println("Not in a Tainer project directory.")
-			fmt.Println()
-			fmt.Println("Usage:")
-			fmt.Println("  tainer update            Pull latest images for the current project directory")
-			fmt.Println("  tainer update <name>     Pull latest images for a named project")
-			fmt.Println("  tainer update core       Self-update the tainer binary from GitHub Releases")
+			c := tui.Colors()
+			labelStyle := lipgloss.NewStyle().Bold(true).Foreground(c.Blue)
+			mutedStyle := lipgloss.NewStyle().Foreground(c.Muted)
+			content := labelStyle.Render("Usage:") + "\n" +
+				mutedStyle.Render("  tainer update          ") + lipgloss.NewStyle().Foreground(c.Text).Render("Pull latest images for the current project") + "\n" +
+				mutedStyle.Render("  tainer update <name>   ") + lipgloss.NewStyle().Foreground(c.Text).Render("Pull latest images for a named project") + "\n" +
+				mutedStyle.Render("  tainer update core     ") + lipgloss.NewStyle().Foreground(c.Text).Render("Self-update the tainer binary")
+			tui.PrintWithLogo(content)
 			return nil
 		}
 		projectDir = cwd

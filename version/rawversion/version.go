@@ -7,4 +7,4 @@ package rawversion
 const RawVersion = "6.0.0-dev"
 
 // TainerVersion is the Tainer product version, independent of the Podman engine version.
-const TainerVersion = "0.1.33"
+const TainerVersion = "0.1.34"

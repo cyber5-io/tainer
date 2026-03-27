@@ -17,6 +17,7 @@ import (
 	"github.com/containers/podman/v6/pkg/tainer/project"
 	tainerRegistry "github.com/containers/podman/v6/pkg/tainer/registry"
 	"github.com/containers/podman/v6/pkg/tainer/tls"
+	"github.com/containers/podman/v6/pkg/tainer/tui"
 )
 
 const (
@@ -82,13 +83,7 @@ func RunImages(projectName string) error {
 		}
 
 		if !manifest.Exists(cwd) {
-			fmt.Println("Not in a Tainer project directory.")
-			fmt.Println()
-			fmt.Println("Usage:")
-			fmt.Println("  tainer update            Pull latest images for the current project directory")
-			fmt.Println("  tainer update <name>     Pull latest images for a named project")
-			fmt.Println("  tainer update core       Self-update the tainer binary from GitHub Releases")
-			return nil
+			return tui.StyledError("Not in a Tainer project directory.\nUsage: tainer update [project-name|core]")
 		}
 		projectDir = cwd
 		name, found := tainerRegistry.FindByPath(cwd)
