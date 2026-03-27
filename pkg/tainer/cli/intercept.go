@@ -270,8 +270,15 @@ func interceptProjectCommand(cmd *cobra.Command, args []string, action string) (
 			if projectName, ok := config.FindBackupForPath(cwd); ok {
 				missing := config.MissingWithBackup(projectName, cwd)
 				if len(missing) > 0 {
-					fmt.Printf("Missing config files: %s\n", strings.Join(missing, ", "))
-					fmt.Print("Restore from backup? (y/n) ")
+					c := tui.Colors()
+					orangeStyle := lipgloss.NewStyle().Foreground(c.Orange).Bold(true)
+					textStyle := lipgloss.NewStyle().Foreground(c.Text)
+					mutedStyle := lipgloss.NewStyle().Foreground(c.Muted)
+					fmt.Printf("\n  %s %s %s\n",
+						orangeStyle.Render("!"),
+						textStyle.Render("Missing config files:"),
+						mutedStyle.Render(strings.Join(missing, ", ")))
+					fmt.Printf("  %s ", textStyle.Render("Restore from backup? [y/N]"))
 					reader := bufio.NewReader(os.Stdin)
 					answer, _ := reader.ReadString('\n')
 					answer = strings.TrimSpace(strings.ToLower(answer))
@@ -280,9 +287,11 @@ func interceptProjectCommand(cmd *cobra.Command, args []string, action string) (
 						if err != nil {
 							return true, fmt.Errorf("restoring backup: %w", err)
 						}
+						tealStyle := lipgloss.NewStyle().Foreground(c.Teal)
 						for _, name := range restored {
-							fmt.Printf("  Restored %s\n", name)
+							fmt.Printf("  %s %s\n", tealStyle.Render("✓"), textStyle.Render("Restored "+name))
 						}
+						fmt.Println()
 					} else {
 						return true, fmt.Errorf("no tainer.yaml found in current directory.\n  Run 'tainer init' to create a project, or provide a project/container name.\n  Usage: tainer %s [project-name|container-name]", action)
 					}

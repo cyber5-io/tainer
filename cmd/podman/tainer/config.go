@@ -5,10 +5,12 @@ import (
 	"os"
 	"strings"
 
+	"charm.land/lipgloss/v2"
 	"github.com/containers/podman/v6/cmd/podman/registry"
 	"github.com/containers/podman/v6/pkg/tainer/config"
 	"github.com/containers/podman/v6/pkg/tainer/manifest"
 	projRegistry "github.com/containers/podman/v6/pkg/tainer/registry"
+	"github.com/containers/podman/v6/pkg/tainer/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -39,7 +41,11 @@ var configBackupCmd = &cobra.Command{
 			return fmt.Errorf("backup failed: %w", err)
 		}
 
-		fmt.Printf("Backed up config for '%s'\n", m.Project.Name)
+		c := tui.Colors()
+		check := lipgloss.NewStyle().Foreground(c.Teal).Render("✓")
+		content := check + " " + lipgloss.NewStyle().Foreground(c.Text).Render("Backed up config for ") +
+			lipgloss.NewStyle().Bold(true).Foreground(c.Text).Render(m.Project.Name)
+		tui.PrintWithLogo(content)
 		return nil
 	},
 }
@@ -72,7 +78,12 @@ var configRestoreCmd = &cobra.Command{
 			return fmt.Errorf("restore failed: %w", err)
 		}
 
-		fmt.Printf("Restored config for '%s': %s\n", projectName, strings.Join(restored, ", "))
+		c := tui.Colors()
+		check := lipgloss.NewStyle().Foreground(c.Teal).Render("✓")
+		content := check + " " + lipgloss.NewStyle().Foreground(c.Text).Render("Restored config for ") +
+			lipgloss.NewStyle().Bold(true).Foreground(c.Text).Render(projectName) +
+			lipgloss.NewStyle().Foreground(c.Muted).Render(": "+strings.Join(restored, ", "))
+		tui.PrintWithLogo(content)
 		return nil
 	},
 }
