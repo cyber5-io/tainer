@@ -265,15 +265,14 @@ func (m model) buildTableRows() []table.Row {
 	for i, p := range m.sorted {
 		selected := i == cursor
 		status := "○ stopped"
-		domain := p.Domain
+		domainLink := "\x1b]8;;https://" + p.Domain + "\x1b\\" + p.Domain + "\x1b]8;;\x1b\\"
+		domain := domainLink
 		if p.Status == "Running" {
 			status = "● running"
-			domain = p.Domain + " ↗"
-			// Color running rows — but not the selected row, where
-			// Selected style handles fg/bg and ANSI resets would break it.
+			domain = domainLink + " ↗"
 			if !selected {
 				status = tealStyle.Render(status)
-				domain = blueStyle.Render(domain)
+				domain = blueStyle.Render(domainLink) + " ↗"
 			}
 		}
 		if m.isBusy() && p.Name == m.busyName {
@@ -327,9 +326,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.table.SetColumns(computeColumns(m.width))
 		m.table.SetWidth(innerW)
-		// Height: frame border(2) + padding(2) + router(1) + blank(1) +
-		//   separator(1) + path(1) + blank(1) + help(1) = 10
-		tableH := m.height - 10
+		// Height: frame border(2) + padding(2) + header(7 logo) + blank(1) +
+		//   separator(1) + path(1) + blank(1) + help(1) = 16
+		tableH := m.height - 16
 		if tableH < 5 {
 			tableH = 5
 		}
@@ -475,9 +474,11 @@ func (m model) View() tea.View {
 		frameW = 60
 	}
 
+	innerW := frameW - 6 // border(2) + padding(4)
+
 	var sections []string
 
-	// Router status
+	// Header: router status (left) + small logo (right)
 	routerDot := lipgloss.NewStyle().Foreground(c.Muted).Render("●")
 	routerStatus := lipgloss.NewStyle().Foreground(c.Muted).Render("stopped")
 	if m.router.Running {
@@ -485,18 +486,28 @@ func (m model) View() tea.View {
 		routerStatus = lipgloss.NewStyle().Foreground(c.Teal).Render(
 			fmt.Sprintf("running (%d projects)", m.router.Count))
 	}
-	sections = append(sections, fmt.Sprintf("%s %s  %s",
+	routerLine := fmt.Sprintf("%s %s  %s",
 		routerDot,
 		lipgloss.NewStyle().Bold(true).Foreground(c.Text).Render("tainer-router"),
 		routerStatus,
-	))
+	)
+
+	logo := tui.LogoSmallFull()
+	logoW := lipgloss.Width(logo)
+	gap := 4
+	leftW := innerW - logoW - gap
+	if leftW < 30 {
+		leftW = 30
+	}
+	left := lipgloss.NewStyle().Width(leftW).Render(routerLine)
+	right := lipgloss.NewStyle().Width(logoW).Render(logo)
+	sections = append(sections, lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right))
 	sections = append(sections, "")
 
 	// Table (with built-in viewport scrolling)
 	sections = append(sections, m.table.View())
 
 	// Separator
-	innerW := frameW - 6 // border(2) + padding(4)
 	sections = append(sections,
 		lipgloss.NewStyle().Foreground(c.Border).Render(strings.Repeat("─", innerW)))
 

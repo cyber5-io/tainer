@@ -104,6 +104,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.runCurrentStep()
 
 	case tea.KeyPressMsg:
+		if msg.String() == "ctrl+c" {
+			m.err = fmt.Errorf("interrupted")
+			m.done = true
+			return m, tea.Quit
+		}
 		return m, nil
 	}
 
@@ -112,13 +117,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() tea.View {
 	c := tui.Colors()
-	var b strings.Builder
 
-	b.WriteString("\n")
+	// Build left column: title + steps + footer
+	var lines []string
 
-	// Title
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(c.Text)
-	b.WriteString("  " + titleStyle.Render(m.title) + "\n\n")
+	lines = append(lines, titleStyle.Render(m.title))
+	lines = append(lines, "")
 
 	checkDone := lipgloss.NewStyle().Foreground(c.Teal).Render("✓")
 	checkFail := lipgloss.NewStyle().Foreground(c.Orange).Render("✗")
@@ -128,32 +133,46 @@ func (m model) View() tea.View {
 	for i, step := range m.steps {
 		switch {
 		case i < m.current:
-			b.WriteString("  " + checkDone + " " + labelStyle.Render(step.Label) + "\n")
+			lines = append(lines, checkDone+" "+labelStyle.Render(step.Label))
 		case i == m.current && !m.done:
-			b.WriteString("  " + m.spinner.View() + " " + labelStyle.Render(step.Label) + "\n")
+			lines = append(lines, m.spinner.View()+" "+labelStyle.Render(step.Label))
 		case i == m.current && m.done && m.err != nil:
-			b.WriteString("  " + checkFail + " " + labelStyle.Render(step.Label) + "\n")
+			lines = append(lines, checkFail+" "+labelStyle.Render(step.Label))
 		case i == m.current && m.done:
-			b.WriteString("  " + checkDone + " " + labelStyle.Render(step.Label) + "\n")
+			lines = append(lines, checkDone+" "+labelStyle.Render(step.Label))
 		default:
-			b.WriteString("  " + mutedStyle.Render("○") + " " + mutedStyle.Render(step.Label) + "\n")
+			lines = append(lines, mutedStyle.Render("○")+" "+mutedStyle.Render(step.Label))
 		}
 	}
 
-	b.WriteString("\n")
-
 	if m.done && m.err != nil {
+		lines = append(lines, "")
 		errStyle := lipgloss.NewStyle().Foreground(c.Orange)
-		b.WriteString("  " + errStyle.Render("Error: "+m.err.Error()) + "\n")
+		lines = append(lines, errStyle.Render("Error: "+m.err.Error()))
 	}
 
 	if m.done && m.err == nil && len(m.footer) > 0 {
 		for _, line := range m.footer {
-			b.WriteString("  " + line + "\n")
+			lines = append(lines, line)
 		}
 	}
 
-	b.WriteString("\n")
+	left := strings.Join(lines, "\n")
 
-	return tea.NewView(b.String())
+	// Right column: small logo
+	logo := tui.LogoSmallFull()
+	logoW := lipgloss.Width(logo)
+
+	// Layout: left content + gap + logo on right
+	totalW := 78
+	gap := 4
+	leftW := totalW - logoW - gap
+
+	leftBlock := lipgloss.NewStyle().Width(leftW).Render(left)
+	rightBlock := lipgloss.NewStyle().Width(logoW).Render(logo)
+
+	row := lipgloss.JoinHorizontal(lipgloss.Center, leftBlock, strings.Repeat(" ", gap), rightBlock)
+	output := "\n" + lipgloss.NewStyle().PaddingLeft(2).Render(row) + "\n\n"
+
+	return tea.NewView(output)
 }

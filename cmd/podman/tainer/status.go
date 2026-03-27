@@ -5,11 +5,11 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/containers/podman/v6/cmd/podman/registry"
 	"github.com/containers/podman/v6/pkg/tainer/manifest"
 	projRegistry "github.com/containers/podman/v6/pkg/tainer/registry"
+	"github.com/containers/podman/v6/pkg/tainer/tui/status"
 	"github.com/spf13/cobra"
 )
 
@@ -36,36 +36,33 @@ func statusRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("reading tainer.yaml: %w", err)
 	}
 
-	podName := fmt.Sprintf("tainer-%s", name)
 	podStatus := getPodStatus(name)
 
-	fmt.Printf("\nProject:  %s\n", name)
-	fmt.Printf("Type:     %s\n", m.Project.Type)
-	fmt.Printf("Domain:   %s\n", m.Project.Domain)
-	fmt.Printf("Path:     %s\n", dir)
-	fmt.Printf("Pod:      %s (%s)\n\n", podName, podStatus)
-
-	if podStatus == "stopped" {
-		fmt.Println("Project is not running. Use 'tainer start' to launch.")
-		return nil
+	project := status.ProjectInfo{
+		Name:   name,
+		Type:   string(m.Project.Type),
+		Domain: m.Project.Domain,
+		Path:   dir,
+		Status: podStatus,
 	}
 
-	// Show container details
-	containers, err := getContainerInfo(podName)
-	if err != nil {
-		return err
-	}
-
-	if len(containers) > 0 {
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-		fmt.Fprintln(w, "CONTAINER\tSTATUS\tPORTS")
-		for _, c := range containers {
-			fmt.Fprintf(w, "%s\t%s\t%s\n", c.name, c.status, c.ports)
+	var containers []status.ContainerInfo
+	if podStatus != "stopped" {
+		podName := fmt.Sprintf("tainer-%s", name)
+		infos, err := getContainerInfo(podName)
+		if err != nil {
+			return err
 		}
-		w.Flush()
+		for _, ci := range infos {
+			containers = append(containers, status.ContainerInfo{
+				Name:   ci.name,
+				Status: ci.status,
+				Ports:  ci.ports,
+			})
+		}
 	}
 
-	return nil
+	return status.Run(project, containers)
 }
 
 func resolveProject(args []string) (name, dir string, err error) {
@@ -123,7 +120,6 @@ func getContainerInfo(podName string) ([]containerInfo, error) {
 		if len(parts) > 2 {
 			ci.ports = parts[2]
 		}
-		// Strip pod infra container
 		if strings.HasSuffix(ci.name, "-infra") {
 			continue
 		}

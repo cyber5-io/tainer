@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"image/color"
 	"os"
 	"strings"
@@ -112,6 +113,21 @@ func URLStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(Colors().Teal).Underline(true)
 }
 
+// RenderURL renders a domain or URL as a styled clickable hyperlink (OSC 8).
+func RenderURL(domain string) string {
+	url := domain
+	if !strings.HasPrefix(domain, "http") {
+		url = "https://" + domain
+	}
+	return URLStyle().Hyperlink(url).Render(domain)
+}
+
+// Linkify wraps text in an OSC 8 hyperlink without changing its style.
+// Use this when another component (e.g. table) controls the visual styling.
+func Linkify(text, url string) string {
+	return "\033]8;;" + url + "\033\\" + text + "\033]8;;\033\\"
+}
+
 func TextStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(Colors().Text)
 }
@@ -153,6 +169,26 @@ func Separator(width int) string {
 	return lipgloss.NewStyle().
 		Foreground(Colors().Border).
 		Render(strings.Repeat("─", width))
+}
+
+// PrintWithLogo prints content on the left with the small logo on the right,
+// vertically centered. The logo is pushed to the right edge (~80 cols).
+func PrintWithLogo(content string) {
+	logo := LogoSmallFull()
+	logoW := lipgloss.Width(logo)
+
+	totalW := 78 // usable width (80 - 2 indent)
+	leftW := totalW - logoW - 4
+
+	left := lipgloss.NewStyle().Width(leftW).Render(content)
+	right := lipgloss.NewStyle().Width(logoW).Render(logo)
+
+	row := lipgloss.JoinHorizontal(lipgloss.Center, left, "    ", right)
+	indented := lipgloss.NewStyle().PaddingLeft(2).Render(row)
+
+	fmt.Println()
+	fmt.Println(indented)
+	fmt.Println()
 }
 
 // FullScreen centers the frame in the terminal.

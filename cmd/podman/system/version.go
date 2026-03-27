@@ -9,6 +9,7 @@ import (
 	"github.com/containers/podman/v6/cmd/podman/registry"
 	"github.com/containers/podman/v6/cmd/podman/validate"
 	"github.com/containers/podman/v6/pkg/domain/entities"
+	"github.com/containers/podman/v6/pkg/tainer/tui"
 	"github.com/containers/podman/v6/version/rawversion"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -82,20 +83,20 @@ func version(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	rpt := report.New(os.Stdout, cmd.Name())
-	defer rpt.Flush()
-	rpt, err = rpt.Parse(report.OriginPodman, versionTemplate)
-	if err != nil {
-		return err
-	}
-	return rpt.Execute(versions)
-}
+	labelStyle := tui.LabelStyle()
+	valueStyle := tui.TextStyle()
+	mutedStyle := tui.SubtitleStyle()
 
-var versionTemplate = `{{with .Client -}}
-Tainer:\t` + rawversion.TainerVersion + `
-Podman Engine:\t{{.Version}}
-Go Version:\t{{.GoVersion}}
-Built:\t{{.BuiltTime}}
-OS/Arch:\t{{.OsArch}}
-{{- end}}
-`
+	cv := versions.Client
+	var infoLines []string
+	infoLines = append(infoLines, fmt.Sprintf("%s  %s",
+		tui.TitleStyle().Render("tainer"),
+		valueStyle.Render("v"+rawversion.TainerVersion)))
+	infoLines = append(infoLines, fmt.Sprintf("%s  %s", labelStyle.Render("Engine  "), mutedStyle.Render("Podman "+cv.Version)))
+	infoLines = append(infoLines, fmt.Sprintf("%s  %s", labelStyle.Render("Go      "), mutedStyle.Render(cv.GoVersion)))
+	infoLines = append(infoLines, fmt.Sprintf("%s  %s", labelStyle.Render("Built   "), mutedStyle.Render(cv.BuiltTime)))
+	infoLines = append(infoLines, fmt.Sprintf("%s  %s", labelStyle.Render("OS/Arch "), mutedStyle.Render(cv.OsArch)))
+
+	tui.PrintWithLogo(strings.Join(infoLines, "\n"))
+	return nil
+}
