@@ -213,10 +213,11 @@ func RunImagesWithTUI(projectName string) error {
 			c := tui.Colors()
 			labelStyle := lipgloss.NewStyle().Bold(true).Foreground(c.Blue)
 			mutedStyle := lipgloss.NewStyle().Foreground(c.Muted)
-			content := labelStyle.Render("Usage:") + "\n" +
-				mutedStyle.Render("  tainer update          ") + lipgloss.NewStyle().Foreground(c.Text).Render("Pull latest images for the current project") + "\n" +
-				mutedStyle.Render("  tainer update <name>   ") + lipgloss.NewStyle().Foreground(c.Text).Render("Pull latest images for a named project") + "\n" +
-				mutedStyle.Render("  tainer update core     ") + lipgloss.NewStyle().Foreground(c.Text).Render("Self-update the tainer binary")
+			textStyle := lipgloss.NewStyle().Foreground(c.Text)
+			content := "\n" + labelStyle.Render("Usage:") + "\n\n" +
+				mutedStyle.Render("  tainer update        ") + textStyle.Render("Update current project") + "\n" +
+				mutedStyle.Render("  tainer update <name> ") + textStyle.Render("Update named project") + "\n" +
+				mutedStyle.Render("  tainer update core   ") + textStyle.Render("Update tainer binary") + "\n"
 			tui.PrintWithLogo(content)
 			return nil
 		}
