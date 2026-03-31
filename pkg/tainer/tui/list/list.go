@@ -182,13 +182,14 @@ func initialModel(projects []Project, routerRunning bool, routerCount int) model
 	h.Styles.ShortSeparator = lipgloss.NewStyle().Foreground(c.Border)
 	m.helpModel = h
 
-	cols := computeColumns(80)
+	initW := 72 // 80 - 8 for frame
+	cols := computeColumns(initW)
 	t := table.New(
 		table.WithColumns(cols),
 		table.WithRows(m.buildTableRows()),
 		table.WithFocused(true),
 		table.WithStyles(s),
-		table.WithWidth(80),
+		table.WithWidth(initW),
 		table.WithHeight(20),
 	)
 	m.table = t
@@ -196,34 +197,28 @@ func initialModel(projects []Project, routerRunning bool, routerCount int) model
 	return m
 }
 
-func computeColumns(termWidth int) []table.Column {
-	tableW := termWidth - 8
+func computeColumns(tableW int) []table.Column {
 	if tableW < 60 {
 		tableW = 60
 	}
-	// Each column gets 2 chars padding from Cell style
-	usable := tableW - 10
+	// Each column gets 2 chars padding from Cell style (4 cols × 2 = 8)
+	usable := tableW - 8
 	typeW := 10
 	statusW := 12
 	remaining := usable - typeW - statusW
-	nameW := remaining * 20 / 100
-	domainW := remaining * 30 / 100
-	pathW := remaining - nameW - domainW
+	nameW := remaining * 30 / 100
+	domainW := remaining - nameW
 	if nameW < 12 {
 		nameW = 12
 	}
 	if domainW < 16 {
 		domainW = 16
 	}
-	if pathW < 10 {
-		pathW = 10
-	}
 	return []table.Column{
 		{Title: "NAME", Width: nameW},
 		{Title: "TYPE", Width: typeW},
 		{Title: "DOMAIN", Width: domainW},
 		{Title: "STATUS", Width: statusW},
-		{Title: "PATH", Width: pathW},
 	}
 }
 
@@ -265,14 +260,13 @@ func (m model) buildTableRows() []table.Row {
 	for i, p := range m.sorted {
 		selected := i == cursor
 		status := "○ stopped"
-		domainLink := "\x1b]8;;https://" + p.Domain + "\x1b\\" + p.Domain + "\x1b]8;;\x1b\\"
-		domain := domainLink
+		domain := p.Domain
 		if p.Status == "Running" {
 			status = "● running"
-			domain = domainLink + " ↗"
+			domain = p.Domain + " ↗"
 			if !selected {
 				status = tealStyle.Render(status)
-				domain = blueStyle.Render(domainLink) + " ↗"
+				domain = blueStyle.Render(p.Domain) + " ↗"
 			}
 		}
 		if m.isBusy() && p.Name == m.busyName {
@@ -282,7 +276,7 @@ func (m model) buildTableRows() []table.Row {
 				status = m.spinner.View() + " stopping"
 			}
 		}
-		rows[i] = table.Row{p.Name, p.Type, domain, status, p.Path}
+		rows[i] = table.Row{p.Name, p.Type, domain, status}
 	}
 	return rows
 }
@@ -324,7 +318,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if innerW < 60 {
 			innerW = 60
 		}
-		m.table.SetColumns(computeColumns(m.width))
+		m.table.SetColumns(computeColumns(innerW))
 		m.table.SetWidth(innerW)
 		// Height: frame border(2) + padding(2) + header(7 logo) + blank(1) +
 		//   separator(1) + path(1) + blank(1) + help(1) = 16
