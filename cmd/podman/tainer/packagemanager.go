@@ -1,0 +1,70 @@
+package tainer
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+
+	"github.com/containers/podman/v6/cmd/podman/registry"
+	"github.com/containers/podman/v6/pkg/tainer/manifest"
+	"github.com/spf13/cobra"
+)
+
+var yarnCmd = &cobra.Command{
+	Use:                "yarn [args...]",
+	Short:              "Run yarn in the Node container",
+	Long:               "Execute yarn commands inside the project's Node.js container from the /var/www/html directory.",
+	DisableFlagParsing: true,
+	RunE:               runPackageManager("yarn"),
+}
+
+var npmCmd = &cobra.Command{
+	Use:                "npm [args...]",
+	Short:              "Run npm in the Node container",
+	Long:               "Execute npm commands inside the project's Node.js container from the /var/www/html directory.",
+	DisableFlagParsing: true,
+	RunE:               runPackageManager("npm"),
+}
+
+func init() {
+	registry.Commands = append(registry.Commands, registry.CliCommand{
+		Command: yarnCmd,
+	})
+	registry.Commands = append(registry.Commands, registry.CliCommand{
+		Command: npmCmd,
+	})
+}
+
+func runPackageManager(pm string) func(cmd *cobra.Command, args []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		name, dir, err := resolveProject(nil)
+		if err != nil {
+			return err
+		}
+
+		m, err := manifest.LoadFromDir(dir)
+		if err != nil {
+			return fmt.Errorf("reading tainer.yaml: %w", err)
+		}
+
+		if !m.IsNode() {
+			return fmt.Errorf("project %q is type %q — %s is only available for Node.js projects", name, m.Project.Type, pm)
+		}
+
+		podStatus := getPodStatus(name)
+		if podStatus != "Running" {
+			return fmt.Errorf("project %q is not running (status: %s). Start it first with: tainer start", name, podStatus)
+		}
+
+		containerName := fmt.Sprintf("tainer-%s-node-ct", name)
+
+		execArgs := []string{"exec", "-w", "/var/www/html", containerName, pm}
+		execArgs = append(execArgs, args...)
+
+		execCmd := exec.Command("tainer", execArgs...)
+		execCmd.Stdin = os.Stdin
+		execCmd.Stdout = os.Stdout
+		execCmd.Stderr = os.Stderr
+		return execCmd.Run()
+	}
+}
