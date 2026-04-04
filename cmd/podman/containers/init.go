@@ -20,6 +20,13 @@ var (
 		Use:   "init [options] CONTAINER [CONTAINER...]",
 		Short: "Initialize one or more containers",
 		Long:  initDescription,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			// Tainer: bare `tainer init` runs the project wizard — skip engine setup
+			if len(args) == 0 && cmd.Flags().NFlag() == 0 {
+				return nil
+			}
+			return cmd.Root().PersistentPreRunE(cmd, args)
+		},
 		RunE: initContainer,
 		Args: func(cmd *cobra.Command, args []string) error {
 			// Tainer: allow zero args for project wizard

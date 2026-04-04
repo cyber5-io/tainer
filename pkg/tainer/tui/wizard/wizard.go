@@ -2,15 +2,18 @@ package wizard
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/containers/podman/v6/pkg/tainer/gitsetup"
 	"github.com/containers/podman/v6/pkg/tainer/manifest"
 	"github.com/containers/podman/v6/pkg/tainer/registry"
 	"github.com/containers/podman/v6/pkg/tainer/tui"
 	"github.com/containers/podman/v6/pkg/tainer/validate"
+	"golang.org/x/term"
 )
 
 // tickMsg drives the welcome screen text animation.
@@ -24,14 +27,16 @@ type versionsFetchedMsg struct {
 
 // Result holds the user's choices from the wizard.
 type Result struct {
-	Name      string
-	Type      manifest.ProjectType
-	TypeLabel string
-	Version   string
-	Database  manifest.DatabaseType
-	Subdomain string
-	Cancelled bool
-	StartPod  bool
+	Name       string
+	Type       manifest.ProjectType
+	TypeLabel  string
+	Version    string
+	Database   manifest.DatabaseType
+	Subdomain  string
+	Cancelled  bool
+	StartPod   bool
+	InitGit    bool // user chose to initialise a git repo
+	HasGitRepo bool // git repo already existed
 }
 
 type step int
@@ -43,8 +48,9 @@ const (
 	stepVersion
 	stepDatabase
 	stepSubdomain
+	stepGit
 	stepConfirm
-	userSteps = 6 // steps 1-6 shown in progress
+	userSteps = 6 // steps 1-6 shown in progress (git is bonus)
 )
 
 var (
@@ -88,6 +94,10 @@ type model struct {
 
 	// confirm screen
 	confirmIdx int // 0 = Create Project, 1 = Start Pod
+
+	// git step
+	hasGitRepo bool
+	gitIdx     int // 0 = Skip, 1 = Init
 
 	// welcome animation
 	animTick int // current tick (drives character reveal)
@@ -146,14 +156,19 @@ func dbChoices(pt manifest.ProjectType) []string {
 // ---------------------------------------------------------------------------
 
 func initialModel(cwd, dirName string) model {
+	w, h := 80, 24
+	if tw, th, err := term.GetSize(int(os.Stdout.Fd())); err == nil {
+		w, h = tw, th
+	}
 	return model{
 		step:         stepWelcome,
 		cwd:          cwd,
 		dirName:      dirName,
 		phpVersions:  defaultPHPVersions,
 		nodeVersions: defaultNodeVersions,
-		width:        80,
-		height:       24,
+		hasGitRepo:   gitsetup.IsGitRepo(cwd),
+		width:        w,
+		height:       h,
 	}
 }
 
@@ -227,6 +242,8 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleSubdomain(key)
 	case stepConfirm:
 		return m.handleConfirm(key)
+	case stepGit:
+		return m.handleGit(key)
 	}
 	return m, nil
 }
@@ -344,7 +361,13 @@ func (m model) handleSubdomain(key string) (tea.Model, tea.Cmd) {
 			sub = m.result.Name
 		}
 		m.result.Subdomain = sub
-		m.step = stepConfirm
+		if m.hasGitRepo {
+			m.result.HasGitRepo = true
+			m.step = stepConfirm
+		} else {
+			m.step = stepGit
+			m.gitIdx = 1 // default to "Init Git"
+		}
 	case "esc":
 		m.goBack()
 	case "backspace":
@@ -374,6 +397,25 @@ func (m model) handleConfirm(key string) (tea.Model, tea.Cmd) {
 	case "right", "l":
 		if m.confirmIdx < 1 {
 			m.confirmIdx++
+		}
+	case "esc":
+		m.goBack()
+	}
+	return m, nil
+}
+
+func (m model) handleGit(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "enter":
+		m.result.InitGit = m.gitIdx == 1
+		m.step = stepConfirm
+	case "left", "h":
+		if m.gitIdx > 0 {
+			m.gitIdx--
+		}
+	case "right", "l":
+		if m.gitIdx < 1 {
+			m.gitIdx++
 		}
 	case "esc":
 		m.goBack()
@@ -431,10 +473,18 @@ func (m *model) goBack() {
 			m.choices = dbc
 			m.choiceIdx = findIndex(m.choices, string(m.result.Database))
 		}
-	case stepConfirm:
+	case stepGit:
 		m.step = stepSubdomain
 		m.textInput = m.result.Subdomain
 		m.textCursor = len(m.textInput)
+	case stepConfirm:
+		if m.hasGitRepo {
+			m.step = stepSubdomain
+			m.textInput = m.result.Subdomain
+			m.textCursor = len(m.textInput)
+		} else {
+			m.step = stepGit
+		}
 	}
 }
 
@@ -511,7 +561,7 @@ func (m model) View() tea.View {
 	return v
 }
 
-// renderHeader builds a breadcrumb trail of previous answers above a separator.
+// renderHeader builds a breadcrumb trail (left) with small logo (right).
 func (m model) renderHeader(width int) string {
 	c := tui.Colors()
 	chevron := lipgloss.NewStyle().Foreground(c.OrangeDim).Render(" › ")
@@ -535,7 +585,19 @@ func (m model) renderHeader(width int) string {
 	}
 
 	trail := strings.Join(crumbs, chevron)
-	return "\n" + trail + "\n\n" + tui.Separator(width)
+
+	logo := tui.LogoSmall()
+	logoW := lipgloss.Width(logo)
+	gap := 4
+	leftW := width - logoW - gap
+	if leftW < 20 {
+		leftW = 20
+	}
+	left := lipgloss.NewStyle().Width(leftW).Render("\n" + trail)
+	right := lipgloss.NewStyle().Width(logoW).Render(logo)
+	header := lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
+
+	return header + "\n" + tui.Separator(width)
 }
 
 // renderBody builds the step-specific content.
@@ -561,6 +623,8 @@ func (m model) renderBody() string {
 		return m.bodySubdomain()
 	case stepConfirm:
 		return m.bodyConfirm()
+	case stepGit:
+		return m.bodyGit()
 	}
 	return ""
 }
@@ -591,6 +655,8 @@ func (m model) navText() string {
 	case stepType, stepVersion, stepDatabase:
 		return "← → select   ↵ confirm   esc back"
 	case stepConfirm:
+		return "← → select   ↵ confirm   esc back"
+	case stepGit:
 		return "← → select   ↵ confirm   esc back"
 	}
 	return ""
@@ -654,7 +720,6 @@ func (m model) bodySubdomain() string {
 }
 
 func (m model) bodyConfirm() string {
-	c := tui.Colors()
 	var b strings.Builder
 
 	domain := m.result.Subdomain + ".tainer.me"
@@ -687,32 +752,72 @@ func (m model) bodyConfirm() string {
 
 	// Action buttons
 	b.WriteString("\n")
-	btnLabels := []string{"  Create Project  ", "  Start Pod  "}
-	for i, label := range btnLabels {
-		var btn string
-		if i == m.confirmIdx {
-			btn = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("#0C1018")).
-				Background(c.Orange).
-				Render(label)
-		} else {
-			btn = lipgloss.NewStyle().
-				Foreground(c.Muted).
-				Border(lipgloss.NormalBorder()).
-				BorderForeground(c.Muted).
-				Render(label)
-		}
-		if i > 0 {
-			b.WriteString("  ")
-		} else {
-			b.WriteString("  ")
-		}
-		b.WriteString(btn)
-	}
+	b.WriteString(renderButtons([]string{"  Create  ", "  Create & Start  "}, m.confirmIdx))
 	b.WriteString("\n")
 
 	return b.String()
+}
+
+func (m model) bodyGit() string {
+	var b strings.Builder
+
+	b.WriteString("  " + tui.LabelStyle().Render("Git Repository"))
+	b.WriteString("\n\n")
+	b.WriteString("  " + tui.SubtitleStyle().Render("No git repository detected in this directory."))
+	b.WriteString("\n")
+	b.WriteString("  " + tui.SubtitleStyle().Render("tainer can initialise one with a proper .gitignore."))
+	b.WriteString("\n\n")
+
+	b.WriteString(renderButtons([]string{"  Skip  ", "  Init Git  "}, m.gitIdx))
+	b.WriteString("\n")
+
+	return b.String()
+}
+
+// renderButtons renders a horizontal row of styled buttons following the
+// huh/v2 button pattern: both states are solid background blocks with
+// consistent padding, differentiated by colour.
+func renderButtons(labels []string, selectedIdx int) string {
+	c := tui.Colors()
+
+	// Find the widest label so all buttons are the same width.
+	maxW := 0
+	for _, l := range labels {
+		if len(l) > maxW {
+			maxW = len(l)
+		}
+	}
+
+	focused := lipgloss.NewStyle().
+		Bold(true).
+		Width(maxW + 4). // 2 chars padding each side
+		Align(lipgloss.Center).
+		Foreground(lipgloss.Color("#0C1018")).
+		Background(c.Orange)
+
+	blurred := lipgloss.NewStyle().
+		Width(maxW + 4).
+		Align(lipgloss.Center).
+		Foreground(c.Text).
+		Background(c.Border)
+
+	// Build 3 lines manually: blank, label, blank (vertical padding).
+	var topParts, midParts, botParts []string
+	for i, label := range labels {
+		style := blurred
+		if i == selectedIdx {
+			style = focused
+		}
+		pad := style.Render(strings.Repeat(" ", maxW))
+		topParts = append(topParts, pad)
+		midParts = append(midParts, style.Render(label))
+		botParts = append(botParts, pad)
+	}
+
+	gap := "  "
+	return "  " + strings.Join(topParts, gap) + "\n" +
+		"  " + strings.Join(midParts, gap) + "\n" +
+		"  " + strings.Join(botParts, gap)
 }
 
 // ---------------------------------------------------------------------------

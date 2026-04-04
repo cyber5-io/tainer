@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/containers/podman/v6/pkg/tainer/env"
+	"github.com/containers/podman/v6/pkg/tainer/gitsetup"
 	"github.com/containers/podman/v6/pkg/tainer/manifest"
 	"github.com/containers/podman/v6/pkg/tainer/registry"
 	tuiwizard "github.com/containers/podman/v6/pkg/tainer/tui/wizard"
@@ -88,6 +89,21 @@ func Run(cwd string) error {
 	}
 	fmt.Println("Project registered")
 
+	// Git setup — honour the TUI wizard's decision
+	if result.HasGitRepo {
+		if err := gitsetup.EnsureRootIgnore(cwd); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not update .gitignore: %v\n", err)
+		} else {
+			fmt.Println("Updated .gitignore")
+		}
+	} else if result.InitGit {
+		if err := gitsetup.InitRepo(cwd); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: git init failed: %v\n", err)
+		} else {
+			fmt.Println("Git repository initialised with .gitignore")
+		}
+	}
+
 	if result.StartPod {
 		fmt.Println("\nStarting pod...")
 		return startPod()
@@ -116,16 +132,23 @@ func createProjectDirs(cwd string, m *manifest.Manifest) error {
 		return fmt.Errorf("creating %s directory: %w", m.HostAppDir(), err)
 	}
 
-	// Create data/ (persistent work)
+	// Create data/ (persistent work) with .gitignore
 	dataDir := filepath.Join(cwd, "data")
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		return fmt.Errorf("creating data directory: %w", err)
 	}
+	if err := gitsetup.WriteDirIgnore(dataDir); err != nil {
+		return fmt.Errorf("writing data/.gitignore: %w", err)
+	}
 
-	// Create db/ at project root if database selected
+	// Create db/ at project root if database selected, with .gitignore
 	if m.HasDatabase() {
-		if err := os.MkdirAll(filepath.Join(cwd, "db"), 0755); err != nil {
+		dbDir := filepath.Join(cwd, "db")
+		if err := os.MkdirAll(dbDir, 0755); err != nil {
 			return fmt.Errorf("creating db directory: %w", err)
+		}
+		if err := gitsetup.WriteDirIgnore(dbDir); err != nil {
+			return fmt.Errorf("writing db/.gitignore: %w", err)
 		}
 	}
 
@@ -140,3 +163,4 @@ func createProjectDirs(cwd string, m *manifest.Manifest) error {
 
 	return nil
 }
+

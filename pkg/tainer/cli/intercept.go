@@ -10,6 +10,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/containers/podman/v6/pkg/tainer/config"
 	"github.com/containers/podman/v6/pkg/tainer/env"
+	"github.com/containers/podman/v6/pkg/tainer/gitsetup"
 	"github.com/containers/podman/v6/pkg/tainer/machine"
 	"github.com/containers/podman/v6/pkg/tainer/manifest"
 	"github.com/containers/podman/v6/pkg/tainer/project"
@@ -55,11 +56,6 @@ func InterceptInit(cmd *cobra.Command, args []string) (bool, error) {
 
 	if manifest.Exists(cwd) {
 		return true, tui.StyledError("tainer.yaml already exists in " + cwd)
-	}
-
-	// Ensure machine is running before starting the wizard
-	if err := machine.EnsureRunning(); err != nil {
-		return true, err
 	}
 
 	if RunWizard == nil {
@@ -391,7 +387,7 @@ func autoInitProject(m *manifest.Manifest, projectDir string) error {
 		return fmt.Errorf("generating .env: %w", err)
 	}
 
-	// Create required directories
+	// Create required directories and drop .gitignore inside each
 	dirs := []string{"data"}
 	if m.HasDatabase() {
 		dirs = append(dirs, "db")
@@ -401,11 +397,34 @@ func autoInitProject(m *manifest.Manifest, projectDir string) error {
 		if err := os.MkdirAll(dirPath, 0755); err != nil {
 			return fmt.Errorf("creating %s directory: %w", dir, err)
 		}
+		if err := gitsetup.WriteDirIgnore(dirPath); err != nil {
+			return fmt.Errorf("writing %s/.gitignore: %w", dir, err)
+		}
 	}
 
 	// Register project
 	if err := registry.Add(m.Project.Name, projectDir, string(m.Project.Type), m.Project.Domain); err != nil {
 		return fmt.Errorf("registering project: %w", err)
+	}
+
+	// Git setup
+	if gitsetup.IsGitRepo(projectDir) {
+		if err := gitsetup.EnsureRootIgnore(projectDir); err != nil {
+			fmt.Fprintf(os.Stderr, "  Warning: could not update .gitignore: %v\n", err)
+		}
+	} else {
+		fmt.Printf("  %s %s\n", mutedStyle.Render("ℹ"), textStyle.Render("No git repository detected."))
+		fmt.Printf("  %s ", textStyle.Render("Initialise git repo? [y/N]"))
+		reader := bufio.NewReader(os.Stdin)
+		answer, _ := reader.ReadString('\n')
+		answer = strings.TrimSpace(strings.ToLower(answer))
+		if answer == "y" || answer == "yes" {
+			if err := gitsetup.InitRepo(projectDir); err != nil {
+				fmt.Fprintf(os.Stderr, "  Warning: git init failed: %v\n", err)
+			} else {
+				fmt.Printf("  %s %s\n", tealStyle.Render("✓"), textStyle.Render("Git repository initialised"))
+			}
+		}
 	}
 
 	fmt.Printf("  %s %s\n\n", tealStyle.Render("✓"), textStyle.Render("Project "+boldStyle.Render(m.Project.Name)+" initialised"))
