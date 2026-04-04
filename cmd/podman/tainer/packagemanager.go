@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/containers/podman/v6/cmd/podman/registry"
 	"github.com/containers/podman/v6/pkg/tainer/manifest"
+	"github.com/containers/podman/v6/pkg/tainer/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -56,6 +58,11 @@ func runPackageManager(pm string) func(cmd *cobra.Command, args []string) error 
 			return fmt.Errorf("project %q is not running (status: %s). Start it first with: tainer start", name, podStatus)
 		}
 
+		// Intercept conflicting commands
+		if err := interceptConflicting(pm, args); err != nil {
+			return err
+		}
+
 		containerName := fmt.Sprintf("tainer-%s-node-ct", name)
 
 		execArgs := []string{"exec", "-w", "/var/www/html", containerName, pm}
@@ -67,4 +74,37 @@ func runPackageManager(pm string) func(cmd *cobra.Command, args []string) error 
 		execCmd.Stderr = os.Stderr
 		return execCmd.Run()
 	}
+}
+
+// interceptConflicting checks for commands that would conflict with the running
+// Node process and returns a helpful error instead of letting them fail.
+func interceptConflicting(pm string, args []string) error {
+	if len(args) == 0 {
+		return nil
+	}
+
+	cmd := strings.Join(args, " ")
+
+	// yarn start / npm start — conflicts with running entrypoint
+	if args[0] == "start" {
+		return tui.StyledError(fmt.Sprintf(
+			"Cannot run '%s start' — the Node process is already running.\n"+
+				"Use 'tainer node dev' or 'tainer node prod' to switch modes.", pm))
+	}
+
+	// yarn dev / npm run dev — should use tainer node dev
+	if args[0] == "dev" || cmd == "run dev" {
+		return tui.StyledError(fmt.Sprintf(
+			"Cannot run '%s %s' — the Node process is already running.\n"+
+				"Use 'tainer node dev' instead.", pm, cmd))
+	}
+
+	// yarn run start / npm run start
+	if cmd == "run start" {
+		return tui.StyledError(fmt.Sprintf(
+			"Cannot run '%s run start' — the Node process is already running.\n"+
+				"Use 'tainer node dev' or 'tainer node prod' to switch modes.", pm))
+	}
+
+	return nil
 }
