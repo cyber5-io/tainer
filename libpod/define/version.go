@@ -50,7 +50,7 @@ func GetVersion() (Version, error) {
 		Version:     version.Version.String(),
 		GoVersion:   runtime.Version(),
 		GitCommit:   gitCommit,
-		BuiltTime:   time.Unix(buildTime, 0).Format(time.ANSIC),
+		BuiltTime:   time.Unix(buildTime, 0).Format("2 January 2006"),
 		Built:       buildTime,
 		BuildOrigin: buildOrigin,
 		OsArch:      runtime.GOOS + "/" + runtime.GOARCH,
