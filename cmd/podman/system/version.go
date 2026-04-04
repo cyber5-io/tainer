@@ -92,7 +92,6 @@ func version(cmd *cobra.Command, _ []string) error {
 	infoLines = append(infoLines, fmt.Sprintf("%s  %s",
 		tui.TitleStyle().Render("tainer"),
 		valueStyle.Render("v"+rawversion.TainerVersion)))
-	infoLines = append(infoLines, fmt.Sprintf("%s  %s", labelStyle.Render("Engine  "), mutedStyle.Render("Podman "+cv.Version)))
 	infoLines = append(infoLines, fmt.Sprintf("%s  %s", labelStyle.Render("Go      "), mutedStyle.Render(cv.GoVersion)))
 	infoLines = append(infoLines, fmt.Sprintf("%s  %s", labelStyle.Render("Built   "), mutedStyle.Render(cv.BuiltTime)))
 	infoLines = append(infoLines, fmt.Sprintf("%s  %s", labelStyle.Render("OS/Arch "), mutedStyle.Render(cv.OsArch)))
