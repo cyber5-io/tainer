@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"charm.land/lipgloss/v2"
 	"github.com/containers/podman/v6/pkg/tainer/config"
+	"github.com/containers/podman/v6/pkg/tainer/env"
 	"github.com/containers/podman/v6/pkg/tainer/machine"
 	"github.com/containers/podman/v6/pkg/tainer/manifest"
 	"github.com/containers/podman/v6/pkg/tainer/project"
@@ -312,6 +314,16 @@ func interceptProjectCommand(cmd *cobra.Command, args []string, action string) (
 		if err != nil {
 			return true, fmt.Errorf("reading tainer.yaml: %w", err)
 		}
+
+		// Auto-init: if the project is not registered, this is likely a freshly cloned project
+		if action == "start" {
+			if _, ok := registry.Get(m.Project.Name); !ok {
+				if err := autoInitProject(m, cwd); err != nil {
+					return true, err
+				}
+			}
+		}
+
 		return true, executeProjectAction(m.Project.Name, cwd, action)
 	}
 
@@ -332,6 +344,72 @@ func interceptProjectCommand(cmd *cobra.Command, args []string, action string) (
 
 	// Multiple args or flags → Podman behavior
 	return false, nil
+}
+
+// autoInitProject handles first-time setup for a cloned project that has tainer.yaml
+// but is not yet registered on this machine. It prompts the user, generates fresh
+// credentials, creates required directories, and registers the project.
+func autoInitProject(m *manifest.Manifest, projectDir string) error {
+	c := tui.Colors()
+	orangeStyle := lipgloss.NewStyle().Foreground(c.Orange).Bold(true)
+	textStyle := lipgloss.NewStyle().Foreground(c.Text)
+	mutedStyle := lipgloss.NewStyle().Foreground(c.Muted)
+	boldStyle := lipgloss.NewStyle().Bold(true).Foreground(c.Text)
+	tealStyle := lipgloss.NewStyle().Foreground(c.Teal)
+
+	// Show confirmation prompt
+	fmt.Println()
+	fmt.Printf("  %s %s\n\n", orangeStyle.Render("⚠"), textStyle.Render("Project "+boldStyle.Render(m.Project.Name)+" is not registered on this machine."))
+	fmt.Printf("  %s\n", mutedStyle.Render("This looks like a freshly cloned project."))
+	fmt.Printf("  %s\n\n", mutedStyle.Render("tainer will set it up for local development:"))
+	fmt.Printf("  %s %s\n", tealStyle.Render("•"), textStyle.Render("Generate .env with fresh credentials"))
+	dirsLabel := "data/"
+	if m.HasDatabase() {
+		dirsLabel = "data/ and db/"
+	}
+	fmt.Printf("  %s %s\n", tealStyle.Render("•"), textStyle.Render("Create "+dirsLabel+" directories"))
+	fmt.Printf("  %s %s\n\n", tealStyle.Render("•"), textStyle.Render("Register project in local registry"))
+	fmt.Printf("  %s ", textStyle.Render("Continue? [y/N]"))
+
+	reader := bufio.NewReader(os.Stdin)
+	answer, _ := reader.ReadString('\n')
+	answer = strings.TrimSpace(strings.ToLower(answer))
+	if answer != "y" && answer != "yes" {
+		fmt.Println("  Cancelled.")
+		return fmt.Errorf("auto-init cancelled")
+	}
+	fmt.Println()
+
+	// Remove machine-specific files (could be stale from another machine)
+	for _, stale := range []string{".env", ".tainer-authorized_keys", ".tainer.local.yaml"} {
+		os.Remove(filepath.Join(projectDir, stale))
+	}
+
+	// Generate fresh .env with new credentials
+	envPath := filepath.Join(projectDir, ".env")
+	if err := env.Generate(m, envPath); err != nil {
+		return fmt.Errorf("generating .env: %w", err)
+	}
+
+	// Create required directories
+	dirs := []string{"data"}
+	if m.HasDatabase() {
+		dirs = append(dirs, "db")
+	}
+	for _, dir := range dirs {
+		dirPath := filepath.Join(projectDir, dir)
+		if err := os.MkdirAll(dirPath, 0755); err != nil {
+			return fmt.Errorf("creating %s directory: %w", dir, err)
+		}
+	}
+
+	// Register project
+	if err := registry.Add(m.Project.Name, projectDir, string(m.Project.Type), m.Project.Domain); err != nil {
+		return fmt.Errorf("registering project: %w", err)
+	}
+
+	fmt.Printf("  %s %s\n\n", tealStyle.Render("✓"), textStyle.Render("Project "+boldStyle.Render(m.Project.Name)+" initialised"))
+	return nil
 }
 
 func executeProjectAction(name, path, action string) error {
