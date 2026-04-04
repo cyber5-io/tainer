@@ -17,6 +17,49 @@ import (
 var configCmd = &cobra.Command{
 	Use:   "config",
 	Short: "Manage Tainer project configuration",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("getting working directory: %w", err)
+		}
+
+		if !manifest.Exists(cwd) {
+			return tui.StyledError("No tainer.yaml found in current directory.\nRun from a project directory.")
+		}
+
+		m, err := manifest.LoadFromDir(cwd)
+		if err != nil {
+			return fmt.Errorf("reading tainer.yaml: %w", err)
+		}
+
+		c := tui.Colors()
+		labelStyle := lipgloss.NewStyle().Foreground(c.Muted)
+		valueStyle := lipgloss.NewStyle().Foreground(c.Text)
+		boldStyle := lipgloss.NewStyle().Bold(true).Foreground(c.Text)
+		cmdStyle := lipgloss.NewStyle().Foreground(c.Teal)
+
+		var lines []string
+		lines = append(lines, boldStyle.Render(m.Project.Name))
+		lines = append(lines, "")
+		lines = append(lines, labelStyle.Render("Type     ")+valueStyle.Render(string(m.Project.Type)))
+		lines = append(lines, labelStyle.Render("Domain   ")+valueStyle.Render(m.Project.Domain))
+		lines = append(lines, labelStyle.Render("Path     ")+valueStyle.Render(cwd))
+
+		// Backup status
+		if config.BackupExists(m.Project.Name) {
+			lines = append(lines, labelStyle.Render("Backup   ")+lipgloss.NewStyle().Foreground(c.Teal).Render("✓ available"))
+		} else {
+			lines = append(lines, labelStyle.Render("Backup   ")+labelStyle.Render("none"))
+		}
+
+		lines = append(lines, "")
+		lines = append(lines, labelStyle.Render("Commands"))
+		lines = append(lines, "  "+cmdStyle.Render("tainer config backup")+"   "+labelStyle.Render("Backup tainer.yaml and .env"))
+		lines = append(lines, "  "+cmdStyle.Render("tainer config restore")+"  "+labelStyle.Render("Restore from backup"))
+
+		tui.PrintWithLogo(strings.Join(lines, "\n"))
+		return nil
+	},
 }
 
 var configBackupCmd = &cobra.Command{
