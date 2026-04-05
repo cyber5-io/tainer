@@ -231,6 +231,12 @@ func (m model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 	}
+	// Allow "q" to quit on non-text-input steps
+	if key == "q" && m.step != stepName && m.step != stepSubdomain {
+		m.result.Cancelled = true
+		m.quitting = true
+		return m, tea.Quit
+	}
 	switch m.step {
 	case stepWelcome:
 		return m.handleWelcome(key)
@@ -649,15 +655,13 @@ func (m model) renderFooter(width int) string {
 func (m model) navText() string {
 	switch m.step {
 	case stepWelcome:
-		return "↵ begin   esc cancel"
+		return "↵ begin   q quit"
 	case stepName, stepSubdomain:
 		return "↵ confirm   esc back"
 	case stepType, stepVersion, stepDatabase:
-		return "← → select   ↵ confirm   esc back"
-	case stepConfirm:
-		return "← → select   ↵ confirm   esc back"
-	case stepGit:
-		return "← → select   ↵ confirm   esc back"
+		return "← → select   ↵ confirm   esc back   q quit"
+	case stepGit, stepConfirm:
+		return "← → select   ↵ confirm   esc back   q quit"
 	}
 	return ""
 }
