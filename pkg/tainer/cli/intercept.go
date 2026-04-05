@@ -41,33 +41,6 @@ var ProjectDestroy = func(dir string, force, nuke bool) error {
 // GetWorkingDir returns the current working directory. Replaceable for testing.
 var GetWorkingDir = os.Getwd
 
-// InterceptInit checks if `tainer init` (bare) should run the project wizard.
-// Returns (handled, error). If handled is true, the caller should not pass through to Podman.
-func InterceptInit(cmd *cobra.Command, args []string) (bool, error) {
-	// Any args or flags → pass through to Podman
-	if len(args) > 0 || cmd.Flags().NFlag() > 0 {
-		return false, nil
-	}
-
-	cwd, err := GetWorkingDir()
-	if err != nil {
-		return true, fmt.Errorf("getting working directory: %w", err)
-	}
-
-	if manifest.Exists(cwd) {
-		return true, tui.StyledError("tainer.yaml already exists in " + cwd)
-	}
-
-	if RunWizard == nil {
-		return true, fmt.Errorf("wizard not available")
-	}
-
-	if err := RunWizard(cwd); err != nil {
-		return true, err
-	}
-	return true, nil
-}
-
 // InterceptStart checks if `tainer start` should start a Tainer project.
 func InterceptStart(cmd *cobra.Command, args []string) (bool, error) {
 	return interceptProjectCommand(cmd, args, "start")

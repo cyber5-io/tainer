@@ -1,100 +1,45 @@
 package containers
 
 import (
-	"fmt"
-
-	"github.com/containers/podman/v6/cmd/podman/common"
 	"github.com/containers/podman/v6/cmd/podman/registry"
-	"github.com/containers/podman/v6/cmd/podman/utils"
 	"github.com/containers/podman/v6/cmd/podman/validate"
-	"github.com/containers/podman/v6/pkg/domain/entities"
 	tainerCli "github.com/containers/podman/v6/pkg/tainer/cli"
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
 var (
-	initDescription = `Initialize one or more containers, creating the OCI spec and mounts for inspection. Container names or IDs can be used.`
-
 	initCommand = &cobra.Command{
-		Use:   "init [options] CONTAINER [CONTAINER...]",
-		Short: "Initialize one or more containers",
-		Long:  initDescription,
+		Use:   "init [options]",
+		Short: "Create a new Tainer project",
+		Long:  "Create a new Tainer project in the current directory. Without flags, launches an interactive wizard.",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			// Tainer: bare `tainer init` runs the project wizard — skip engine setup
-			if len(args) == 0 && cmd.Flags().NFlag() == 0 {
-				return nil
-			}
-			return cmd.Root().PersistentPreRunE(cmd, args)
+			// Tainer fully owns `tainer init` — skip Podman engine setup
+			return nil
 		},
-		RunE: initContainer,
-		Args: func(cmd *cobra.Command, args []string) error {
-			// Tainer: allow zero args for project wizard
-			if len(args) == 0 && cmd.Flags().NFlag() == 0 {
-				return nil
-			}
-			return validate.CheckAllLatestAndIDFile(cmd, args, false, "")
-		},
-		ValidArgsFunction: common.AutocompleteContainersCreated,
-		Example: `podman init 3c45ef19d893
-podman init test1`,
-	}
-
-	containerInitCommand = &cobra.Command{
-		Use:               initCommand.Use,
-		Short:             initCommand.Short,
-		Long:              initCommand.Long,
-		RunE:              initCommand.RunE,
-		Args:              initCommand.Args,
-		ValidArgsFunction: initCommand.ValidArgsFunction,
-		Example: `podman container init 3c45ef19d893
-podman container init test1`,
+		RunE:              tainerCli.RunInit,
+		Args:              validate.NoArgs,
+		ValidArgsFunction: cobra.NoFileCompletions,
 	}
 )
 
-var initOptions entities.ContainerInitOptions
-
-func initFlags(flags *pflag.FlagSet) {
-	flags.BoolVarP(&initOptions.All, "all", "a", false, "Initialize all containers")
-}
+var tainerInitOpts tainerCli.InitOptions
 
 func init() {
 	registry.Commands = append(registry.Commands, registry.CliCommand{
 		Command: initCommand,
 	})
+
 	flags := initCommand.Flags()
-	initFlags(flags)
-	validate.AddLatestFlag(initCommand, &initOptions.Latest)
+	flags.StringVar(&tainerInitOpts.Name, "name", "", "Project name (required for non-interactive)")
+	flags.StringVar(&tainerInitOpts.Type, "type", "", "Project type: wordpress, php, nodejs, nextjs, nuxtjs, kompozi")
+	flags.StringVar(&tainerInitOpts.PHP, "php", "", "PHP version (default: 8.4)")
+	flags.StringVar(&tainerInitOpts.Node, "node", "", "Node.js version (default: 22)")
+	flags.StringVar(&tainerInitOpts.DB, "db", "", "Database: mariadb, postgres, none (default depends on type)")
+	flags.StringVar(&tainerInitOpts.Subdomain, "subdomain", "", "Subdomain for .tainer.me (default: project name)")
+	flags.BoolVarP(&tainerInitOpts.Quiet, "quiet", "q", false, "Suppress output")
+	flags.BoolVar(&tainerInitOpts.Start, "start", false, "Start the project after creation")
+	flags.BoolVar(&tainerInitOpts.GitInit, "git-init", false, "Initialise a git repository")
 
-	registry.Commands = append(registry.Commands, registry.CliCommand{
-		Parent:  containerCmd,
-		Command: containerInitCommand,
-	})
-	containerInitFlags := containerInitCommand.Flags()
-	initFlags(containerInitFlags)
-	validate.AddLatestFlag(containerInitCommand, &initOptions.Latest)
-}
-
-func initContainer(cmd *cobra.Command, args []string) error {
-	// Tainer: intercept bare `tainer init` for project wizard
-	if handled, err := tainerCli.InterceptInit(cmd, args); handled {
-		return err
-	}
-	var errs utils.OutputErrors
-	args = utils.RemoveSlash(args)
-	report, err := registry.ContainerEngine().ContainerInit(registry.Context(), args, initOptions)
-	if err != nil {
-		return err
-	}
-	for _, r := range report {
-		switch {
-		case r.Err != nil:
-			errs = append(errs, r.Err)
-		case r.RawInput != "":
-			fmt.Println(r.RawInput)
-		default:
-			fmt.Println(r.Id)
-		}
-	}
-	return errs.PrintErrors()
+	// Hide Podman's inherited flags that don't apply
+	initCommand.SetHelpFunc(tainerCli.InitHelp)
 }
