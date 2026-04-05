@@ -4,6 +4,8 @@ GO ?= go
 ARCH ?= aarch64
 ifeq ($(ARCH), aarch64)
 	GOARCH:=arm64
+else ifeq ($(ARCH), x86_64)
+	GOARCH:=amd64
 else
 	GOARCH:=$(ARCH)
 endif
@@ -36,8 +38,8 @@ package_root: clean-pkgroot
 	mkdir -p $(PACKAGE_ROOT)/tainer/bin $(PACKAGE_ROOT)/tainer/lib $(PACKAGE_ROOT)/tainer/certs
 	cp $(HELPERS_DIR)/bin/gvproxy $(PACKAGE_ROOT)/tainer/bin/
 	cp $(HELPERS_DIR)/bin/vfkit $(PACKAGE_ROOT)/tainer/bin/
-	cp $(HELPERS_DIR)/bin/krunkit $(PACKAGE_ROOT)/tainer/bin/
-	cp $(HELPERS_DIR)/lib/*.dylib $(PACKAGE_ROOT)/tainer/lib/
+	-cp $(HELPERS_DIR)/bin/krunkit $(PACKAGE_ROOT)/tainer/bin/ 2>/dev/null || true
+	-cp $(HELPERS_DIR)/lib/*.dylib $(PACKAGE_ROOT)/tainer/lib/ 2>/dev/null || true
 	cp certs/tainer.me.crt $(PACKAGE_ROOT)/tainer/certs/
 	cp certs/tainer.me.key $(PACKAGE_ROOT)/tainer/certs/
 	cp scripts/uninstall.sh $(PACKAGE_ROOT)/tainer/bin/uninstall.sh

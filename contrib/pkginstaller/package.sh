@@ -11,7 +11,7 @@ NO_CODESIGN=${NO_CODESIGN:-0}
 HELPER_BINARIES_DIR="/opt/tainer/bin"
 BUILD_ORIGIN="pkginstaller"
 
-tmpBin="${BASEDIR}/tmp-bin"
+tmpBin="$(cd "${BASEDIR}" && pwd)/tmp-bin"
 
 binDir="${BASEDIR}/root/tainer/bin"
 libDir="${BASEDIR}/root/tainer/lib"
@@ -19,7 +19,11 @@ docDir="${BASEDIR}/root/tainer/docs/man/man1"
 
 # Read version from source of truth
 version=$(grep 'const TainerVersion' "${REPOROOT}/version/rawversion/version.go" | sed 's/.*"\(.*\)".*/\1/')
-goArch=${ARCH:-arm64}
+case "${ARCH:-arm64}" in
+  aarch64|arm64) goArch=arm64 ;;
+  x86_64|amd64)  goArch=amd64 ;;
+  *)             goArch="${ARCH}" ;;
+esac
 
 # Generate Distribution and welcome.html from templates
 sed "s/__VERSION__/${version}/g" "${BASEDIR}/Distribution.in" > "${BASEDIR}/Distribution"
@@ -71,11 +75,15 @@ sign "${binDir}/tainer-mac-helper"
 sign "${binDir}/gvproxy"
 sign "${binDir}/vfkit"
 
-sign "${binDir}/krunkit"
-sign "${libDir}/libkrun-efi.dylib"
-sign "${libDir}/libvirglrenderer.1.dylib"
-sign "${libDir}/libepoxy.0.dylib"
-sign "${libDir}/libMoltenVK.dylib"
+# krunkit + dylibs only exist on arm64 (Apple Silicon)
+if [ -f "${binDir}/krunkit" ]; then
+  sign "${binDir}/krunkit"
+fi
+for dylib in libkrun-efi.dylib libvirglrenderer.1.dylib libepoxy.0.dylib libMoltenVK.dylib; do
+  if [ -f "${libDir}/${dylib}" ]; then
+    sign "${libDir}/${dylib}"
+  fi
+done
 
 # Generate component plist
 pkgbuild --analyze --root "${BASEDIR}/root" "${BASEDIR}/component.plist"
