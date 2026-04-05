@@ -54,11 +54,8 @@ func updateFlags(cmd *cobra.Command) {
 }
 
 func init() {
-	registry.Commands = append(registry.Commands, registry.CliCommand{
-		Command: updateCommand,
-	})
-	updateFlags(updateCommand)
-	validate.AddLatestFlag(updateCommand, &updateOptions.Latest)
+	// Tainer: only register under `tainer container update`, not top-level.
+	// Top-level `tainer update` is owned by pkg/tainer for self-update/images.
 
 	registry.Commands = append(registry.Commands, registry.CliCommand{
 		Command: containerUpdateCommand,
