@@ -102,6 +102,14 @@ func nodeRun(cmd *cobra.Command, args []string) error {
 
 	if mode == "prod" {
 		steps = append(steps, progress.Step{
+			Label: "Cleaning build cache",
+			Run: func() error {
+				cleanCmd := exec.Command("tainer", "exec", "--user", "tainer", containerName, "sh", "-c", "rm -rf /var/www/html/.next")
+				cleanCmd.CombinedOutput() //nolint:errcheck
+				return nil
+			},
+		})
+		steps = append(steps, progress.Step{
 			Label: "Building for production",
 			Run: func() error {
 				buildCmd := exec.Command("tainer", "exec", "--user", "tainer", containerName, "sh", "-c", "cd /var/www/html && yarn build")
@@ -114,6 +122,17 @@ func nodeRun(cmd *cobra.Command, args []string) error {
 					os.WriteFile(pkgPath, reverted, 0644) //nolint:errcheck
 					return fmt.Errorf("build failed — reverted to previous mode\n%s", string(buildOutput))
 				}
+				return nil
+			},
+		})
+	}
+
+	if mode == "dev" {
+		steps = append(steps, progress.Step{
+			Label: "Cleaning build cache",
+			Run: func() error {
+				cleanCmd := exec.Command("tainer", "exec", containerName, "sh", "-c", "rm -rf /var/www/html/.next")
+				cleanCmd.CombinedOutput() //nolint:errcheck
 				return nil
 			},
 		})
