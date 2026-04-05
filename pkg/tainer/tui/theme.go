@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"golang.org/x/term"
 )
 
 // Palette holds a resolved set of colors for dark or light terminals.
@@ -177,13 +178,16 @@ func PrintWithLogo(content string) {
 	logo := LogoSmallFull()
 	logoW := lipgloss.Width(logo)
 
-	totalW := 78 // usable width (80 - 2 indent)
+	totalW := 78
+	if tw, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && tw > 40 {
+		totalW = tw - 4 // 2 indent + 2 margin
+	}
 	leftW := totalW - logoW - 4
 
 	left := lipgloss.NewStyle().Width(leftW).Render(content)
 	right := lipgloss.NewStyle().Width(logoW).Render(logo)
 
-	row := lipgloss.JoinHorizontal(lipgloss.Center, left, "    ", right)
+	row := lipgloss.JoinHorizontal(lipgloss.Top, left, "    ", right)
 	indented := lipgloss.NewStyle().PaddingLeft(2).Render(row)
 
 	fmt.Println()
