@@ -92,13 +92,13 @@ func PullImagesVerbose(m *manifest.Manifest) error {
 }
 
 func pullImage(image string) error {
+	// Skip pull if image already exists locally — enables fully offline starts
+	if tainerRegistry.ImageExistsLocally(image) {
+		return nil
+	}
 	cmd := exec.Command("tainer", "pull", image)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		if tainerRegistry.ImageExistsLocally(image) {
-			fmt.Printf("  Warning: could not reach registry (offline?), using cached %s\n", image)
-			return nil
-		}
 		return fmt.Errorf("%s is not available locally and registry is unreachable (offline?): %s", image, string(output))
 	}
 	return nil
