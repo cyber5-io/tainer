@@ -141,14 +141,12 @@ func createProjectDirs(cwd string, m *manifest.Manifest) error {
 		return fmt.Errorf("writing data/.gitignore: %w", err)
 	}
 
-	// Create db/ at project root if database selected, with .gitignore
+	// Create db/ at project root if database selected
+	// No .gitignore inside — Postgres requires an empty directory to initialise
 	if m.HasDatabase() {
 		dbDir := filepath.Join(cwd, "db")
 		if err := os.MkdirAll(dbDir, 0755); err != nil {
 			return fmt.Errorf("creating db directory: %w", err)
-		}
-		if err := gitsetup.WriteDirIgnore(dbDir); err != nil {
-			return fmt.Errorf("writing db/.gitignore: %w", err)
 		}
 	}
 

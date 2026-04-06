@@ -438,8 +438,11 @@ func runPostDeploy(m *manifest.Manifest, podName string) error {
 	ct := mainContainerName(m, podName)
 
 	// Post-deploy script is baked into the image at /opt/tainer/post-deploy.sh
+	// Output is captured to prevent it leaking into the progress TUI.
 	cmd := exec.Command("tainer", "exec", ct, "sh", "/opt/tainer/post-deploy.sh")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s\n%s", err, string(output))
+	}
+	return nil
 }

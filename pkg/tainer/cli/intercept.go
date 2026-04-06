@@ -360,18 +360,19 @@ func autoInitProject(m *manifest.Manifest, projectDir string) error {
 		return fmt.Errorf("generating .env: %w", err)
 	}
 
-	// Create required directories and drop .gitignore inside each
-	dirs := []string{"data"}
-	if m.HasDatabase() {
-		dirs = append(dirs, "db")
+	// Create required directories
+	dataDir := filepath.Join(projectDir, "data")
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		return fmt.Errorf("creating data directory: %w", err)
 	}
-	for _, dir := range dirs {
-		dirPath := filepath.Join(projectDir, dir)
-		if err := os.MkdirAll(dirPath, 0755); err != nil {
-			return fmt.Errorf("creating %s directory: %w", dir, err)
-		}
-		if err := gitsetup.WriteDirIgnore(dirPath); err != nil {
-			return fmt.Errorf("writing %s/.gitignore: %w", dir, err)
+	if err := gitsetup.WriteDirIgnore(dataDir); err != nil {
+		return fmt.Errorf("writing data/.gitignore: %w", err)
+	}
+	if m.HasDatabase() {
+		// db/ must be empty for Postgres to initialise — no .gitignore inside
+		dbDir := filepath.Join(projectDir, "db")
+		if err := os.MkdirAll(dbDir, 0755); err != nil {
+			return fmt.Errorf("creating db directory: %w", err)
 		}
 	}
 

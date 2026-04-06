@@ -8,8 +8,8 @@ if [ ! -f package.json ]; then
     tmp=$(mktemp -d)
     chmod 777 "$tmp"
     su-exec tainer git clone --depth 1 https://github.com/cyber5-io/kompozi.git "$tmp/kompozi"
-    cp -a "$tmp/kompozi/." /var/www/html/
-    rm -rf /var/www/html/.git "$tmp"
+    cp -a "$tmp/kompozi/html/." /var/www/html/
+    rm -rf "$tmp"
     chown -R tainer /var/www/html
 
     # Override start script for local dev mode

@@ -144,9 +144,8 @@ func runNonInteractiveInit(opts InitOptions, cwd string) error {
 	os.MkdirAll(dataDir, 0755)
 	gitsetup.WriteDirIgnore(dataDir)
 	if m.HasDatabase() {
-		dbDir := filepath.Join(cwd, "db")
-		os.MkdirAll(dbDir, 0755)
-		gitsetup.WriteDirIgnore(dbDir)
+		// No .gitignore inside — Postgres requires an empty directory to initialise
+		os.MkdirAll(filepath.Join(cwd, "db"), 0755)
 	}
 	if m.Project.Type == manifest.TypeWordPress {
 		for _, sub := range []string{"wp-content/uploads", "wp-content/plugins", "wp-content/themes"} {
