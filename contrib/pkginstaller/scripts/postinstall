@@ -96,4 +96,9 @@ if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
     # machine set --rootful requires a stop/start cycle to take effect
     sudo -u "$REAL_USER" /opt/tainer/bin/tainer machine stop 2>/dev/null || :
     sudo -u "$REAL_USER" /opt/tainer/bin/tainer machine start || :
+
+    # Install Claude Code skill if Claude Code is detected
+    if [ -d "$REAL_HOME/.claude" ]; then
+        sudo -u "$REAL_USER" /opt/tainer/bin/tainer claude install 2>/dev/null || :
+    fi
 fi
