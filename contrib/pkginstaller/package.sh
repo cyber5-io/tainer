@@ -5,9 +5,11 @@ set -euxo pipefail
 BASEDIR=$(dirname "$0")
 REPOROOT="${BASEDIR}/../.."
 OUTPUT=${1:-${BASEDIR}/out}
-CODESIGN_IDENTITY=${CODESIGN_IDENTITY:--}
-PRODUCTSIGN_IDENTITY=${PRODUCTSIGN_IDENTITY:-mock}
+CODESIGN_IDENTITY=${CODESIGN_IDENTITY:-"Developer ID Application: Cyber5 Internet Ltd (C8J8D9XJP6)"}
+PRODUCTSIGN_IDENTITY=${PRODUCTSIGN_IDENTITY:-"Developer ID Installer: Cyber5 Internet Ltd (C8J8D9XJP6)"}
 NO_CODESIGN=${NO_CODESIGN:-0}
+NOTARIZE_PROFILE=${NOTARIZE_PROFILE:-"tainer-notarize"}
+NOTARIZE=${NOTARIZE:-1}
 HELPER_BINARIES_DIR="/opt/tainer/bin"
 BUILD_ORIGIN="pkginstaller"
 
@@ -108,4 +110,13 @@ else
 fi
 rm -f "${OUTPUT}/tainer-unsigned.pkg"
 
-echo "Built: ${OUTPUT}/tainer-installer-macos-${goArch}.pkg (v${version})"
+PKG_FILE="${OUTPUT}/tainer-installer-macos-${goArch}.pkg"
+
+# Notarize and staple (only if signed)
+if [ ! "${NO_CODESIGN}" -eq "1" ] && [ "${NOTARIZE}" -eq "1" ]; then
+  echo "Notarizing ${PKG_FILE}..."
+  xcrun notarytool submit "${PKG_FILE}" --keychain-profile "${NOTARIZE_PROFILE}" --wait
+  xcrun stapler staple "${PKG_FILE}"
+fi
+
+echo "Built: ${PKG_FILE} (v${version})"
