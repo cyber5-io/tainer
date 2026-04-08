@@ -21,6 +21,7 @@ const (
 	TypeNextJS    ProjectType = "nextjs"
 	TypeNuxtJS    ProjectType = "nuxtjs"
 	TypeNestJS    ProjectType = "nestjs"
+	TypeReact     ProjectType = "react"
 	TypeKompozi   ProjectType = "kompozi"
 )
 
@@ -99,6 +100,15 @@ type RuntimeConfig struct {
 	Database DatabaseType `yaml:"database"`
 	Limits   PHPLimits    `yaml:"limits,omitempty"`
 	Shell    string       `yaml:"shell,omitempty"`
+	BuildDir string       `yaml:"build-dir,omitempty"` // react: dir served by Caddy in prod mode
+}
+
+// BuildDirOrDefault returns the configured build directory or "dist" as default.
+func (m *Manifest) BuildDirOrDefault() string {
+	if m.Runtime.BuildDir != "" {
+		return m.Runtime.BuildDir
+	}
+	return "dist"
 }
 
 func (m *Manifest) ShellOrDefault() string {
@@ -114,7 +124,14 @@ func (m *Manifest) IsPHP() bool {
 
 func (m *Manifest) IsNode() bool {
 	return m.Project.Type == TypeNodeJS || m.Project.Type == TypeNextJS ||
-		m.Project.Type == TypeNuxtJS || m.Project.Type == TypeNestJS || m.Project.Type == TypeKompozi
+		m.Project.Type == TypeNuxtJS || m.Project.Type == TypeNestJS ||
+		m.Project.Type == TypeReact || m.Project.Type == TypeKompozi
+}
+
+// IsReact returns true for project types that are served as SPAs
+// (static files in prod, Vite dev server in dev mode).
+func (m *Manifest) IsReact() bool {
+	return m.Project.Type == TypeReact
 }
 
 func (m *Manifest) RuntimeVersion() string {
@@ -190,9 +207,9 @@ func (m *Manifest) validate() error {
 		return fmt.Errorf("invalid project name: %w", err)
 	}
 	switch m.Project.Type {
-	case TypeWordPress, TypePHP, TypeNodeJS, TypeNextJS, TypeNuxtJS, TypeNestJS, TypeKompozi:
+	case TypeWordPress, TypePHP, TypeNodeJS, TypeNextJS, TypeNuxtJS, TypeNestJS, TypeReact, TypeKompozi:
 	default:
-		return fmt.Errorf("invalid project type: %q (expected wordpress, php, nodejs, nextjs, nuxtjs, nestjs, or kompozi)", m.Project.Type)
+		return fmt.Errorf("invalid project type: %q (expected wordpress, php, nodejs, nextjs, nuxtjs, nestjs, react, or kompozi)", m.Project.Type)
 	}
 	switch m.Runtime.Database {
 	case DatabaseMariaDB, DatabasePostgres, DatabaseNone:

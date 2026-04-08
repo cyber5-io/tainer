@@ -17,6 +17,8 @@ func DefaultDatabase(pt manifest.ProjectType) manifest.DatabaseType {
 	switch pt {
 	case manifest.TypeWordPress, manifest.TypePHP:
 		return manifest.DatabaseMariaDB
+	case manifest.TypeReact:
+		return manifest.DatabaseNone
 	default:
 		return manifest.DatabasePostgres
 	}

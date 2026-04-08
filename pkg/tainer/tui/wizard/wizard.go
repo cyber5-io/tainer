@@ -66,6 +66,7 @@ var (
 		{manifest.TypeNextJS, "Next.js"},
 		{manifest.TypeNuxtJS, "Nuxt.js"},
 		{manifest.TypeNestJS, "Nest.js"},
+		{manifest.TypeReact, "React"},
 		{manifest.TypeKompozi, "Kompozi"},
 	}
 )
@@ -147,6 +148,8 @@ func dbChoices(pt manifest.ProjectType) []string {
 		return []string{"mariadb", "postgres", "none"}
 	case manifest.TypeNodeJS, manifest.TypeNestJS:
 		return []string{"postgres", "mariadb", "none"}
+	case manifest.TypeReact:
+		return []string{"none", "postgres", "mariadb"}
 	default:
 		return []string{"postgres", "mariadb"}
 	}

@@ -145,6 +145,15 @@ func Start(projectDir string) error {
 		os.WriteFile(filepath.Join(projectDir, ".tainer.local.yaml"), lsData, 0644)
 	}
 
+	// 10a. Extract scaffold from image to host (first-start only, Node-based types).
+	// This avoids the slow virtio-fs extraction path for projects with large
+	// node_modules (React, Next.js, Nuxt.js, etc.)
+	if m.IsNode() {
+		if err := ExtractScaffoldToHost(m, projectDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: scaffold extraction failed: %v\n", err)
+		}
+	}
+
 	if err := createProjectPod(m, podName, netName, projectDir, uid, gid); err != nil {
 		return err
 	}
@@ -282,16 +291,33 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 			return fmt.Errorf("starting PHP-FPM: %s", string(output))
 		}
 	} else {
-		mainArgs := []string{"run", "-d", "--pod", podName, "--name", prefix + "-node-ct"}
+		ctSuffix := "-node-ct"
+		if m.IsReact() {
+			ctSuffix = "-web-ct"
+		}
+		mainArgs := []string{"run", "-d", "--pod", podName, "--name", prefix + ctSuffix}
 		mainArgs = append(mainArgs, appMount...)
 		mainArgs = append(mainArgs, dataMount...)
 		mainArgs = append(mainArgs, authKeyMount...)
 		mainArgs = append(mainArgs, envFile...)
 		mainArgs = append(mainArgs, envFlags...)
 		mainArgs = append(mainArgs, shellEnv...)
+		// React containers need TAINER_MODE (dev/prod) and TAINER_BUILD_DIR.
+		// Default is prod (zero drift). If a .tainer-mode file exists in html/,
+		// use its contents (set by `tainer react dev|prod`).
+		if m.IsReact() {
+			mode := "prod"
+			if data, err := os.ReadFile(filepath.Join(projectDir, "html", ".tainer-mode")); err == nil {
+				if s := strings.TrimSpace(string(data)); s == "dev" || s == "prod" {
+					mode = s
+				}
+			}
+			mainArgs = append(mainArgs, "-e", "TAINER_MODE="+mode)
+			mainArgs = append(mainArgs, "-e", "TAINER_BUILD_DIR="+m.BuildDirOrDefault())
+		}
 		mainArgs = append(mainArgs, MainImage(m))
 		if output, err := exec.Command("tainer", mainArgs...).CombinedOutput(); err != nil {
-			return fmt.Errorf("starting Node container: %s", string(output))
+			return fmt.Errorf("starting container: %s", string(output))
 		}
 	}
 
@@ -330,7 +356,8 @@ func updateRouterConfig() error {
 		port := "80"
 		pt := manifest.ProjectType(p.Type)
 		if pt == manifest.TypeNodeJS || pt == manifest.TypeNextJS ||
-			pt == manifest.TypeNuxtJS || pt == manifest.TypeNestJS || pt == manifest.TypeKompozi {
+			pt == manifest.TypeNuxtJS || pt == manifest.TypeNestJS ||
+			pt == manifest.TypeReact || pt == manifest.TypeKompozi {
 			port = "3000"
 		}
 		caddyProjects = append(caddyProjects, router.CaddyProject{
@@ -348,6 +375,9 @@ func updateRouterConfig() error {
 func mainContainerName(m *manifest.Manifest, podName string) string {
 	if m.IsPHP() {
 		return podName + "-caddy-ct"
+	}
+	if m.IsReact() {
+		return podName + "-web-ct"
 	}
 	return podName + "-node-ct"
 }

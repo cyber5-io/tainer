@@ -24,9 +24,23 @@ This updates the "start" script in package.json and restarts the Node container.
 	RunE: nodeRun,
 }
 
+// reactCmd is an alias of nodeCmd for React projects — same behaviour but
+// more discoverable when the project is a SPA.
+var reactCmd = &cobra.Command{
+	Use:   "react <dev|prod>",
+	Short: "Switch React between development and production mode",
+	Long: `Switch the React container between development mode (Vite dev server)
+and production mode (Caddy serving the static build).`,
+	Args: cobra.ExactArgs(1),
+	RunE: nodeRun,
+}
+
 func init() {
 	registry.Commands = append(registry.Commands, registry.CliCommand{
 		Command: nodeCmd,
+	})
+	registry.Commands = append(registry.Commands, registry.CliCommand{
+		Command: reactCmd,
 	})
 }
 
@@ -47,12 +61,19 @@ func nodeRun(cmd *cobra.Command, args []string) error {
 	}
 
 	if !m.IsNode() {
-		return fmt.Errorf("project %q is type %q — node mode switch is only available for Node.js projects", name, m.Project.Type)
+		return fmt.Errorf("project %q is type %q — mode switch is only available for Node-based projects", name, m.Project.Type)
 	}
 
 	podStatus := getPodStatus(name)
 	if podStatus != "Running" {
 		return fmt.Errorf("project %q is not running (status: %s). Start it first with: tainer start", name, podStatus)
+	}
+
+	// React uses a different mode-switch path: no package.json changes,
+	// just update the TAINER_MODE env var and recreate the container
+	// (Caddy handles dev/prod switching internally).
+	if m.IsReact() {
+		return reactModeSwitch(name, dir, mode)
 	}
 
 	// Determine the start command based on mode and project type
@@ -95,6 +116,7 @@ func nodeRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("writing package.json: %w", err)
 	}
 
+	// Container name depends on project type (React uses -web-ct, others use -node-ct)
 	containerName := fmt.Sprintf("tainer-%s-node-ct", name)
 
 	// Framework-specific build directory to clean
@@ -181,6 +203,66 @@ func resolveBuildDir(m *manifest.Manifest) string {
 	default:
 		return ".next"
 	}
+}
+
+// reactModeSwitch handles dev/prod switching for React projects.
+// Unlike Next/Nuxt/Nest, React uses Caddy in all modes — in prod, Caddy
+// serves static files directly; in dev, it proxies to Vite. The mode is
+// stored in a file inside the container's entrypoint script and Caddy
+// reloads its config accordingly. We don't touch package.json.
+func reactModeSwitch(name, dir, mode string) error {
+	containerName := fmt.Sprintf("tainer-%s-web-ct", name)
+
+	var steps []progress.Step
+
+	if mode == "prod" {
+		steps = append(steps, progress.Step{
+			Label: "Building for production",
+			Run: func() error {
+				buildCmd := exec.Command("tainer", "exec", "--user", "tainer", containerName, "sh", "-c", "cd /var/www/html && yarn build")
+				output, err := buildCmd.CombinedOutput()
+				if err != nil {
+					return fmt.Errorf("build failed\n%s", string(output))
+				}
+				return nil
+			},
+		})
+	}
+
+	steps = append(steps, progress.Step{
+		Label: "Switching mode",
+		Run: func() error {
+			// Write mode to a file that the container's entrypoint reads on start
+			modeFile := filepath.Join(dir, "html", ".tainer-mode")
+			if err := os.WriteFile(modeFile, []byte(mode+"\n"), 0644); err != nil {
+				return fmt.Errorf("writing mode file: %w", err)
+			}
+			return nil
+		},
+	})
+
+	steps = append(steps, progress.Step{
+		Label: "Restarting container",
+		Run: func() error {
+			restartCmd := exec.Command("tainer", "restart", containerName)
+			if output, err := restartCmd.CombinedOutput(); err != nil {
+				return fmt.Errorf("restart failed: %s", string(output))
+			}
+			return nil
+		},
+	})
+
+	title := fmt.Sprintf("Switching %s to %s mode", name, mode)
+	footer := []string{
+		"",
+		fmt.Sprintf("✓ %s is now in %s mode", name, mode),
+	}
+
+	result, err := progress.Run(title, steps, footer)
+	if err != nil {
+		return err
+	}
+	return result.Err
 }
 
 func resolveStartCommand(m *manifest.Manifest, mode string) string {
