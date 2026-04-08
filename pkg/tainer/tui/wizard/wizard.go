@@ -371,9 +371,10 @@ func (m model) handleSubdomain(key string) (tea.Model, tea.Cmd) {
 		if m.hasGitRepo {
 			m.result.HasGitRepo = true
 			m.step = stepConfirm
+			m.confirmIdx = 1 // default to "Create & Start"
 		} else {
 			m.step = stepGit
-			m.gitIdx = 1 // default to "Init Git"
+			m.gitIdx = 0 // default to "Skip"
 		}
 	case "esc":
 		m.goBack()
@@ -416,6 +417,7 @@ func (m model) handleGit(key string) (tea.Model, tea.Cmd) {
 	case "enter":
 		m.result.InitGit = m.gitIdx == 1
 		m.step = stepConfirm
+		m.confirmIdx = 1 // default to "Create & Start"
 	case "left", "h":
 		if m.gitIdx > 0 {
 			m.gitIdx--

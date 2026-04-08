@@ -69,7 +69,10 @@ func EnsureRunning() error {
 		return nil
 	}
 
-	if !IsInitialized() {
+	// Only attempt init when we're certain the machine doesn't exist.
+	// If the ls query errors out, assume the machine exists (safer default).
+	initialized, err := machineExists()
+	if err == nil && !initialized {
 		fmt.Println("Running Tainer for the first time, initializing...")
 		initCmd := exec.Command("tainer", "machine", "init")
 		initCmd.Stdout = os.Stdout
@@ -94,4 +97,16 @@ func EnsureRunning() error {
 	}
 
 	return nil
+}
+
+// machineExists returns (true, nil) if the machine is registered,
+// (false, nil) if it is definitely absent, or (false, err) if the query
+// itself failed (in which case we should NOT attempt re-init).
+func machineExists() (bool, error) {
+	cmd := exec.Command("tainer", "machine", "ls", "--format", "{{.Name}}")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("machine ls failed: %s", string(output))
+	}
+	return strings.TrimSpace(string(output)) != "", nil
 }

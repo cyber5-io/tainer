@@ -34,6 +34,11 @@ func GenerateCaddyfile(projects []CaddyProject, certPath, keyPath string) string
 		b.WriteString(fmt.Sprintf("\ttls %s %s\n", certPath, keyPath))
 		b.WriteString(fmt.Sprintf("\treverse_proxy %s:%s {\n", p.IP, p.Port))
 		b.WriteString("\t\theader_up X-Forwarded-Proto https\n")
+		// Retry for up to 30s if upstream isn't ready yet (first-hit race
+		// when a project starts but the app hasn't bound the port yet).
+		b.WriteString("\t\tlb_try_duration 30s\n")
+		b.WriteString("\t\tlb_try_interval 500ms\n")
+		b.WriteString("\t\tfail_duration 5s\n")
 		b.WriteString("\t}\n")
 		b.WriteString("}\n\n")
 	}
