@@ -214,10 +214,12 @@ func resolveProjectType(t string) (manifest.ProjectType, error) {
 		return manifest.TypeNextJS, nil
 	case "nuxtjs", "nuxt":
 		return manifest.TypeNuxtJS, nil
+	case "nestjs", "nest":
+		return manifest.TypeNestJS, nil
 	case "kompozi":
 		return manifest.TypeKompozi, nil
 	default:
-		return "", fmt.Errorf("unknown project type %q\nValid types: wordpress, php, nodejs, nextjs, nuxtjs, kompozi", t)
+		return "", fmt.Errorf("unknown project type %q\nValid types: wordpress, php, nodejs, nextjs, nuxtjs, nestjs, kompozi", t)
 	}
 }
 
@@ -305,7 +307,7 @@ func InitHelp(cmd *cobra.Command, _ []string) {
 	lines = append(lines, "")
 	lines = append(lines, labelStyle.Render("Required (non-interactive)"))
 	lines = append(lines, "  "+flagStyle.Render("--name")+"        "+descStyle.Render("Project name"))
-	lines = append(lines, "  "+flagStyle.Render("--type")+"        "+descStyle.Render("wordpress, php, nodejs, nextjs, nuxtjs, kompozi"))
+	lines = append(lines, "  "+flagStyle.Render("--type")+"        "+descStyle.Render("wordpress, php, nodejs, nextjs, nuxtjs, nestjs, kompozi"))
 	lines = append(lines, "")
 	lines = append(lines, labelStyle.Render("Optional"))
 	lines = append(lines, "  "+flagStyle.Render("--php")+"         "+descStyle.Render("PHP version (default: 8.4)"))

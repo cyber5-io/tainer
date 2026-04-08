@@ -330,7 +330,7 @@ func updateRouterConfig() error {
 		port := "80"
 		pt := manifest.ProjectType(p.Type)
 		if pt == manifest.TypeNodeJS || pt == manifest.TypeNextJS ||
-			pt == manifest.TypeNuxtJS || pt == manifest.TypeKompozi {
+			pt == manifest.TypeNuxtJS || pt == manifest.TypeNestJS || pt == manifest.TypeKompozi {
 			port = "3000"
 		}
 		caddyProjects = append(caddyProjects, router.CaddyProject{

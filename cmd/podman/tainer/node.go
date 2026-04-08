@@ -97,6 +97,9 @@ func nodeRun(cmd *cobra.Command, args []string) error {
 
 	containerName := fmt.Sprintf("tainer-%s-node-ct", name)
 
+	// Framework-specific build directory to clean
+	buildDir := resolveBuildDir(m)
+
 	// Build the steps
 	var steps []progress.Step
 
@@ -104,7 +107,7 @@ func nodeRun(cmd *cobra.Command, args []string) error {
 		steps = append(steps, progress.Step{
 			Label: "Cleaning build cache",
 			Run: func() error {
-				cleanCmd := exec.Command("tainer", "exec", "--user", "tainer", containerName, "sh", "-c", "rm -rf /var/www/html/.next")
+				cleanCmd := exec.Command("tainer", "exec", "--user", "tainer", containerName, "sh", "-c", "rm -rf /var/www/html/"+buildDir)
 				cleanCmd.CombinedOutput() //nolint:errcheck
 				return nil
 			},
@@ -131,7 +134,7 @@ func nodeRun(cmd *cobra.Command, args []string) error {
 		steps = append(steps, progress.Step{
 			Label: "Cleaning build cache",
 			Run: func() error {
-				cleanCmd := exec.Command("tainer", "exec", containerName, "sh", "-c", "rm -rf /var/www/html/.next")
+				cleanCmd := exec.Command("tainer", "exec", containerName, "sh", "-c", "rm -rf /var/www/html/"+buildDir)
 				cleanCmd.CombinedOutput() //nolint:errcheck
 				return nil
 			},
@@ -166,6 +169,20 @@ func nodeRun(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// resolveBuildDir returns the framework-specific build output directory name.
+func resolveBuildDir(m *manifest.Manifest) string {
+	switch m.Project.Type {
+	case manifest.TypeNextJS, manifest.TypeKompozi:
+		return ".next"
+	case manifest.TypeNuxtJS:
+		return ".output"
+	case manifest.TypeNestJS:
+		return "dist"
+	default:
+		return ".next"
+	}
+}
+
 func resolveStartCommand(m *manifest.Manifest, mode string) string {
 	switch mode {
 	case "dev":
@@ -174,6 +191,8 @@ func resolveStartCommand(m *manifest.Manifest, mode string) string {
 			return "next dev"
 		case manifest.TypeNuxtJS:
 			return "nuxt dev"
+		case manifest.TypeNestJS:
+			return "nest start --watch"
 		default:
 			return "node index.js"
 		}
@@ -183,6 +202,8 @@ func resolveStartCommand(m *manifest.Manifest, mode string) string {
 			return "next start"
 		case manifest.TypeNuxtJS:
 			return "nuxt start"
+		case manifest.TypeNestJS:
+			return "node dist/main"
 		default:
 			return "node index.js"
 		}

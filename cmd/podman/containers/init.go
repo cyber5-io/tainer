@@ -31,7 +31,7 @@ func init() {
 
 	flags := initCommand.Flags()
 	flags.StringVar(&tainerInitOpts.Name, "name", "", "Project name (required for non-interactive)")
-	flags.StringVar(&tainerInitOpts.Type, "type", "", "Project type: wordpress, php, nodejs, nextjs, nuxtjs, kompozi")
+	flags.StringVar(&tainerInitOpts.Type, "type", "", "Project type: wordpress, php, nodejs, nextjs, nuxtjs, nestjs, kompozi")
 	flags.StringVar(&tainerInitOpts.PHP, "php", "", "PHP version (default: 8.4)")
 	flags.StringVar(&tainerInitOpts.Node, "node", "", "Node.js version (default: 22)")
 	flags.StringVar(&tainerInitOpts.DB, "db", "", "Database: mariadb, postgres, none (default depends on type)")

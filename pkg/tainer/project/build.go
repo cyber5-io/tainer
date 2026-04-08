@@ -27,9 +27,7 @@ func MainImage(m *manifest.Manifest) string {
 		tag = m.Runtime.PHP
 	case manifest.TypeNodeJS:
 		tag = m.Runtime.Node
-	case manifest.TypeNextJS:
-		tag = frameworkVersion(m.Project.Type)
-	case manifest.TypeNuxtJS:
+	case manifest.TypeNextJS, manifest.TypeNuxtJS, manifest.TypeNestJS:
 		tag = frameworkVersion(m.Project.Type)
 	}
 
@@ -44,6 +42,8 @@ func frameworkVersion(pt manifest.ProjectType) string {
 		return "15"
 	case manifest.TypeNuxtJS:
 		return "3"
+	case manifest.TypeNestJS:
+		return "11"
 	default:
 		return "latest"
 	}

@@ -1,6 +1,6 @@
 ---
 name: tainer
-description: Use when working in a tainer project (tainer.yaml present in cwd or parent dirs), when the user mentions tainer, or when migrating projects from Docker/docker-compose to tainer. Tainer is a local-first container dev tool that handles full project lifecycle (init, start, stop, build, deploy) for WordPress, Node.js, Next.js, Nuxt.js, Kompozi, and PHP projects. Never use raw docker, docker-compose, or podman commands in a tainer project — use tainer commands instead.
+description: Use when working in a tainer project (tainer.yaml present in cwd or parent dirs), when the user mentions tainer, or when migrating projects from Docker/docker-compose to tainer. Tainer is a local-first container dev tool that handles full project lifecycle (init, start, stop, build, deploy) for WordPress, Node.js, Next.js, Nuxt.js, Nest.js, Kompozi, and PHP projects. Never use raw docker, docker-compose, or podman commands in a tainer project — use tainer commands instead.
 ---
 
 # Tainer
