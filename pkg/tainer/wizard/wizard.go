@@ -48,6 +48,9 @@ func BuildManifest(name string, pt manifest.ProjectType, version string, db mani
 		m.Runtime.Node = version
 	}
 	m.Runtime.Shell = "zsh"
+	if pt == manifest.TypeReact {
+		m.Runtime.BuildDir = "dist"
+	}
 	return m
 }
 
