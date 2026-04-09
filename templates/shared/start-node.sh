@@ -1,5 +1,6 @@
 #!/bin/sh
 # Starts SSHD then the app on port 3000.
+# If the app crashes, the container stays alive for SSH access.
 /usr/sbin/sshd
 
 # Wait for post-deploy to finish (writes marker when done)
@@ -12,25 +13,17 @@ done
 # If app has been set up by post-deploy, start it
 if [ -f /var/www/html/package.json ]; then
     cd /var/www/html
-    exec su-exec tainer yarn start
+
+    # Install dependencies if missing
+    if [ ! -d node_modules ]; then
+        echo "Installing dependencies..."
+        su-exec tainer yarn install || echo "WARNING: yarn install failed"
+    fi
+
+    su-exec tainer yarn start || echo "WARNING: app exited with code $?. Container is still running — use SSH or tainer exec to debug."
 fi
 
-# Fallback: serve a welcome page if post-deploy never ran
-mkdir -p /tmp/tainer-welcome
-cat > /tmp/tainer-welcome/index.html << 'EOF'
-<!DOCTYPE html>
-<html><head><title>Tainer</title></head>
-<body style="font-family:system-ui;max-width:600px;margin:80px auto;padding:0 20px">
-<h1>Tainer</h1>
-<p>Your project is starting up. If you see this page, post-deploy may still be running.</p>
-</body></html>
-EOF
-exec su-exec tainer node -e "
-const http = require('http');
-const fs = require('fs');
-const html = fs.readFileSync('/tmp/tainer-welcome/index.html');
-http.createServer((req, res) => {
-    res.writeHead(200, {'Content-Type': 'text/html'});
-    res.end(html);
-}).listen(3000);
-"
+# Keep the container alive regardless of whether the app started, crashed, or
+# was never set up. SSHD is running so users can always SSH in.
+echo "Container is running. SSH is available."
+tail -f /dev/null
