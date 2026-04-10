@@ -63,7 +63,11 @@ func runPackageManager(pm string) func(cmd *cobra.Command, args []string) error 
 			return err
 		}
 
-		containerName := fmt.Sprintf("tainer-%s-node-ct", name)
+		ctSuffix := "-node-ct"
+		if m.IsReact() {
+			ctSuffix = "-web-ct"
+		}
+		containerName := fmt.Sprintf("tainer-%s%s", name, ctSuffix)
 
 		execArgs := []string{"exec", "-w", "/var/www/html", containerName, pm}
 		execArgs = append(execArgs, args...)
