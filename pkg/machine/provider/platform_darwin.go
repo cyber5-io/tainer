@@ -25,7 +25,7 @@ func Get() (vmconfigs.VMProvider, error) {
 	if providerOverride, found := os.LookupEnv("CONTAINERS_MACHINE_PROVIDER"); found {
 		provider = providerOverride
 	}
-	resolvedVMType, err := define.ParseVMType(provider, define.LibKrun)
+	resolvedVMType, err := define.ParseVMType(provider, define.AppleHvVirt)
 	if err != nil {
 		return nil, err
 	}
