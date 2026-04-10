@@ -106,6 +106,35 @@ func pullImage(image string) error {
 	return nil
 }
 
+// ForcePullImage always pulls even if the image exists locally.
+// Used by tainer update to get the latest version.
+func ForcePullImage(image string) error {
+	cmd := exec.Command("tainer", "pull", image)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("pulling %s: %s", image, string(output))
+	}
+	return nil
+}
+
+// ForcePullImages pulls all required images for a project, ignoring local cache.
+func ForcePullImages(m *manifest.Manifest) error {
+	if err := ForcePullImage(MainImage(m)); err != nil {
+		return err
+	}
+	if m.IsPHP() {
+		if err := ForcePullImage(RegistryImage("phpfpm", m.Runtime.PHP)); err != nil {
+			return err
+		}
+	}
+	if m.HasDatabase() {
+		if err := ForcePullImage(RegistryImage(string(m.Runtime.Database), "latest")); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func pullImageVerbose(image string) error {
 	// Strip registry prefix for cleaner output
 	short := strings.TrimPrefix(image, imageRegistry+"-")

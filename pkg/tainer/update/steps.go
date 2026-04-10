@@ -245,7 +245,7 @@ func RunImagesWithTUI(projectName string) error {
 		{
 			Label: "Pulling latest images",
 			Run: func() error {
-				return project.PullImages(m)
+				return project.ForcePullImages(m)
 			},
 		},
 		{
@@ -282,16 +282,46 @@ func RunImagesWithTUI(projectName string) error {
 	podName := fmt.Sprintf("tainer-%s", projectName)
 	running := project.IsPodRunning(podName)
 
-	var footer []string
+	// If the pod is running, add steps to recreate it from the new image
 	if running {
-		footer = []string{
-			tealStyle.Render("✓") + " " + textStyle.Render(projectName) + mutedStyle.Render(" images updated"),
-			"  " + mutedStyle.Render("Restart to apply: tainer restart"),
-		}
-	} else {
-		footer = []string{
-			tealStyle.Render("✓") + " " + textStyle.Render(projectName) + mutedStyle.Render(" images updated"),
-		}
+		steps = append(steps, progress.Step{
+			Label: "Stopping project",
+			Run: func() error {
+				cmd := exec.Command("tainer", "pod", "stop", podName)
+				output, err := cmd.CombinedOutput()
+				if err != nil {
+					return fmt.Errorf("stopping pod: %s", strings.TrimSpace(string(output)))
+				}
+				return nil
+			},
+		})
+		steps = append(steps, progress.Step{
+			Label: "Removing old containers",
+			Run: func() error {
+				cmd := exec.Command("tainer", "pod", "rm", "-f", podName)
+				output, err := cmd.CombinedOutput()
+				if err != nil {
+					return fmt.Errorf("removing pod: %s", strings.TrimSpace(string(output)))
+				}
+				return nil
+			},
+		})
+		steps = append(steps, progress.Step{
+			Label: "Starting with new images",
+			Run: func() error {
+				cmd := exec.Command("tainer", "start")
+				cmd.Dir = projectDir
+				output, err := cmd.CombinedOutput()
+				if err != nil {
+					return fmt.Errorf("starting project: %s", strings.TrimSpace(string(output)))
+				}
+				return nil
+			},
+		})
+	}
+
+	footer := []string{
+		tealStyle.Render("✓") + " " + textStyle.Render(projectName) + mutedStyle.Render(" updated"),
 	}
 
 	result, err := progress.Run("Updating "+projectName, steps, footer)
