@@ -91,6 +91,15 @@ if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
         MEM_MB=4096
     fi
 
+    # v0.2.0: Migrate from krunkit to vfkit VM provider.
+    # If old krunkit VM exists, stop it and remove it so a new vfkit VM can be created.
+    if sudo -u "$REAL_USER" /opt/tainer/bin/tainer machine ls --format '{{.Name}}' 2>/dev/null | grep -q .; then
+        # Kill any running krunkit processes (old VM provider)
+        pkill -9 -f krunkit 2>/dev/null || :
+        sleep 1
+        sudo -u "$REAL_USER" /opt/tainer/bin/tainer machine rm -f tainer-machine-default 2>/dev/null || :
+    fi
+
     sudo -u "$REAL_USER" /opt/tainer/bin/tainer machine init --memory "$MEM_MB" || :
     sudo -u "$REAL_USER" /opt/tainer/bin/tainer machine set --rootful || :
     # machine set --rootful requires a stop/start cycle to take effect
