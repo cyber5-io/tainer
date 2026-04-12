@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -407,6 +408,34 @@ func autoInitProject(m *manifest.Manifest, projectDir string) error {
 	return nil
 }
 
+// offerAutoImport checks for SQL dump files at the project root after a fresh start.
+// If found, runs `tainer db import` which handles file selection and confirmation.
+func offerAutoImport(m *manifest.Manifest, projectDir, name string) {
+	// Check if any .sql files exist at project root
+	entries, err := os.ReadDir(projectDir)
+	if err != nil {
+		return
+	}
+	hasSql := false
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
+			hasSql = true
+			break
+		}
+	}
+	if !hasSql {
+		return
+	}
+
+	// Delegate to `tainer db import` which handles file selection + confirmation
+	importCmd := exec.Command("tainer", "db", "import")
+	importCmd.Dir = projectDir
+	importCmd.Stdin = os.Stdin
+	importCmd.Stdout = os.Stdout
+	importCmd.Stderr = os.Stderr
+	importCmd.Run() //nolint:errcheck
+}
+
 func executeProjectAction(name, path, action string) error {
 	c := tui.Colors()
 	tealStyle := lipgloss.NewStyle().Foreground(c.Teal)
@@ -438,7 +467,17 @@ func executeProjectAction(name, path, action string) error {
 		if err != nil {
 			return err
 		}
-		return result.Err
+		if result.Err != nil {
+			return result.Err
+		}
+
+		// After a successful start, check for SQL dumps to auto-import
+		m, _ := manifest.LoadFromDir(path)
+		if m != nil && m.HasDatabase() {
+			offerAutoImport(m, path, info.Name)
+		}
+
+		return nil
 
 	case "stop":
 		steps, err := project.StopSteps(name)
