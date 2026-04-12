@@ -46,16 +46,25 @@ var lightPalette = Palette{
 }
 
 var (
-	themeResolved bool
-	isDark        bool
-	colors        Palette
+	isDark bool = true // default to dark until detected
+	colors Palette = darkPalette
 )
 
-func resolveTheme() {
-	if themeResolved {
-		return
+// SetDarkMode updates the theme based on terminal background detection.
+// Called by TUI models when they receive tea.BackgroundColorMsg.
+func SetDarkMode(dark bool) {
+	isDark = dark
+	if isDark {
+		colors = darkPalette
+	} else {
+		colors = lightPalette
 	}
-	themeResolved = true
+}
+
+// DetectBackground performs a one-time synchronous detection of the terminal
+// background colour. Use this ONLY for non-TUI output (e.g. PrintWithLogo).
+// For bubbletea programs, handle tea.BackgroundColorMsg instead.
+func DetectBackground() {
 	isDark = lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
 	if isDark {
 		colors = darkPalette
@@ -66,13 +75,11 @@ func resolveTheme() {
 
 // Colors returns the active palette.
 func Colors() Palette {
-	resolveTheme()
 	return colors
 }
 
 // IsDarkBackground returns whether the terminal has a dark background.
 func IsDarkBackground() bool {
-	resolveTheme()
 	return isDark
 }
 
@@ -175,6 +182,9 @@ func Separator(width int) string {
 // PrintWithLogo prints content on the left with the small logo on the right,
 // vertically centered. The logo is pushed to the right edge (~80 cols).
 func PrintWithLogo(content string) {
+	// Non-TUI output — detect background synchronously
+	DetectBackground()
+
 	logo := LogoSmallFull()
 	logoW := lipgloss.Width(logo)
 

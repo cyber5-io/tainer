@@ -45,13 +45,16 @@ func Run(title string, steps []Step, footer []string) (*Result, error) {
 	sp := spinner.New()
 	sp.Spinner = spinner.Meter
 
+	ti := tui.GetTermInfo()
 	m := model{
 		title:   title,
 		steps:   steps,
 		spinner: sp,
 		footer:  footer,
+		width:   ti.Width,
+		height:  ti.Height,
 	}
-	p := tea.NewProgram(m)
+	p := tui.NewProgram(m, false) // inline, no alt screen
 	final, err := p.Run()
 	if err != nil {
 		return nil, fmt.Errorf("running progress TUI: %w", err)
@@ -77,6 +80,9 @@ func (m model) runCurrentStep() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		tui.SetDarkMode(msg.IsDark())
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height

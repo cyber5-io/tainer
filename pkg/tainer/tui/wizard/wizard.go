@@ -200,6 +200,9 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		tui.SetDarkMode(msg.IsDark())
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -849,7 +852,7 @@ func findIndex(items []string, target string) int {
 // Run launches the full-screen TUI wizard and returns the user's selections.
 func Run(cwd, dirName string) (*Result, error) {
 	m := initialModel(cwd, dirName)
-	p := tea.NewProgram(m)
+	p := tui.NewProgram(m, true) // full screen
 	finalModel, err := p.Run()
 	if err != nil {
 		return nil, fmt.Errorf("running wizard TUI: %w", err)

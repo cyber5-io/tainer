@@ -68,7 +68,7 @@ type model struct {
 // Run starts the status TUI.
 func Run(project ProjectInfo, containers []ContainerInfo) error {
 	m := initialModel(project, containers)
-	p := tea.NewProgram(m)
+	p := tui.NewProgram(m, true) // full screen
 	_, err := p.Run()
 	return err
 }
@@ -109,6 +109,9 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		tui.SetDarkMode(msg.IsDark())
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height

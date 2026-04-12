@@ -125,7 +125,7 @@ type model struct {
 // Run starts the interactive list TUI.
 func Run(projects []Project, routerRunning bool, routerCount int) (*Result, error) {
 	m := initialModel(projects, routerRunning, routerCount)
-	p := tea.NewProgram(m)
+	p := tui.NewProgram(m, true) // full screen, alt screen
 	final, err := p.Run()
 	if err != nil {
 		return nil, fmt.Errorf("running list TUI: %w", err)
@@ -182,7 +182,13 @@ func initialModel(projects []Project, routerRunning bool, routerCount int) model
 	h.Styles.ShortSeparator = lipgloss.NewStyle().Foreground(c.Border)
 	m.helpModel = h
 
-	initW := 72 // 80 - 8 for frame
+	ti := tui.GetTermInfo()
+	initW := ti.Width - 8 // frame
+	if initW < 60 {
+		initW = 60
+	}
+	m.width = ti.Width
+	m.height = ti.Height
 	cols := computeColumns(initW)
 	t := table.New(
 		table.WithColumns(cols),
@@ -311,6 +317,11 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		tui.SetDarkMode(msg.IsDark())
+		// Rebuild table rows to pick up new colours
+		m.table.SetRows(m.buildTableRows())
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height

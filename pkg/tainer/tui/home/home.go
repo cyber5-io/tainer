@@ -160,7 +160,7 @@ type model struct {
 // Run starts the interactive home screen TUI.
 func Run(summary ProjectSummary, projects []ProjectEntry) (*Result, error) {
 	m := initialModel(summary, projects)
-	p := tea.NewProgram(m)
+	p := tui.NewProgram(m, true) // full screen
 	final, err := p.Run()
 	if err != nil {
 		return nil, fmt.Errorf("running home TUI: %w", err)
@@ -229,6 +229,9 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		tui.SetDarkMode(msg.IsDark())
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height

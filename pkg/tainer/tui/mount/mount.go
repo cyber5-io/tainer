@@ -110,7 +110,7 @@ type model struct {
 // Run starts the interactive mount management TUI.
 func Run(projectName, projectDir string, mounts, internal []string) (*Result, error) {
 	m := initialModel(projectName, projectDir, mounts, internal)
-	p := tea.NewProgram(m)
+	p := tui.NewProgram(m, true) // full screen
 	final, err := p.Run()
 	if err != nil {
 		return nil, fmt.Errorf("running mount TUI: %w", err)
@@ -154,6 +154,9 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		tui.SetDarkMode(msg.IsDark())
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height

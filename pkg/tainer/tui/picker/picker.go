@@ -18,13 +18,13 @@ type Result struct {
 }
 
 type model struct {
-	title   string
-	items   []string
-	cursor  int
-	done    bool
-	result  Result
-	width   int
-	height  int
+	title  string
+	items  []string
+	cursor int
+	done   bool
+	result Result
+	width  int
+	height int
 }
 
 // Run launches a vertical picker TUI and returns the selected item.
@@ -35,14 +35,15 @@ func Run(title string, items []string, defaultIndex int) (*Result, error) {
 	if defaultIndex < 0 || defaultIndex >= len(items) {
 		defaultIndex = 0
 	}
+	ti := tui.GetTermInfo()
 	m := model{
 		title:  title,
 		items:  items,
 		cursor: defaultIndex,
-		width:  80,
-		height: 24,
+		width:  ti.Width,
+		height: ti.Height,
 	}
-	p := tea.NewProgram(m)
+	p := tui.NewProgram(m, false) // inline, no alt screen
 	final, err := p.Run()
 	if err != nil {
 		return nil, fmt.Errorf("running picker: %w", err)
@@ -57,6 +58,9 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		tui.SetDarkMode(msg.IsDark())
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
