@@ -16,6 +16,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var dbRaw bool
+
 var dbCmd = &cobra.Command{
 	Use:   "db",
 	Short: "Manage project database",
@@ -53,6 +55,7 @@ func init() {
 		Command: dbImportCmd,
 		Parent:  dbCmd,
 	})
+	dbCmd.PersistentFlags().BoolVar(&dbRaw, "raw", false, "Plain text output (no TUI)")
 }
 
 func dbExport(cmd *cobra.Command, args []string) error {
@@ -153,7 +156,7 @@ func dbImport(cmd *cobra.Command, args []string) error {
 		}
 	} else {
 		// No filename specified — find SQL files and let user pick
-		filename = selectSQLFile(dir, name)
+		filename = selectSQLFile(dir, name, dbRaw)
 		if filename == "" {
 			return nil // user cancelled or no files found
 		}
@@ -216,10 +219,10 @@ func dbImport(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// selectSQLFile finds SQL files at the project root and lets the user pick one
-// using an interactive TUI picker with arrow key navigation.
+// selectSQLFile finds SQL files at the project root and lets the user pick one.
+// When raw is true, uses plain text numbered list instead of TUI picker.
 // Returns empty string if no files found or user cancelled.
-func selectSQLFile(dir, projectName string) string {
+func selectSQLFile(dir, projectName string, raw bool) string {
 	sqlFiles := FindSQLFiles(dir)
 	if len(sqlFiles) == 0 {
 		c := tui.Colors()
@@ -243,6 +246,28 @@ func selectSQLFile(dir, projectName string) string {
 	// Single file — no picker needed
 	if len(sqlFiles) == 1 {
 		return sqlFiles[0]
+	}
+
+	if raw {
+		// Plain text selection
+		fmt.Printf("\n  Select database dump:\n\n")
+		for i, f := range sqlFiles {
+			fmt.Printf("  %d) %s\n", i+1, f)
+		}
+		fmt.Printf("\n  Enter number [1-%d]: ", len(sqlFiles))
+
+		reader := bufio.NewReader(os.Stdin)
+		answer, _ := reader.ReadString('\n')
+		answer = strings.TrimSpace(answer)
+		if answer == "" || answer == "q" {
+			return ""
+		}
+		var idx int
+		if _, err := fmt.Sscanf(answer, "%d", &idx); err != nil || idx < 1 || idx > len(sqlFiles) {
+			fmt.Println("  Invalid selection.")
+			return ""
+		}
+		return sqlFiles[idx-1]
 	}
 
 	// Multiple files — launch TUI picker
