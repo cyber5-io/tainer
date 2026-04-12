@@ -203,8 +203,8 @@ func computeColumns(tableW int) []table.Column {
 	}
 	// Each column gets 2 chars padding from Cell style (4 cols × 2 = 8)
 	usable := tableW - 8
-	typeW := 10
-	statusW := 12
+	typeW := 16
+	statusW := 16
 	remaining := usable - typeW - statusW
 	nameW := remaining * 30 / 100
 	domainW := remaining - nameW
