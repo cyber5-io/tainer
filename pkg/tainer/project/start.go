@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/containers/podman/v6/pkg/tainer/config"
 	"github.com/containers/podman/v6/pkg/tainer/dns"
@@ -328,6 +329,22 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 			dbMount = "/var/lib/postgresql/data"
 		}
 		dbDataDir := filepath.Join(projectDir, "db")
+
+		// Postgres requires an empty directory to initialise. If db/ contains
+		// only a .gitignore (from a git clone), temporarily move it out so
+		// Postgres can init, then restore it afterwards.
+		gitignorePath := filepath.Join(dbDataDir, ".gitignore")
+		gitignoreTmp := ""
+		if m.Runtime.Database == manifest.DatabasePostgres {
+			if entries, err := os.ReadDir(dbDataDir); err == nil && len(entries) == 1 && entries[0].Name() == ".gitignore" {
+				tmpFile, err := os.CreateTemp("", "tainer-db-gitignore-*")
+				if err == nil {
+					tmpFile.Close()
+					gitignoreTmp = tmpFile.Name()
+					os.Rename(gitignorePath, gitignoreTmp)
+				}
+			}
+		}
 		dbArgs := []string{"run", "-d", "--pod", podName, "--name", prefix + "-db-ct",
 			"-v", dbDataDir + ":" + dbMount + ":rw",
 			"--env-file", filepath.Join(projectDir, ".env"),
@@ -335,7 +352,28 @@ func createProjectPod(m *manifest.Manifest, podName, netName, projectDir string,
 		dbArgs = append(dbArgs, envFlags...)
 		dbArgs = append(dbArgs, RegistryImage(string(m.Runtime.Database), "latest"))
 		if output, err := exec.Command("tainer", dbArgs...).CombinedOutput(); err != nil {
+			// Restore .gitignore even on failure
+			if gitignoreTmp != "" {
+				os.Rename(gitignoreTmp, gitignorePath)
+			}
 			return fmt.Errorf("starting database: %s", string(output))
+		}
+
+		// Restore .gitignore after Postgres has initialised
+		if gitignoreTmp != "" {
+			// Give Postgres a moment to create its data files
+			go func() {
+				for i := 0; i < 30; i++ {
+					entries, err := os.ReadDir(dbDataDir)
+					if err == nil && len(entries) > 0 {
+						os.Rename(gitignoreTmp, gitignorePath)
+						return
+					}
+					time.Sleep(time.Second)
+				}
+				// Fallback: restore anyway after 30s
+				os.Rename(gitignoreTmp, gitignorePath)
+			}()
 		}
 	}
 
