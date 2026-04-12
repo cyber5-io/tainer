@@ -26,8 +26,5 @@ func GetTermInfo() TermInfo {
 // In bubbletea v2, alt screen is controlled by the model's View() return
 // (v.AltScreen = true), not by program options.
 func NewProgram(model tea.Model, _ bool) *tea.Program {
-	opts := []tea.ProgramOption{
-		tea.WithOutput(os.Stderr),
-	}
-	return tea.NewProgram(model, opts...)
+	return tea.NewProgram(model)
 }

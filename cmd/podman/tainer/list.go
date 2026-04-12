@@ -16,6 +16,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	listRaw bool
+)
+
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all Tainer projects and their status",
@@ -26,9 +30,11 @@ func init() {
 	registry.Commands = append(registry.Commands, registry.CliCommand{
 		Command: listCmd,
 	})
+	listCmd.Flags().BoolVar(&listRaw, "raw", false, "Plain text output (no TUI)")
 }
 
 func listRun(cmd *cobra.Command, args []string) error {
+
 	// Self-heal: prune stale entries
 	pruned := projRegistry.SelfHeal()
 	if len(pruned) > 0 {
@@ -66,6 +72,20 @@ func listRun(cmd *cobra.Command, args []string) error {
 			Status: getPodStatus(name),
 			Path:   p.Path,
 		}
+	}
+
+	if listRaw {
+		// Plain text output — no TUI, no colours, instant
+		fmt.Printf("%-20s %-16s %-30s %s\n", "NAME", "TYPE", "DOMAIN", "STATUS")
+		fmt.Printf("%-20s %-16s %-30s %s\n", "----", "----", "------", "------")
+		for _, p := range tuiProjects {
+			status := p.Status
+			if status == "" {
+				status = "stopped"
+			}
+			fmt.Printf("%-20s %-16s %-30s %s\n", p.Name, p.Type, p.Domain, status)
+		}
+		return nil
 	}
 
 	// Router info
