@@ -106,6 +106,15 @@ type podActionMsg struct {
 	err    error
 }
 
+// dataLoadedMsg is sent when async data fetching completes.
+type dataLoadedMsg struct {
+	statuses map[string]string // project name → status
+	router   routerInfo
+}
+
+// StatusFetchFunc returns pod statuses and router info. Called async in Init().
+type StatusFetchFunc func(names []string) (statuses map[string]string, routerRunning bool, routerCount int)
+
 type model struct {
 	projects   []Project
 	sorted     []Project // sorted view of projects
@@ -117,14 +126,16 @@ type model struct {
 	width      int
 	height     int
 	quitting   bool
+	loading    bool   // true until dataLoadedMsg arrives
 	busyName   string // project currently starting/stopping
 	busyAction string // "start" or "stop"
 	spinner    spinner.Model
+	fetchFunc  StatusFetchFunc
 }
 
-// Run starts the interactive list TUI.
-func Run(projects []Project, routerRunning bool, routerCount int) (*Result, error) {
-	m := initialModel(projects, routerRunning, routerCount)
+// Run starts the interactive list TUI. Data loading happens async inside the TUI.
+func Run(projects []Project, fetchFunc StatusFetchFunc) (*Result, error) {
+	m := initialModel(projects, fetchFunc)
 	p := tui.NewProgram(m, true) // full screen, alt screen
 	final, err := p.Run()
 	if err != nil {
@@ -133,7 +144,7 @@ func Run(projects []Project, routerRunning bool, routerCount int) (*Result, erro
 	return &Result{Cancelled: final.(model).quitting}, nil
 }
 
-func initialModel(projects []Project, routerRunning bool, routerCount int) model {
+func initialModel(projects []Project, fetchFunc StatusFetchFunc) model {
 	c := tui.Colors()
 	keys := newAppKeyMap()
 
@@ -160,14 +171,12 @@ func initialModel(projects []Project, routerRunning bool, routerCount int) model
 	sp.Spinner = spinner.Meter
 
 	m := model{
-		projects: projects,
-		keys:     keys,
-		spinner:  sp,
-		sort:     sortDefault,
-		router: routerInfo{
-			Running: routerRunning,
-			Count:   routerCount,
-		},
+		projects:  projects,
+		keys:      keys,
+		spinner:   sp,
+		sort:      sortDefault,
+		loading:   true,
+		fetchFunc: fetchFunc,
 	}
 	m.buildSorted()
 
@@ -265,15 +274,21 @@ func (m model) buildTableRows() []table.Row {
 	rows := make([]table.Row, len(m.sorted))
 	for i, p := range m.sorted {
 		selected := i == cursor
-		status := "○ stopped"
+		var status string
 		domain := p.Domain
-		if p.Status == "Running" {
+
+		switch {
+		case p.Status == "" && m.loading:
+			status = lipgloss.NewStyle().Foreground(c.Muted).Render("…")
+		case p.Status == "Running":
 			status = "● running"
 			domain = p.Domain + " ↗"
 			if !selected {
 				status = tealStyle.Render(status)
 				domain = blueStyle.Render(p.Domain) + " ↗"
 			}
+		default:
+			status = "○ stopped"
 		}
 		if m.isBusy() && p.Name == m.busyName {
 			if m.busyAction == "start" {
@@ -312,6 +327,21 @@ func (m *model) updateHelpBindings() {
 }
 
 func (m model) Init() tea.Cmd {
+	if m.loading && m.fetchFunc != nil {
+		// Start spinner + async data fetch
+		names := make([]string, len(m.projects))
+		for i, p := range m.projects {
+			names[i] = p.Name
+		}
+		fetch := func() tea.Msg {
+			statuses, routerRunning, routerCount := m.fetchFunc(names)
+			return dataLoadedMsg{
+				statuses: statuses,
+				router:   routerInfo{Running: routerRunning, Count: routerCount},
+			}
+		}
+		return tea.Batch(m.spinner.Tick, fetch)
+	}
 	return nil
 }
 
@@ -319,8 +349,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.BackgroundColorMsg:
 		tui.SetDarkMode(msg.IsDark())
-		// Rebuild table rows to pick up new colours
 		m.table.SetRows(m.buildTableRows())
+		return m, nil
+	case dataLoadedMsg:
+		m.loading = false
+		m.router = msg.router
+		for i := range m.projects {
+			if status, ok := msg.statuses[m.projects[i].Name]; ok {
+				m.projects[i].Status = status
+			}
+		}
+		m.buildSorted()
+		m.table.SetRows(m.buildTableRows())
+		m.updateHelpBindings()
 		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -343,10 +384,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case spinner.TickMsg:
-		if m.isBusy() {
+		if m.loading || m.isBusy() {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
-			m.table.SetRows(m.buildTableRows())
+			if m.isBusy() {
+				m.table.SetRows(m.buildTableRows())
+			}
 			return m, cmd
 		}
 		return m, nil
@@ -484,18 +527,26 @@ func (m model) View() tea.View {
 	var sections []string
 
 	// Header: router status (left) + small logo (right)
-	routerDot := lipgloss.NewStyle().Foreground(c.Muted).Render("●")
-	routerStatus := lipgloss.NewStyle().Foreground(c.Muted).Render("stopped")
-	if m.router.Running {
-		routerDot = lipgloss.NewStyle().Foreground(c.Teal).Render("●")
-		routerStatus = lipgloss.NewStyle().Foreground(c.Teal).Render(
-			fmt.Sprintf("running (%d projects)", m.router.Count))
+	var routerLine string
+	if m.loading {
+		routerLine = fmt.Sprintf("%s %s",
+			m.spinner.View(),
+			lipgloss.NewStyle().Foreground(c.Muted).Render("Loading..."),
+		)
+	} else {
+		routerDot := lipgloss.NewStyle().Foreground(c.Muted).Render("●")
+		routerStatus := lipgloss.NewStyle().Foreground(c.Muted).Render("stopped")
+		if m.router.Running {
+			routerDot = lipgloss.NewStyle().Foreground(c.Teal).Render("●")
+			routerStatus = lipgloss.NewStyle().Foreground(c.Teal).Render(
+				fmt.Sprintf("running (%d projects)", m.router.Count))
+		}
+		routerLine = fmt.Sprintf("%s %s  %s",
+			routerDot,
+			lipgloss.NewStyle().Bold(true).Foreground(c.Text).Render("tainer-router"),
+			routerStatus,
+		)
 	}
-	routerLine := fmt.Sprintf("%s %s  %s",
-		routerDot,
-		lipgloss.NewStyle().Bold(true).Foreground(c.Text).Render("tainer-router"),
-		routerStatus,
-	)
 
 	logo := tui.LogoSmallFull()
 	logoW := lipgloss.Width(logo)

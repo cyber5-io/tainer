@@ -61,7 +61,7 @@ func listRun(cmd *cobra.Command, args []string) error {
 	}
 	sort.Strings(names)
 
-	// Build project list for TUI
+	// Build project list (status loaded async in TUI)
 	tuiProjects := make([]tuiList.Project, len(names))
 	for i, name := range names {
 		p := projects[name]
@@ -69,17 +69,16 @@ func listRun(cmd *cobra.Command, args []string) error {
 			Name:   name,
 			Type:   p.Type,
 			Domain: p.Domain,
-			Status: getPodStatus(name),
 			Path:   p.Path,
 		}
 	}
 
 	if listRaw {
-		// Plain text output — no TUI, no colours, instant
+		// Plain text — fetch statuses synchronously
 		fmt.Printf("%-20s %-16s %-30s %s\n", "NAME", "TYPE", "DOMAIN", "STATUS")
 		fmt.Printf("%-20s %-16s %-30s %s\n", "----", "----", "------", "------")
 		for _, p := range tuiProjects {
-			status := p.Status
+			status := getPodStatus(p.Name)
 			if status == "" {
 				status = "stopped"
 			}
@@ -88,14 +87,21 @@ func listRun(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Router info
-	routerRunning := router.IsRouterRunning()
-	routerCount := 0
-	if routerRunning {
-		routerCount = router.RunningProjectCount()
+	// Fetch function — called async inside the TUI
+	fetchFunc := func(projectNames []string) (map[string]string, bool, int) {
+		statuses := make(map[string]string, len(projectNames))
+		for _, name := range projectNames {
+			statuses[name] = getPodStatus(name)
+		}
+		routerRunning := router.IsRouterRunning()
+		routerCount := 0
+		if routerRunning {
+			routerCount = router.RunningProjectCount()
+		}
+		return statuses, routerRunning, routerCount
 	}
 
-	_, err := tuiList.Run(tuiProjects, routerRunning, routerCount)
+	_, err := tuiList.Run(tuiProjects, fetchFunc)
 	return err
 }
 

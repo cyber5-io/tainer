@@ -286,15 +286,26 @@ func interceptProjectCommand(cmd *cobra.Command, args []string, action string) (
 		}
 
 		// Auto-init: if the project is not registered, this is likely a freshly cloned project
+		autoInited := false
 		if action == "start" {
 			if _, ok := registry.Get(m.Project.Name); !ok {
 				if err := autoInitProject(m, cwd); err != nil {
 					return true, err
 				}
+				autoInited = true
 			}
 		}
 
-		return true, executeProjectAction(m.Project.Name, cwd, action)
+		if err := executeProjectAction(m.Project.Name, cwd, action); err != nil {
+			return true, err
+		}
+
+		// After a fresh clone's first start, offer to restore database
+		if autoInited && m.HasDatabase() {
+			offerAutoImport(cwd)
+		}
+
+		return true, nil
 	}
 
 	// With a single name arg: smart name resolution
@@ -408,27 +419,43 @@ func autoInitProject(m *manifest.Manifest, projectDir string) error {
 	return nil
 }
 
-// offerAutoImport checks for SQL dump files at the project root after a fresh start.
-// If found, runs `tainer db import` which handles file selection and confirmation.
-func offerAutoImport(m *manifest.Manifest, projectDir, name string) {
-	// Check if any .sql files exist at project root
+// offerAutoImport checks for SQL dump files at the project root after a fresh
+// clone's first start. Asks the user once, then delegates to `tainer db import`.
+func offerAutoImport(projectDir string) {
 	entries, err := os.ReadDir(projectDir)
 	if err != nil {
 		return
 	}
-	hasSql := false
+	var sqlFiles []string
 	for _, e := range entries {
 		if !e.IsDir() && strings.HasSuffix(e.Name(), ".sql") {
-			hasSql = true
-			break
+			sqlFiles = append(sqlFiles, e.Name())
 		}
 	}
-	if !hasSql {
+	if len(sqlFiles) == 0 {
 		return
 	}
 
-	// Delegate to `tainer db import` which handles file selection + confirmation
-	importCmd := exec.Command("tainer", "db", "import")
+	c := tui.Colors()
+	textStyle := lipgloss.NewStyle().Foreground(c.Text)
+	mutedStyle := lipgloss.NewStyle().Foreground(c.Muted)
+
+	fmt.Printf("  %s %s\n", mutedStyle.Render("ℹ"), textStyle.Render("Found database dump files."))
+	fmt.Printf("  %s ", textStyle.Render("Restore database? [y/N]"))
+
+	reader := bufio.NewReader(os.Stdin)
+	answer, _ := reader.ReadString('\n')
+	answer = strings.TrimSpace(strings.ToLower(answer))
+	if answer != "y" && answer != "yes" {
+		return
+	}
+
+	// Delegate to `tainer db import` — handles single/multiple file selection
+	args := []string{"db", "import"}
+	if len(sqlFiles) == 1 {
+		args = append(args, sqlFiles[0])
+	}
+	importCmd := exec.Command("tainer", args...)
 	importCmd.Dir = projectDir
 	importCmd.Stdin = os.Stdin
 	importCmd.Stdout = os.Stdout
@@ -471,13 +498,7 @@ func executeProjectAction(name, path, action string) error {
 			return result.Err
 		}
 
-		// After a successful start, check for SQL dumps to auto-import
-		m, _ := manifest.LoadFromDir(path)
-		if m != nil && m.HasDatabase() {
-			offerAutoImport(m, path, info.Name)
-		}
-
-		return nil
+			return nil
 
 	case "stop":
 		steps, err := project.StopSteps(name)
