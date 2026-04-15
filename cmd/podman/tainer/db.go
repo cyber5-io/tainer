@@ -85,6 +85,9 @@ func dbExport(cmd *cobra.Command, args []string) error {
 	}
 	outputPath := filepath.Join(dir, filename)
 
+	// Read DB credentials from .env
+	dbUser, dbPass, dbName := readDBCredentials(dir)
+
 	// Build the dump command based on db type
 	containerName := fmt.Sprintf("tainer-%s-db-ct", name)
 	var dumpCmd *exec.Cmd
@@ -92,10 +95,10 @@ func dbExport(cmd *cobra.Command, args []string) error {
 	switch m.Runtime.Database {
 	case manifest.DatabasePostgres:
 		dumpCmd = exec.Command("tainer", "exec", containerName,
-			"pg_dump", "-U", "tainer", "-d", "tainer", "--no-owner", "--no-acl")
+			"pg_dump", "-U", dbUser, "-d", dbName, "--no-owner", "--no-acl")
 	case manifest.DatabaseMariaDB:
 		dumpCmd = exec.Command("tainer", "exec", containerName,
-			"mysqldump", "-u", "tainer", "--password=tainer", "tainer")
+			"mariadb-dump", "-u", dbUser, "--password="+dbPass, dbName)
 	default:
 		return tui.StyledError(fmt.Sprintf("Unsupported database type: %s", m.Runtime.Database))
 	}
@@ -188,6 +191,9 @@ func dbImport(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("reading dump file: %w", err)
 	}
 
+	// Read DB credentials from .env
+	dbUser, dbPass, dbName := readDBCredentials(dir)
+
 	// Build the import command based on db type
 	containerName := fmt.Sprintf("tainer-%s-db-ct", name)
 	var importCmd *exec.Cmd
@@ -195,10 +201,10 @@ func dbImport(cmd *cobra.Command, args []string) error {
 	switch m.Runtime.Database {
 	case manifest.DatabasePostgres:
 		importCmd = exec.Command("tainer", "exec", "-i", containerName,
-			"psql", "-U", "tainer", "-d", "tainer")
+			"psql", "-U", dbUser, "-d", dbName)
 	case manifest.DatabaseMariaDB:
 		importCmd = exec.Command("tainer", "exec", "-i", containerName,
-			"mysql", "-u", "tainer", "--password=tainer", "tainer")
+			"mariadb", "-u", dbUser, "--password="+dbPass, dbName)
 	default:
 		return tui.StyledError(fmt.Sprintf("Unsupported database type: %s", m.Runtime.Database))
 	}
@@ -327,6 +333,33 @@ func offerGitCommit(dir, filename, projectName string) {
 	}
 
 	fmt.Printf("  %s %s\n", tealStyle.Render("✓"), textStyle.Render("Committed to git"))
+}
+
+// readDBCredentials reads DB_USER, DB_PASSWORD, and DB_NAME from the project's .env file.
+// Falls back to "tainer" for any missing values.
+func readDBCredentials(dir string) (user, pass, name string) {
+	user, pass, name = "tainer", "tainer", "tainer"
+	data, err := os.ReadFile(filepath.Join(dir, ".env"))
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") || !strings.Contains(line, "=") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		key, val := parts[0], parts[1]
+		switch key {
+		case "DB_USER":
+			user = val
+		case "DB_PASSWORD":
+			pass = val
+		case "DB_NAME":
+			name = val
+		}
+	}
+	return
 }
 
 // FindSQLFiles returns all .sql files at the project root
