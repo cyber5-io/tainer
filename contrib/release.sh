@@ -30,7 +30,7 @@ cd "$REPOROOT"
 # --------------------------------------------------------------------------
 
 # Ensure clean working tree
-if [[ -n "$(git status --porcelain)" ]]; then
+if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
   echo "ERROR: Working tree is dirty. Commit or stash changes first."
   exit 1
 fi
