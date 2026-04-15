@@ -72,8 +72,8 @@ make -B GOARCH=amd64 tainer-remote
 cp bin/darwin/tainer "$outdir/tainer-darwin-amd64"
 
 # Verify architectures
-arm64_arch=$(file "$outdir/tainer-darwin-arm64" | grep -o 'arm64\|x86_64')
-amd64_arch=$(file "$outdir/tainer-darwin-amd64" | grep -o 'arm64\|x86_64')
+arm64_arch=$(file "$outdir/tainer-darwin-arm64" | grep -o 'arm64\|x86_64' | tail -1)
+amd64_arch=$(file "$outdir/tainer-darwin-amd64" | grep -o 'arm64\|x86_64' | tail -1)
 
 if [[ "$arm64_arch" != "arm64" ]]; then
   echo "ERROR: arm64 binary has wrong architecture: $arm64_arch"
