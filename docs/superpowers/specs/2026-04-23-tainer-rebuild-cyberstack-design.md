@@ -149,11 +149,25 @@ resources:
 
 ### VM sizing
 
-Smart defaults + explicit override:
+Smart defaults + explicit override. The VM is the ceiling for every container running inside it — cgroups v2 in the guest can only partition what the VM itself is allocated — so defaults need to be generous enough that multi-project dev sessions don't self-contend, while still leaving headroom for macOS.
 
-- **Install default:** detect host total RAM and CPU. Allocate ~50% RAM capped at 8GB, ~50% CPU cores capped at 4. Sensible for an 8GB MacBook, doesn't waste a 64GB workstation.
-- **Configurable override:** `tainer engine config --memory 16GB --cpus 8`, persisted to `~/.tainer/engine.yaml`.
-- **Post-1.0.0:** dynamic memory ballooning — start small, grow on demand, shrink when idle. This is what OrbStack uses to feel "free." Deferred, not MVP.
+**Install default for RAM** (tiered by host capacity):
+
+| Host RAM | Default VM RAM | Reasoning |
+|----------|----------------|-----------|
+| ≤ 16GB | 50%, floor 4GB, never less than leaving 4GB for macOS | Small Macs: protect the host, still usable |
+| 16–48GB | 50% | Typical dev machines: straightforward split |
+| > 48GB | 50%, capped at ~24GB | Big workstations: diminishing returns past this for dev containers; power users override |
+
+Examples: 8GB MBP → 4GB VM; 16GB MBP → 8GB VM; 32GB Mac → 16GB VM; 64GB Mac → 24GB VM; 128GB Mac Studio → 24GB VM (override as needed).
+
+**Install default for CPU:** 50% of available P+E cores, floor 2, no hard cap.
+
+**Configurable override:** `tainer engine config --memory 32GB --cpus 12`, persisted to `~/.tainer/engine.yaml`. Applied on next engine restart.
+
+**Apple Silicon topology note:** `hw.ncpu` reports P+E cores only (GPU and Neural Engine are not exposed as CPUs). The guest sees a unified SMP CPU count with no P/E distinction — macOS schedules vCPUs across physical cores heterogeneously based on workload and thermal state. Users don't need to think about P vs E; they ask for a CPU count and macOS does the rest.
+
+**Post-1.0.0: dynamic memory ballooning.** Start small, grow on demand, shrink when idle — what OrbStack uses to feel "free." Solves the 64GB-Mac-idle-with-24GB-allocated problem elegantly. Deferred from MVP because static generous defaults are good enough to ship.
 
 ## Lifecycle
 
