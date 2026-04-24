@@ -704,38 +704,19 @@ git commit -m "feat: VM lifecycle interface and vfkit launcher"
 
 ---
 
-## Task 5: Minimal guest rootfs
+## Task 5: Minimal guest rootfs build pipeline
 
 **Files:**
 - Create: `/Users/lenineto/dev/cyber5-io/cyber-stack/guest/Makefile`
-- Create: `/Users/lenineto/dev/cyber5-io/cyber-stack/guest/alpine-base/Containerfile`
 - Create: `/Users/lenineto/dev/cyber5-io/cyber-stack/guest/alpine-base/init.sh`
+- Create: `/Users/lenineto/dev/cyber5-io/cyber-stack/guest/alpine-base/README.md`
 - Create: `/Users/lenineto/dev/cyber5-io/cyber-stack/guest/kernel/README.md`
 
-Produces a bootable rootfs image containing Alpine 3.19 + busybox + the `cyberstack-agent` binary, plus an init script that starts the agent on vsock port 1024.
+Produces a bootable rootfs image built from Alpine's official pre-built `alpine-minirootfs` tarball (downloaded via `curl`, extracted via `tar` — both native on macOS). No container runtime dependency. The `cyberstack-agent` binary and `init.sh` are injected into the extracted rootfs directly, then packed into an ext4 image.
 
-Rootfs is built as an ext4 image using a container-based build pipeline (podman or docker) to stay reproducible on macOS hosts without a Linux build machine.
+**Important note about 0.1 scope:** this task creates the build *pipeline* (Makefile, scripts). It does not require executing the rootfs build — the VM isn't booted until CyberStack 0.2. The only external tool needed *at build-execution time* (in 0.2+) is `mkfs.ext4` from `e2fsprogs` (`brew install e2fsprogs`). For 0.1, we only verify the Makefile plumbing, not the artefact.
 
-- [ ] **Step 5.1: Create `guest/alpine-base/Containerfile`**
-
-```dockerfile
-FROM alpine:3.19
-
-RUN apk add --no-cache \
-    busybox-extras \
-    openrc \
-    e2fsprogs
-
-COPY init.sh /sbin/cyberstack-init
-RUN chmod +x /sbin/cyberstack-init
-
-# The cyberstack-agent binary is copied in at rootfs-assembly time
-# from the Go build output (see guest/Makefile), not baked in here.
-
-CMD ["/sbin/cyberstack-init"]
-```
-
-- [ ] **Step 5.2: Create `guest/alpine-base/init.sh`**
+- [ ] **Step 5.1: Create `guest/alpine-base/init.sh`**
 
 ```sh
 #!/bin/sh
@@ -750,33 +731,70 @@ mount -t devtmpfs devtmpfs /dev
 exec /usr/bin/cyberstack-agent --vsock-port 1024
 ```
 
+- [ ] **Step 5.2: Create `guest/alpine-base/README.md`** — document what the pre-built Alpine tarball contains and why we use it instead of a Containerfile.
+
+```markdown
+# Alpine base rootfs
+
+CyberStack's guest rootfs starts from Alpine's official pre-built
+`alpine-minirootfs` tarball. We use the upstream tarball directly rather
+than a Containerfile to avoid pulling in a container runtime (podman,
+docker) as a build dependency — CyberStack is itself a container runtime
+and shouldn't need one to build its own guest.
+
+## Tarball source
+
+    https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/<arch>/alpine-minirootfs-3.19.0-<arch>.tar.gz
+
+## What the tarball provides
+
+- Alpine Linux 3.19 userspace
+- BusyBox with essential utilities (sh, mount, etc.)
+- apk package manager (for post-extraction additions if ever needed)
+- Standard /etc, /bin, /sbin, /lib structure
+
+## What we add on top
+
+- `/sbin/cyberstack-init` — our init.sh, started by the kernel
+- `/usr/bin/cyberstack-agent` — the Go agent binary (vsock gRPC server)
+```
+
 - [ ] **Step 5.3: Create `guest/Makefile`**
 
 ```makefile
-.PHONY: rootfs clean
+.PHONY: rootfs clean fetch-alpine
 
 ARCH ?= arm64
+ALPINE_VERSION := 3.19.0
+ALPINE_TARBALL := alpine-minirootfs-$(ALPINE_VERSION)-$(ARCH).tar.gz
+ALPINE_URL := https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/$(ARCH)/$(ALPINE_TARBALL)
+
 ROOTFS_IMG := rootfs-$(ARCH).img
 ROOTFS_DIR := .build/rootfs-$(ARCH)
-CONTAINER_IMG := cyberstack-guest:$(ARCH)
 
 # Assumes cyberstack-agent has been built for linux/$(ARCH) via top-level `make build`
 AGENT_BIN := ../bin/cyberstack-agent-linux-$(ARCH)
 
 rootfs: $(ROOTFS_IMG)
 
-$(ROOTFS_IMG): alpine-base/Containerfile alpine-base/init.sh $(AGENT_BIN)
-	# Build the container image
-	podman build --platform=linux/$(ARCH) -t $(CONTAINER_IMG) alpine-base
-	# Export its filesystem
+fetch-alpine: .build/$(ALPINE_TARBALL)
+
+.build/$(ALPINE_TARBALL):
+	mkdir -p .build
+	curl -fL -o $@ $(ALPINE_URL)
+
+$(ROOTFS_IMG): alpine-base/init.sh .build/$(ALPINE_TARBALL) $(AGENT_BIN)
+	@which mkfs.ext4 > /dev/null || { echo "ERROR: mkfs.ext4 not found. On macOS: brew install e2fsprogs"; exit 1; }
+	# Extract Alpine minirootfs
 	rm -rf $(ROOTFS_DIR) && mkdir -p $(ROOTFS_DIR)
-	podman create --name cyberstack-export $(CONTAINER_IMG)
-	podman export cyberstack-export | tar -x -C $(ROOTFS_DIR)
-	podman rm cyberstack-export
+	tar -xzf .build/$(ALPINE_TARBALL) -C $(ROOTFS_DIR)
+	# Inject init script
+	cp alpine-base/init.sh $(ROOTFS_DIR)/sbin/cyberstack-init
+	chmod +x $(ROOTFS_DIR)/sbin/cyberstack-init
 	# Inject the agent binary
 	cp $(AGENT_BIN) $(ROOTFS_DIR)/usr/bin/cyberstack-agent
 	chmod +x $(ROOTFS_DIR)/usr/bin/cyberstack-agent
-	# Pack into an ext4 image (512MB)
+	# Pack into a 512MB ext4 image
 	dd if=/dev/zero of=$(ROOTFS_IMG) bs=1M count=512
 	mkfs.ext4 -d $(ROOTFS_DIR) $(ROOTFS_IMG)
 
@@ -805,18 +823,22 @@ Place both in this directory. They are .gitignored.
 Post-0.1 milestone: custom kernel config for minimal boot time. Not MVP.
 ```
 
-- [ ] **Step 5.5: Verify rootfs build plumbing (skip if podman unavailable locally)**
+- [ ] **Step 5.5: Verify Makefile targets parse (without executing the heavy path)**
 
-Run: `cd guest && make rootfs ARCH=arm64` (requires podman on macOS and a prior `make build` from the repo root).
-Expected: produces `guest/rootfs-arm64.img`.
+```bash
+cd guest
+make fetch-alpine ARCH=arm64
+```
 
-If `podman` is not available locally, defer execution to CI. This step does not block Task 6+.
+Expected: downloads `.build/alpine-minirootfs-3.19.0-arm64.tar.gz` (~3 MB). Confirms the URL and curl plumbing work.
+
+Full rootfs build (`make rootfs`) is deferred to CyberStack 0.2 when the daemon actually boots the VM. Running it now would fail until `cyberstack-agent` is cross-compiled (Task 8) and `e2fsprogs` is installed — both out of scope for 0.1.
 
 - [ ] **Step 5.6: Commit**
 
 ```bash
 git add guest/
-git commit -m "feat: minimal Alpine-based guest rootfs build"
+git commit -m "feat: guest rootfs build pipeline using Alpine minirootfs (no container runtime dep)"
 ```
 
 ---
