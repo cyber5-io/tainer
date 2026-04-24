@@ -215,7 +215,9 @@ Roughly the 11.7K LOC that is actually tainer survives the move, with engine cal
 
 ## Development track
 
-1. **Set up CyberStack repo.** Create `/Users/lenineto/dev/cyber5-io/cyber-stack` as a private repo. Bootstrap with Go module, repo layout, CI skeleton.
+> **Status note (2026-04-24):** CyberStack `v0.1.0` is live — engine skeleton shipped, `docker` CLI verified talking to `cyberstackd` over Unix socket. See `docs/superpowers/plans/2026-04-23-cyberstack-0.1-mvp-engine-skeleton.md` for the completed milestone. VM lifecycle and container runtime work begins next.
+
+1. **Set up CyberStack repo.** Create `/Users/lenineto/dev/cyber5-io/cyber-stack` as a private repo. Bootstrap with Go module, repo layout, CI skeleton. ✅ **Done — v0.1.0**
 2. **CyberStack MVP — VM lifecycle.** Embedded Virtualization.framework or vfkit wrapper, minimal guest boot, virtio-fs mount, vsock to agent, lifecycle commands.
 3. **CyberStack MVP — container runtime.** `containers/image` + `containers/storage` integration, `crun` subprocess, basic container lifecycle (create/start/stop/rm/exec/logs), networks, volumes, port publishing.
 4. **CyberStack MVP — Docker Engine API.** Implement the subset of endpoints that `docker` CLI, `docker-compose`, and DDEV actually use. Drive completeness via integration tests against these tools.
