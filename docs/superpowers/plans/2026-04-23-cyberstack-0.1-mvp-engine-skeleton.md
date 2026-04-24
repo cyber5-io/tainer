@@ -765,9 +765,11 @@ and shouldn't need one to build its own guest.
 .PHONY: rootfs clean fetch-alpine
 
 ARCH ?= arm64
+# Alpine uses "aarch64" in release URLs for arm64. Map Go's arch naming to Alpine's.
+ALPINE_ARCH := $(if $(filter arm64,$(ARCH)),aarch64,$(ARCH))
 ALPINE_VERSION := 3.19.0
-ALPINE_TARBALL := alpine-minirootfs-$(ALPINE_VERSION)-$(ARCH).tar.gz
-ALPINE_URL := https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/$(ARCH)/$(ALPINE_TARBALL)
+ALPINE_TARBALL := alpine-minirootfs-$(ALPINE_VERSION)-$(ALPINE_ARCH).tar.gz
+ALPINE_URL := https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/$(ALPINE_ARCH)/$(ALPINE_TARBALL)
 
 ROOTFS_IMG := rootfs-$(ARCH).img
 ROOTFS_DIR := .build/rootfs-$(ARCH)
@@ -800,6 +802,12 @@ $(ROOTFS_IMG): alpine-base/init.sh .build/$(ALPINE_TARBALL) $(AGENT_BIN)
 
 clean:
 	rm -rf .build $(ROOTFS_IMG)
+```
+
+Also create `guest/.gitignore` to keep downloaded tarballs and intermediate build outputs out of git:
+
+```
+/.build/
 ```
 
 - [ ] **Step 5.4: Create `guest/kernel/README.md`**
