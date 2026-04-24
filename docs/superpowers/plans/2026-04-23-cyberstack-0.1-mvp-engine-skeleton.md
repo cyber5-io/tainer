@@ -275,7 +275,8 @@ File: `internal/config/config.go`
 package config
 
 // EngineConfig is the on-disk configuration for the cyberstackd engine.
-// Persisted at ~/.tainer/engine.yaml (or $CYBERSTACK_CONFIG if set).
+// Persisted at ~/.cyberstack/engine.yaml (or $CYBERSTACK_CONFIG if set).
+// CyberStack owns its own data dir; tainer's ~/.tainer/ is separate.
 type EngineConfig struct {
 	MemoryMB int `yaml:"memory_mb"`
 	CPUs     int `yaml:"cpus"`

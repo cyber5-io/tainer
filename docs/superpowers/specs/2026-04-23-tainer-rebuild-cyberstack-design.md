@@ -163,7 +163,7 @@ Examples: 8GB MBP → 4GB VM; 16GB MBP → 8GB VM; 32GB Mac → 16GB VM; 64GB Ma
 
 **Install default for CPU:** 50% of available P+E cores, floor 2, no hard cap.
 
-**Configurable override:** `tainer engine config --memory 32GB --cpus 12`, persisted to `~/.tainer/engine.yaml`. Applied on next engine restart.
+**Configurable override:** `tainer engine config --memory 32GB --cpus 12`, persisted to `~/.cyberstack/engine.yaml` (CyberStack's data directory; separate from `~/.tainer/` which holds tainer-specific state like project lists and certs). Applied on next engine restart.
 
 **Apple Silicon topology note:** `hw.ncpu` reports P+E cores only (GPU and Neural Engine are not exposed as CPUs). The guest sees a unified SMP CPU count with no P/E distinction — macOS schedules vCPUs across physical cores heterogeneously based on workload and thermal state. Users don't need to think about P vs E; they ask for a CPU count and macOS does the rest.
 
