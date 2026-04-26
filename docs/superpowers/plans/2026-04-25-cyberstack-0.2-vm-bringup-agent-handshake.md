@@ -1,5 +1,20 @@
 # CyberStack 0.2 — VM Bring-up + Agent Handshake Implementation Plan
 
+> **Status: SHIPPED 2026-04-26 as `cyber-stack v0.2.0`.** End-to-end VM-boot-through-agent-handshake measured at ~470ms on Apple Silicon — well inside the 3s pass budget. `docker -H unix://... info` against `cyberstackd` reports live `NCPU` and `MemTotal` sourced from the in-VM agent.
+>
+> **Key deviations from the original plan** (the plan as written below was the 0.1-shaped target; reality forced these pivots, all baked into the v0.2.0 commits):
+> 1. **EFI bootloader, not direct kernel boot.** Apple Virt rejects vfkit's `--kernel/--initrd/--kernel-cmdline` (`VZErrorCode=1`). The shipping launcher passes `--bootloader efi,variable-store=PATH,create` and a self-contained boot disk; the boot disk carries `systemd-bootaa64.efi` as `/EFI/BOOT/BOOTAA64.EFI`, which chain-loads kernel + initramfs.
+> 2. **vsock direction inverted.** vfkit's `socketURL=...,listen` mode means *the host accepts*, so the agent must dial out. Spec assumed daemon dials in. Shipping code: agent calls `vsock.Dial(CID 2, port)` from inside the VM; daemon binds the host-side unix socket before vfkit starts and accepts the inbound conn. gRPC client is built on the accepted conn via `WithContextDialer`.
+> 3. **Alpine 3.19 → 3.21.** 3.19's stock `linux-virt` ships zero guest-side vsock modules; 3.21's does. The netboot `modloop-virt` strips them on both versions, so the build pulls them out of the full `linux-virt` APK.
+> 4. **Boot disk replaces ext4 rootfs.** Single 256MB FAT32 raw disk holding bootloader + kernel + initramfs (with busybox + musl + vsock modules + agent baked in). No separate `rootfs-$(ARCH).img`.
+> 5. **`/info` plumbed via interface, not direct call.** `httpapi.InfoStats` interface decouples the HTTP handler from the daemon's `*AgentClient`; tests pass `nil` for the no-VM 0.1 path.
+>
+> The original plan body below is preserved for archaeological context; treat it as the design intent, not the as-built. The actual file layout that shipped lives under `guest/{Makefile, init.sh}`, `internal/transport/{vsock_linux.go, single_listener.go}`, `internal/vm/{vm.go, vfkit_launcher.go}`, `cmd/cyberstack-agent/main.go`, `cmd/cyberstackd/main.go`, and `tests/integration/vm_handshake_test.go`.
+
+---
+
+## Original plan (as written, pre-implementation)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Stand up a real Linux VM under `cyberstackd` and prove the daemon↔agent wire by round-tripping a Ping over vsock. After this milestone, `docker info` against `cyberstackd` reports real `NCPU` and `MemTotal` from inside the running VM, and a private admin endpoint exists for proving the agent connection.

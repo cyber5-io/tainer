@@ -216,9 +216,11 @@ Roughly the 11.7K LOC that is actually tainer survives the move, with engine cal
 ## Development track
 
 > **Status note (2026-04-24):** CyberStack `v0.1.0` is live — engine skeleton shipped, `docker` CLI verified talking to `cyberstackd` over Unix socket. See `docs/superpowers/plans/2026-04-23-cyberstack-0.1-mvp-engine-skeleton.md` for the completed milestone. VM lifecycle and container runtime work begins next.
+>
+> **Status note (2026-04-26):** CyberStack `v0.2.0` is live — VM bring-up + agent handshake shipped. Apple Virt UEFI → systemd-boot → Linux 6.12.83 → custom initramfs → `cyberstack-agent` dials home over vsock; daemon accepts and exposes live VM stats through Docker `/info`. End-to-end handshake measured at ~470ms (budget was <3s pass). See `docs/superpowers/plans/2026-04-25-cyberstack-0.2-vm-bringup-agent-handshake.md` for the completed milestone. Container runtime work begins next (0.3).
 
 1. **Set up CyberStack repo.** Create `/Users/lenineto/dev/cyber5-io/cyber-stack` as a private repo. Bootstrap with Go module, repo layout, CI skeleton. ✅ **Done — v0.1.0**
-2. **CyberStack MVP — VM lifecycle.** Embedded Virtualization.framework or vfkit wrapper, minimal guest boot, virtio-fs mount, vsock to agent, lifecycle commands.
+2. **CyberStack MVP — VM lifecycle.** Embedded Virtualization.framework or vfkit wrapper, minimal guest boot, virtio-fs mount, vsock to agent, lifecycle commands. ✅ **Done — v0.2.0** (agent handshake + live `/info`; virtio-fs mount lands with the container runtime in 0.3)
 3. **CyberStack MVP — container runtime.** `containers/image` + `containers/storage` integration, `crun` subprocess, basic container lifecycle (create/start/stop/rm/exec/logs), networks, volumes, port publishing.
 4. **CyberStack MVP — Docker Engine API.** Implement the subset of endpoints that `docker` CLI, `docker-compose`, and DDEV actually use. Drive completeness via integration tests against these tools.
 5. **Tainer rebuild branch.** Create `dev/v1` branch on the tainer repo. Move current tree to `legacy/`. Initialise a new Go module at repo root with a clean module path (proposed: `github.com/cyber5-io/tainer`, dropping the `containers/podman/v6` inheritance). Drop the `RawVersion` indirection in `version/rawversion/version.go` — `TainerVersion` becomes the sole version constant.
