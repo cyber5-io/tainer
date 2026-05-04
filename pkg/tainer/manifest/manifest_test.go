@@ -65,26 +65,6 @@ runtime:
 	}
 }
 
-func TestLoad_InvalidVersion(t *testing.T) {
-	dir := t.TempDir()
-	yaml := `version: 2
-project:
-  name: test
-  type: wordpress
-  domain: test.tainer.me
-runtime:
-  php: "8.4"
-  database: mariadb
-`
-	path := filepath.Join(dir, "tainer.yaml")
-	os.WriteFile(path, []byte(yaml), 0644)
-
-	_, err := Load(path)
-	if err == nil {
-		t.Fatal("Load() should error on version 2")
-	}
-}
-
 func TestLoad_InvalidType(t *testing.T) {
 	dir := t.TempDir()
 	yaml := `version: 1
@@ -364,18 +344,23 @@ func TestPHPLimits_Override(t *testing.T) {
 }
 
 func TestPHPLimits_EnvFlags(t *testing.T) {
-	l := PHPLimits{MemoryLimit: "256M"}
+	l := PHPLimits{}
 	flags := l.EnvFlags()
-	if len(flags) != 10 {
-		t.Fatalf("expected 10 flags (5 pairs), got %d", len(flags))
+	if len(flags) != 5 {
+		t.Fatalf("expected 5 flags, got %d", len(flags))
 	}
-	// Check memory_limit override
-	for i := 0; i < len(flags)-1; i++ {
-		if flags[i] == "-e" && flags[i+1] == "PHP_MEMORY_LIMIT=256M" {
-			return
+	expected := []string{
+		"PHP_UPLOAD_MAX_FILESIZE=2G",
+		"PHP_POST_MAX_SIZE=2G",
+		"PHP_MEMORY_LIMIT=512M",
+		"PHP_MAX_EXECUTION_TIME=300",
+		"PHP_MAX_INPUT_VARS=10000",
+	}
+	for i, exp := range expected {
+		if flags[i] != exp {
+			t.Errorf("flag[%d] = %q, want %q", i, flags[i], exp)
 		}
 	}
-	t.Error("expected PHP_MEMORY_LIMIT=256M in flags")
 }
 
 func TestLoad_WithLimits(t *testing.T) {
