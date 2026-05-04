@@ -128,15 +128,13 @@ type RuntimeConfig struct {
 }
 
 type PodConfig struct {
-	Size       PodSize                   `yaml:"size"`
-	Memory     string                    `yaml:"memory,omitempty"`
-	CPUs       string                    `yaml:"cpus,omitempty"`
+	Size       PodSize                    `yaml:"size"`
 	Containers map[string]ContainerLimits `yaml:"containers,omitempty"`
 }
 
 type ContainerLimits struct {
-	Memory string `yaml:"memory,omitempty"`
-	CPUs   string `yaml:"cpus,omitempty"`
+	Memory string  `yaml:"memory,omitempty"`
+	CPU    float64 `yaml:"cpu,omitempty"`
 }
 
 type PortEntry struct {

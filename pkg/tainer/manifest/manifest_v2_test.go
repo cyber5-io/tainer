@@ -64,12 +64,16 @@ runtime:
   database: none
 pod:
   size: custom
-  memory: 2G
-  cpus: 2
   containers:
+    web:
+      memory: 200M
+      cpu: 0.3
     app:
       memory: 1G
-      cpus: 1
+      cpu: 1
+    db:
+      memory: 500M
+      cpu: 0.5
 ports:
   - role: app
     container: 3000
@@ -82,17 +86,14 @@ ports:
 	if m.Pod.Size != PodSizeCustom {
 		t.Errorf("expected pod size %q, got %q", PodSizeCustom, m.Pod.Size)
 	}
-	if m.Pod.Memory != "2G" {
-		t.Errorf("expected memory '2G', got %q", m.Pod.Memory)
+	if len(m.Pod.Containers) != 3 {
+		t.Fatalf("expected 3 containers, got %d", len(m.Pod.Containers))
 	}
-	if m.Pod.CPUs != "2" {
-		t.Errorf("expected cpus '2', got %q", m.Pod.CPUs)
+	if m.Pod.Containers["app"].Memory != "1G" || m.Pod.Containers["app"].CPU != 1.0 {
+		t.Errorf("expected app {1G,1.0}, got %+v", m.Pod.Containers["app"])
 	}
-	if len(m.Pod.Containers) == 0 {
-		t.Fatal("expected containers, got none")
-	}
-	if m.Pod.Containers["app"].Memory != "1G" {
-		t.Errorf("expected app memory '1G', got %q", m.Pod.Containers["app"].Memory)
+	if m.Pod.Containers["web"].CPU != 0.3 {
+		t.Errorf("expected web cpu 0.3, got %v", m.Pod.Containers["web"].CPU)
 	}
 }
 
