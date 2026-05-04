@@ -1,6 +1,10 @@
 package pod
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
+)
 
 func TestNetworkName(t *testing.T) {
 	if got := NetworkName("mywp"); got != "tainer-mywp" {
@@ -44,5 +48,23 @@ func TestLabelConstants(t *testing.T) {
 func TestPublishLabel(t *testing.T) {
 	if got := PublishLabel("db"); got != "tainer.published.db" {
 		t.Errorf("PublishLabel: got %q, want tainer.published.db", got)
+	}
+}
+
+func TestExecRoleResolution(t *testing.T) {
+	cases := []struct {
+		typ      manifest.ProjectType
+		argRole  string
+		wantRole string
+	}{
+		{manifest.TypeWordPress, "", "app"},
+		{manifest.TypeReact, "", "web"},
+		{manifest.TypeWordPress, "web", "web"},
+	}
+	for _, c := range cases {
+		got := ResolveExecRole(c.typ, c.argRole)
+		if got != c.wantRole {
+			t.Errorf("(%s, %q) → %q, want %q", c.typ, c.argRole, got, c.wantRole)
+		}
 	}
 }
