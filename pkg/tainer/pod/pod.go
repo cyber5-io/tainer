@@ -83,19 +83,15 @@ func List(ctx context.Context, eng *engine.Client) ([]Pod, error) {
 			p = &Pod{Name: name, SubnetOctet: octet, ManifestHash: c.Labels[LabelManifestHash]}
 			byPod[name] = p
 		}
-		published := 0
-		for k, v := range c.Labels {
-			if strings.HasPrefix(k, LabelPublishPrefix) && strings.TrimPrefix(k, LabelPublishPrefix) == c.Labels[LabelRole] {
-				published, _ = strconv.Atoi(v)
-			}
-		}
+		role := c.Labels[LabelRole]
+		published, _ := strconv.Atoi(c.Labels[PublishLabel(role)])
 		nm := ""
 		if len(c.Names) > 0 {
 			nm = strings.TrimPrefix(c.Names[0], "/")
 		}
 		p.Containers = append(p.Containers, Container{
 			ID:            c.ID,
-			Role:          c.Labels[LabelRole],
+			Role:          role,
 			Name:          nm,
 			State:         c.State,
 			PublishedPort: published,

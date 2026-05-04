@@ -24,17 +24,25 @@ func TestRouterContainerNames(t *testing.T) {
 }
 
 func TestLabelConstants(t *testing.T) {
-	cases := map[string]string{
-		LabelPod:           "tainer.pod",
-		LabelRole:          "tainer.role",
-		LabelSubnetOctet:   "tainer.subnet-octet",
-		LabelManifestPath:  "tainer.manifest-path",
-		LabelManifestHash:  "tainer.manifest-hash",
-		LabelPublishPrefix: "tainer.published.",
+	cases := []struct {
+		name, got, want string
+	}{
+		{"LabelPod", LabelPod, "tainer.pod"},
+		{"LabelRole", LabelRole, "tainer.role"},
+		{"LabelSubnetOctet", LabelSubnetOctet, "tainer.subnet-octet"},
+		{"LabelManifestPath", LabelManifestPath, "tainer.manifest-path"},
+		{"LabelManifestHash", LabelManifestHash, "tainer.manifest-hash"},
+		{"LabelPublishPrefix", LabelPublishPrefix, "tainer.published."},
 	}
-	for got, want := range cases {
-		if got != want {
-			t.Errorf("label constant mismatch: got %q, want %q", got, want)
+	for _, c := range cases {
+		if c.got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, c.got, c.want)
 		}
+	}
+}
+
+func TestPublishLabel(t *testing.T) {
+	if got := PublishLabel("db"); got != "tainer.published.db" {
+		t.Errorf("PublishLabel: got %q, want tainer.published.db", got)
 	}
 }
