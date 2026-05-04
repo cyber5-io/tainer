@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
@@ -125,6 +126,25 @@ func (c *Client) Logs(ctx context.Context, name string, follow bool) (io.ReadClo
 		ShowStderr: true,
 		Follow:     follow,
 	})
+}
+
+// LabelFilter builds a Docker label filter that matches "<key>=<value>"
+// when value is non-empty, or "<key>" (key existence) when value is "".
+// Returns a filters.Args ready to pass into ContainerList/NetworkList.
+func LabelFilter(key, value string) filters.Args {
+	args := filters.NewArgs()
+	if value == "" {
+		args.Add("label", key)
+	} else {
+		args.Add("label", key+"="+value)
+	}
+	return args
+}
+
+// ContainerList exposes the underlying SDK so pod-listing callers can
+// pass their own label filters. Returns the raw SDK type.
+func (c *Client) ContainerList(ctx context.Context, opts container.ListOptions) ([]container.Summary, error) {
+	return c.api.ContainerList(ctx, opts)
 }
 
 // NetworkExists checks for a user-defined bridge network by name.
