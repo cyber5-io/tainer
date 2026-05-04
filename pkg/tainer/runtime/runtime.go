@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
+	"github.com/cyber5-io/tainer/pkg/tainer/network"
 )
 
 // Defaults that mirror cyberstackd's own conventions. Override via env
@@ -29,6 +30,8 @@ const (
 	pidFile         = "cyberstackd.pid"
 	pingDeadline    = 8 * time.Second
 	pingPollEvery   = 100 * time.Millisecond
+	// dnsPort is the embedded DNS responder port we tell cyberstackd to bind.
+	dnsPort = 7753
 )
 
 // Options configures a runtime bring-up. Zero values are sensible
@@ -48,6 +51,10 @@ type Options struct {
 	// When false, Engine() errors instead of starting a daemon — useful
 	// for diagnostic commands that should never side-effect.
 	AutoStart bool
+
+	// NetworkMode overrides the persisted mode at ~/.cyberstack/network-mode.
+	// Empty means: read the persistence file; if absent, use network.DefaultMode.
+	NetworkMode network.Mode
 }
 
 // Status describes whether cyberstackd is running and reachable.
@@ -128,13 +135,32 @@ func dialAndPing(ctx context.Context, socket string) (*engine.Client, error) {
 	return cli, nil
 }
 
+// DaemonArgs builds the cyberstackd CLI flags from the runtime config.
+// Exposed for testing and for the network-mode-switch flow that needs
+// to spawn cyberstackd directly.
+func DaemonArgs(socket string, mode network.Mode, dnsPort int) []string {
+	return []string{
+		"-socket", socket,
+		"-dns-port", fmt.Sprintf("%d", dnsPort),
+		"-network-mode", string(mode),
+	}
+}
+
 func startDaemon(opts Options, socket string) error {
 	bin, err := resolveBinary(opts)
 	if err != nil {
 		return err
 	}
 
-	cmd := exec.Command(bin, "-socket", socket)
+	mode := opts.NetworkMode
+	if mode == "" {
+		m, err := network.ReadMode(network.DefaultModeFile())
+		if err != nil {
+			return fmt.Errorf("read network-mode: %w", err)
+		}
+		mode = m
+	}
+	cmd := exec.Command(bin, DaemonArgs(socket, mode, dnsPort)...)
 
 	// Detach: stdout/stderr to log file, no controlling terminal.
 	logPath := filepath.Join(filepath.Dir(socket), "cyberstackd.log")
