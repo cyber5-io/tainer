@@ -10,10 +10,10 @@ import (
 )
 
 // ResolverConfig returns the file path and content for the OS-specific DNS resolver.
-func ResolverConfig() (path, content string) {
+func ResolverConfig(port int) (path, content string) {
 	switch runtime.GOOS {
 	case "darwin":
-		return "/etc/resolver/tainer.me", "nameserver 127.0.0.1\nport 7753\n"
+		return "/etc/resolver/tainer.me", fmt.Sprintf("nameserver 127.0.0.1\nport %d\n", port)
 	case "linux":
 		return "/etc/systemd/resolved.conf.d/tainer.conf",
 			"[Resolve]\nDNS=127.0.0.1\nDomains=~tainer.me\n"
@@ -28,8 +28,8 @@ func isInstalled(path string) bool {
 }
 
 // IsResolverInstalled checks if the offline DNS resolver is already set up.
-func IsResolverInstalled() bool {
-	path, _ := ResolverConfig()
+func IsResolverInstalled(port int) bool {
+	path, _ := ResolverConfig(port)
 	if path == "" {
 		return true // unsupported OS, skip
 	}
@@ -38,8 +38,8 @@ func IsResolverInstalled() bool {
 
 // InstallResolver installs the offline DNS resolver config.
 // Requires sudo — prompts the user.
-func InstallResolver() error {
-	path, content := ResolverConfig()
+func InstallResolver(port int) error {
+	path, content := ResolverConfig(port)
 	if path == "" {
 		return fmt.Errorf("offline DNS not supported on %s", runtime.GOOS)
 	}
