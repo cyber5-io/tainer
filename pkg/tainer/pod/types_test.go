@@ -30,6 +30,9 @@ func TestDefaultExecRole(t *testing.T) {
 	if got := DefaultExecRole(manifest.TypeWordPress); got != "app" {
 		t.Errorf("WordPress: got %q, want app", got)
 	}
+	if got := DefaultExecRole(manifest.TypeNodeJS); got != "app" {
+		t.Errorf("NodeJS: got %q, want app", got)
+	}
 	if got := DefaultExecRole(manifest.TypeReact); got != "web" {
 		t.Errorf("React: got %q, want web", got)
 	}
@@ -61,5 +64,12 @@ func TestImageRef(t *testing.T) {
 	}
 	if got := ImageRef(mKompozi, "db"); got != "ghcr.io/cyber5-io/tainer-postgres:16" {
 		t.Errorf("Kompozi db image: got %q", got)
+	}
+
+	if got := ImageRef(m, "web"); got != "ghcr.io/cyber5-io/tainer-wordpress-web:wordpress" {
+		t.Errorf("WordPress web image: got %q", got)
+	}
+	if got := ImageRef(mNode, "web"); got != "ghcr.io/cyber5-io/tainer-nextjs-web:nextjs" {
+		t.Errorf("NextJS web image: got %q", got)
 	}
 }
