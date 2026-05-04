@@ -43,7 +43,7 @@ func BuildManifest(name string, pt manifest.ProjectType, version string, db mani
 	}
 	if pt == manifest.TypeWordPress || pt == manifest.TypePHP {
 		m.Runtime.PHP = version
-		m.Runtime.Limits = manifest.DefaultPHPLimits
+		m.Runtime.PHPLimits = manifest.DefaultPHPLimits
 	} else {
 		m.Runtime.Node = version
 	}

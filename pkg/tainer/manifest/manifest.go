@@ -10,7 +10,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const FileName = "tainer.yaml"
+const (
+	FileName            = "tainer.yaml"
+	LocalOverlayName    = ".tainer.local.yaml"
+)
 
 type ProjectType string
 
@@ -33,11 +36,32 @@ const (
 	DatabaseNone     DatabaseType = "none"
 )
 
+type PodSize string
+
+const (
+	PodSizeNano    PodSize = "nano"
+	PodSizeSmall   PodSize = "small"
+	PodSizeMedium  PodSize = "medium"
+	PodSizeLarge   PodSize = "large"
+	PodSizeXLarge  PodSize = "xlarge"
+	PodSizeXXL     PodSize = "xxl"
+	PodSizeCustom  PodSize = "custom"
+)
+
+type Protocol string
+
+const (
+	ProtocolHTTP Protocol = "http"
+	ProtocolTCP  Protocol = "tcp"
+)
+
 type Manifest struct {
 	Version int           `yaml:"version"`
 	Project ProjectConfig `yaml:"project"`
 	Runtime RuntimeConfig `yaml:"runtime"`
 	Mounts  []string      `yaml:"mounts,omitempty"`
+	Pod     *PodConfig    `yaml:"pod,omitempty"`
+	Ports   []PortEntry   `yaml:"ports,omitempty"`
 }
 
 type ProjectConfig struct {
@@ -86,21 +110,38 @@ func (l PHPLimits) Resolved() PHPLimits {
 func (l PHPLimits) EnvFlags() []string {
 	r := l.Resolved()
 	return []string{
-		"-e", "PHP_UPLOAD_MAX_FILESIZE=" + r.UploadMaxFilesize,
-		"-e", "PHP_POST_MAX_SIZE=" + r.PostMaxSize,
-		"-e", "PHP_MEMORY_LIMIT=" + r.MemoryLimit,
-		"-e", "PHP_MAX_EXECUTION_TIME=" + r.MaxExecutionTime,
-		"-e", "PHP_MAX_INPUT_VARS=" + r.MaxInputVars,
+		"PHP_UPLOAD_MAX_FILESIZE=" + r.UploadMaxFilesize,
+		"PHP_POST_MAX_SIZE=" + r.PostMaxSize,
+		"PHP_MEMORY_LIMIT=" + r.MemoryLimit,
+		"PHP_MAX_EXECUTION_TIME=" + r.MaxExecutionTime,
+		"PHP_MAX_INPUT_VARS=" + r.MaxInputVars,
 	}
 }
 
 type RuntimeConfig struct {
-	PHP      string       `yaml:"php,omitempty"`
-	Node     string       `yaml:"node,omitempty"`
-	Database DatabaseType `yaml:"database"`
-	Limits   PHPLimits    `yaml:"limits,omitempty"`
-	Shell    string       `yaml:"shell,omitempty"`
-	BuildDir string       `yaml:"build-dir,omitempty"` // react: dir served by Caddy in prod mode
+	PHP       string       `yaml:"php,omitempty"`
+	Node      string       `yaml:"node,omitempty"`
+	Database  DatabaseType `yaml:"database"`
+	PHPLimits PHPLimits    `yaml:"php-limits,omitempty"`
+	Shell     string       `yaml:"shell,omitempty"`
+	BuildDir  string       `yaml:"build-dir,omitempty"` // react: dir served by Caddy in prod mode
+}
+
+type PodConfig struct {
+	Size       PodSize                   `yaml:"size"`
+	Memory     string                    `yaml:"memory,omitempty"`
+	CPUs       string                    `yaml:"cpus,omitempty"`
+	Containers map[string]ContainerLimits `yaml:"containers,omitempty"`
+}
+
+type ContainerLimits struct {
+	Memory string `yaml:"memory,omitempty"`
+	CPUs   string `yaml:"cpus,omitempty"`
+}
+
+type PortEntry struct {
+	Port     int      `yaml:"port"`
+	Protocol Protocol `yaml:"protocol,omitempty"`
 }
 
 // BuildDirOrDefault returns the configured build directory or "dist" as default.
@@ -177,18 +218,47 @@ func Load(path string) (*Manifest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading manifest: %w", err)
 	}
-	var m Manifest
-	if err := yaml.Unmarshal(data, &m); err != nil {
-		return nil, fmt.Errorf("parsing manifest: %w", err)
-	}
-	if err := m.validate(); err != nil {
-		return nil, err
-	}
-	return &m, nil
+	return ParseBytes(data)
 }
 
 func LoadFromDir(dir string) (*Manifest, error) {
 	return Load(filepath.Join(dir, FileName))
+}
+
+func ParseBytes(data []byte) (*Manifest, error) {
+	var m Manifest
+	if err := yaml.Unmarshal(data, &m); err != nil {
+		return nil, fmt.Errorf("parsing manifest: %w", err)
+	}
+
+	// Default version to 1 if not specified
+	if m.Version == 0 {
+		m.Version = 1
+	}
+
+	// Handle version-specific migration
+	if m.Version == 1 {
+		if err := migrateV1(&m, data); err != nil {
+			return nil, err
+		}
+	} else if m.Version != 2 {
+		return nil, fmt.Errorf("unsupported manifest version: %d (expected 1 or 2)", m.Version)
+	}
+
+	// Apply defaults
+	m.defaults()
+
+	// Apply overlay (stub for now)
+	if err := applyOverlay(&m); err != nil {
+		return nil, err
+	}
+
+	// Validate
+	if err := m.validate(); err != nil {
+		return nil, err
+	}
+
+	return &m, nil
 }
 
 func Save(m *Manifest, path string) error {
@@ -199,29 +269,59 @@ func Save(m *Manifest, path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-func (m *Manifest) validate() error {
-	if m.Version != 1 {
-		return fmt.Errorf("unsupported manifest version: %d (expected 1)", m.Version)
+// stub for migration; full impl in Task 5
+func migrateV1(m *Manifest, raw []byte) error {
+	return fmt.Errorf("v1 migration not implemented yet (see manifest/migrate.go)")
+}
+
+// applyOverlay applies the local overlay file to the manifest.
+// Stub for now; real implementation is Task 6.
+func applyOverlay(m *Manifest) error {
+	return nil
+}
+
+func (m *Manifest) defaults() {
+	if m.Pod == nil {
+		m.Pod = &PodConfig{Size: PodSizeSmall}
 	}
+	// Apply defaults to port entries
+	for i := range m.Ports {
+		if m.Ports[i].Protocol == "" {
+			m.Ports[i].Protocol = ProtocolHTTP
+		}
+	}
+}
+
+func (m *Manifest) validate() error {
+	// Validate version
+	if m.Version != 1 && m.Version != 2 {
+		return fmt.Errorf("unsupported manifest version: %d (expected 1 or 2)", m.Version)
+	}
+
 	if err := validate.ProjectName(m.Project.Name); err != nil {
 		return fmt.Errorf("invalid project name: %w", err)
 	}
+
 	switch m.Project.Type {
 	case TypeWordPress, TypePHP, TypeNodeJS, TypeNextJS, TypeNuxtJS, TypeNestJS, TypeReact, TypeKompozi:
 	default:
 		return fmt.Errorf("invalid project type: %q (expected wordpress, php, nodejs, nextjs, nuxtjs, nestjs, react, or kompozi)", m.Project.Type)
 	}
+
 	switch m.Runtime.Database {
 	case DatabaseMariaDB, DatabasePostgres, DatabaseNone:
 	default:
 		return fmt.Errorf("invalid database: %q (expected mariadb, postgres, or none)", m.Runtime.Database)
 	}
+
 	if m.IsPHP() && m.Runtime.PHP == "" {
 		return fmt.Errorf("php version required for %s projects", m.Project.Type)
 	}
+
 	if m.IsNode() && m.Runtime.Node == "" {
 		return fmt.Errorf("node version required for %s projects", m.Project.Type)
 	}
+
 	reserved := map[string]bool{"html": true, "data": true, "db": true}
 	for _, mount := range m.Mounts {
 		if mount == "" {
@@ -234,5 +334,26 @@ func (m *Manifest) validate() error {
 			return fmt.Errorf("mount name %q is reserved", mount)
 		}
 	}
+
+	// Validate pod config for v2
+	if m.Version == 2 {
+		if m.Pod != nil {
+			switch m.Pod.Size {
+			case PodSizeNano, PodSizeSmall, PodSizeMedium, PodSizeLarge, PodSizeXLarge, PodSizeXXL, PodSizeCustom:
+			default:
+				return fmt.Errorf("invalid pod size: %q", m.Pod.Size)
+			}
+		}
+
+		// Validate port protocols
+		for _, p := range m.Ports {
+			switch p.Protocol {
+			case ProtocolHTTP, ProtocolTCP:
+			default:
+				return fmt.Errorf("invalid port protocol: %q (expected http or tcp)", p.Protocol)
+			}
+		}
+	}
+
 	return nil
 }
