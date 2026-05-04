@@ -53,3 +53,37 @@ func (c *Client) Exec(ctx context.Context, name string, cmd []string) (ExecResul
 		Stderr:   stderr.Bytes(),
 	}, nil
 }
+
+// ExecWithStdin is like Exec but pipes stdin into the exec session.
+// Used by `tainer db import`.
+func (c *Client) ExecWithStdin(ctx context.Context, name string, cmd []string, stdin []byte) (ExecResult, error) {
+	createResp, err := c.api.ContainerExecCreate(ctx, name, container.ExecOptions{
+		Cmd:          cmd,
+		AttachStdin:  true,
+		AttachStdout: true,
+		AttachStderr: true,
+	})
+	if err != nil {
+		return ExecResult{}, err
+	}
+	hijack, err := c.api.ContainerExecAttach(ctx, createResp.ID, container.ExecStartOptions{})
+	if err != nil {
+		return ExecResult{}, err
+	}
+	defer hijack.Close()
+
+	if _, err := hijack.Conn.Write(stdin); err != nil {
+		return ExecResult{}, fmt.Errorf("write stdin: %w", err)
+	}
+	_ = hijack.CloseWrite()
+
+	var out, errBuf bytes.Buffer
+	if _, err := stdcopy.StdCopy(&out, &errBuf, hijack.Reader); err != nil {
+		return ExecResult{}, err
+	}
+	insp, err := c.api.ContainerExecInspect(ctx, createResp.ID)
+	if err != nil {
+		return ExecResult{}, err
+	}
+	return ExecResult{ExitCode: insp.ExitCode, Stdout: out.Bytes(), Stderr: errBuf.Bytes()}, nil
+}
