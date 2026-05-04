@@ -388,10 +388,10 @@ func TestLoad_WithLimits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
-	if m.Runtime.Limits.MemoryLimit != "256M" {
-		t.Errorf("Limits.MemoryLimit = %q, want 256M", m.Runtime.Limits.MemoryLimit)
+	if m.Runtime.PHPLimits.MemoryLimit != "256M" {
+		t.Errorf("PHPLimits.MemoryLimit = %q, want 256M", m.Runtime.PHPLimits.MemoryLimit)
 	}
-	r := m.Runtime.Limits.Resolved()
+	r := m.Runtime.PHPLimits.Resolved()
 	if r.UploadMaxFilesize != "1G" {
 		t.Errorf("Resolved UploadMaxFilesize = %q, want 1G", r.UploadMaxFilesize)
 	}

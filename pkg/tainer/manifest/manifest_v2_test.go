@@ -136,3 +136,36 @@ pod:
 		t.Fatal("expected error for invalid pod size, got nil")
 	}
 }
+
+func TestMigrateV1WordPress(t *testing.T) {
+	v1 := `
+version: 1
+project:
+  name: oldwp
+  type: wordpress
+  domain: oldwp.tainer.me
+runtime:
+  php: "8.2"
+  database: mariadb
+  limits:
+    memory_limit: 256M
+mounts:
+  - foo
+`
+	m, err := ParseBytes([]byte(v1))
+	if err != nil {
+		t.Fatalf("ParseBytes (v1 migration): %v", err)
+	}
+	if m.Version != 2 {
+		t.Errorf("Version after migrate: got %d, want 2", m.Version)
+	}
+	if m.Pod.Size != PodSizeSmall {
+		t.Errorf("default Pod.Size after migrate: got %q, want small", m.Pod.Size)
+	}
+	if m.Runtime.PHPLimits.MemoryLimit != "256M" {
+		t.Errorf("php-limits.memory_limit after migrate: got %q, want 256M", m.Runtime.PHPLimits.MemoryLimit)
+	}
+	if len(m.Mounts) != 1 || m.Mounts[0] != "foo" {
+		t.Errorf("mounts not preserved across migration: %v", m.Mounts)
+	}
+}

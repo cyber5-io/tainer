@@ -269,9 +269,11 @@ func Save(m *Manifest, path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// stub for migration; full impl in Task 5
 func migrateV1(m *Manifest, raw []byte) error {
-	return fmt.Errorf("v1 migration not implemented yet (see manifest/migrate.go)")
+	if migrateV1Func == nil {
+		return fmt.Errorf("v1 migration unavailable (init() in migrate.go did not run)")
+	}
+	return migrateV1Func(m, raw)
 }
 
 // applyOverlay applies the local overlay file to the manifest.
