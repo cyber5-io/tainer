@@ -38,3 +38,32 @@ func TestGenerateCaddyfile_MultipleProjects(t *testing.T) {
 		t.Error("Caddyfile should contain both project domains")
 	}
 }
+
+func TestGenerateCaddyfileWithExtraHTTPPorts(t *testing.T) {
+	pods := []PodEndpoint{
+		{
+			Pod:    "mywp",
+			Domain: "mywp.tainer.me",
+			WebIP:  "10.42.7.4",
+			HTTPServices: []HTTPService{
+				{Role: "mail", Port: 8025, IP: "10.42.7.5"},
+			},
+		},
+	}
+	out := GenerateCaddyfileV2(pods, "/certs/tainer.me.crt", "/certs/tainer.me.key")
+	if !strings.Contains(out, "mywp.tainer.me {") {
+		t.Errorf("missing main site block:\n%s", out)
+	}
+	if !strings.Contains(out, "reverse_proxy 10.42.7.4:80") {
+		t.Errorf("missing main reverse_proxy:\n%s", out)
+	}
+	if !strings.Contains(out, "mywp.tainer.me:8025 {") {
+		t.Errorf("missing extra-port site block:\n%s", out)
+	}
+	if !strings.Contains(out, "reverse_proxy 10.42.7.5:8025") {
+		t.Errorf("missing extra-port reverse_proxy:\n%s", out)
+	}
+	if !strings.Contains(out, "admin 127.0.0.1:2019") {
+		t.Errorf("missing admin endpoint:\n%s", out)
+	}
+}

@@ -75,3 +75,29 @@ func ReloadCaddy(eng *engine.Client) error {
 	}
 	return nil
 }
+
+// GenerateCaddyfileV2 renders site blocks from PodEndpoint records.
+// Replaces the v1 (CaddyProject IP/Port) generator — kept side-by-side
+// during the rebuild but lifecycle code calls only V2.
+func GenerateCaddyfileV2(pods []PodEndpoint, certPath, keyPath string) string {
+	var b strings.Builder
+	b.WriteString("{\n\tadmin 127.0.0.1:2019\n\tauto_https off\n}\n\n")
+	b.WriteString(":80 {\n\tredir https://{host}{uri} permanent\n}\n\n")
+
+	for _, p := range pods {
+		b.WriteString(fmt.Sprintf("%s {\n", p.Domain))
+		b.WriteString(fmt.Sprintf("\ttls %s %s\n", certPath, keyPath))
+		b.WriteString(fmt.Sprintf("\treverse_proxy %s:80 {\n", p.WebIP))
+		b.WriteString("\t\theader_up X-Forwarded-Proto https\n")
+		b.WriteString("\t\tlb_try_duration 30s\n")
+		b.WriteString("\t\tlb_try_interval 500ms\n")
+		b.WriteString("\t}\n}\n\n")
+		for _, h := range p.HTTPServices {
+			b.WriteString(fmt.Sprintf("%s:%d {\n", p.Domain, h.Port))
+			b.WriteString(fmt.Sprintf("\ttls %s %s\n", certPath, keyPath))
+			b.WriteString(fmt.Sprintf("\treverse_proxy %s:%d\n", h.IP, h.Port))
+			b.WriteString("}\n\n")
+		}
+	}
+	return b.String()
+}
