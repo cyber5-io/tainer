@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
+	"github.com/cyber5-io/tainer/pkg/tainer/initcmd"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 	"github.com/cyber5-io/tainer/pkg/tainer/networkcmd"
 	"github.com/cyber5-io/tainer/pkg/tainer/pod"
@@ -180,10 +181,19 @@ func cmdStatus() {
 	}
 }
 
-// cmdInit is a placeholder for the init wizard (lands in Task 24).
-func cmdInit(_ []string) {
-	fmt.Fprintln(os.Stderr, "tainer: init wizard lands in Task 24")
-	os.Exit(1)
+// cmdInit scaffolds a new tainer project.
+func cmdInit(args []string) {
+	if len(args) < 2 {
+		fmt.Fprintln(os.Stderr, "usage: tainer init <type> <name> [--size <preset>]")
+		os.Exit(2)
+	}
+	cwd, _ := os.Getwd()
+	must(initcmd.Run(initcmd.Options{
+		Type: manifest.ProjectType(args[0]),
+		Name: args[1],
+		Dir:  cwd,
+	}))
+	fmt.Printf("Created %s/. Next: cd %s && tainer start\n", args[1], args[1])
 }
 
 // cmdStart locates the manifest (cwd or ~/projects/<name>), starts
