@@ -51,8 +51,8 @@ const (
 type Protocol string
 
 const (
-	ProtocolHTTP Protocol = "http"
-	ProtocolTCP  Protocol = "tcp"
+	PortHTTP Protocol = "http"
+	PortTCP  Protocol = "tcp"
 )
 
 type Manifest struct {
@@ -140,8 +140,9 @@ type ContainerLimits struct {
 }
 
 type PortEntry struct {
-	Port     int      `yaml:"port"`
-	Protocol Protocol `yaml:"protocol,omitempty"`
+	Role      string   `yaml:"role"`
+	Container int      `yaml:"container"`
+	Protocol  Protocol `yaml:"protocol,omitempty"`
 }
 
 // BuildDirOrDefault returns the configured build directory or "dist" as default.
@@ -299,7 +300,7 @@ func (m *Manifest) defaults() {
 	// Apply defaults to port entries
 	for i := range m.Ports {
 		if m.Ports[i].Protocol == "" {
-			m.Ports[i].Protocol = ProtocolHTTP
+			m.Ports[i].Protocol = PortHTTP
 		}
 	}
 }
@@ -357,10 +358,15 @@ func (m *Manifest) validate() error {
 			}
 		}
 
-		// Validate port protocols
 		for _, p := range m.Ports {
+			if p.Role == "" {
+				return fmt.Errorf("ports entry missing role")
+			}
+			if p.Container <= 0 {
+				return fmt.Errorf("ports entry for role %q has invalid container port: %d", p.Role, p.Container)
+			}
 			switch p.Protocol {
-			case ProtocolHTTP, ProtocolTCP:
+			case PortHTTP, PortTCP:
 			default:
 				return fmt.Errorf("invalid port protocol: %q (expected http or tcp)", p.Protocol)
 			}

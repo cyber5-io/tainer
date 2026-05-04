@@ -19,9 +19,11 @@ runtime:
 pod:
   size: small
 ports:
-  - port: 80
+  - role: web
+    container: 80
     protocol: http
-  - port: 443
+  - role: web
+    container: 443
     protocol: http
 `)
 	m, err := ParseBytes(data)
@@ -43,8 +45,8 @@ ports:
 	if len(m.Ports) != 2 {
 		t.Errorf("expected 2 ports, got %d", len(m.Ports))
 	}
-	if m.Ports[0].Port != 80 || m.Ports[0].Protocol != ProtocolHTTP {
-		t.Errorf("expected port 80/http, got %d/%q", m.Ports[0].Port, m.Ports[0].Protocol)
+	if m.Ports[0].Role != "web" || m.Ports[0].Container != 80 || m.Ports[0].Protocol != PortHTTP {
+		t.Errorf("expected web/80/http, got %s/%d/%q", m.Ports[0].Role, m.Ports[0].Container, m.Ports[0].Protocol)
 	}
 	if m.Runtime.PHPLimits.UploadMaxFilesize != "50M" {
 		t.Errorf("expected upload_max_filesize '50M', got %q", m.Runtime.PHPLimits.UploadMaxFilesize)
@@ -69,7 +71,8 @@ pod:
       memory: 1G
       cpus: 1
 ports:
-  - port: 3000
+  - role: app
+    container: 3000
     protocol: tcp
 `)
 	m, err := ParseBytes(data)
@@ -105,7 +108,8 @@ runtime:
 pod:
   size: nano
 ports:
-  - port: 5173
+  - role: web
+    container: 5173
 `)
 	m, err := ParseBytes(data)
 	if err != nil {
@@ -114,8 +118,8 @@ ports:
 	if len(m.Ports) != 1 {
 		t.Fatalf("expected 1 port, got %d", len(m.Ports))
 	}
-	if m.Ports[0].Protocol != ProtocolHTTP {
-		t.Errorf("expected default protocol %q, got %q", ProtocolHTTP, m.Ports[0].Protocol)
+	if m.Ports[0].Protocol != PortHTTP {
+		t.Errorf("expected default protocol %q, got %q", PortHTTP, m.Ports[0].Protocol)
 	}
 }
 

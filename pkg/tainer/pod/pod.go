@@ -132,7 +132,7 @@ func ManifestHash(m *manifest.Manifest) string {
 	fmt.Fprintf(h, "%s/%s/%s/%s\n", m.Project.Name, m.Project.Type, m.Project.Domain, m.Pod.Size)
 	fmt.Fprintf(h, "php=%s node=%s db=%s\n", m.Runtime.PHP, m.Runtime.Node, m.Runtime.Database)
 	for _, p := range m.Ports {
-		fmt.Fprintf(h, "port %d/%s\n", p.Port, p.Protocol)
+		fmt.Fprintf(h, "port %s/%d/%s\n", p.Role, p.Container, p.Protocol)
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
