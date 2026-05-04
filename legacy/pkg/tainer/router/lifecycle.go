@@ -8,8 +8,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/cyber5-io/tainer/pkg/tainer/config"
-	"github.com/cyber5-io/tainer/pkg/tainer/network"
+	"github.com/containers/podman/v6/pkg/tainer/config"
+	"github.com/containers/podman/v6/pkg/tainer/network"
 )
 
 const (

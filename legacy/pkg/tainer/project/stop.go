@@ -5,10 +5,10 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/cyber5-io/tainer/pkg/tainer/config"
-	"github.com/cyber5-io/tainer/pkg/tainer/network"
-	projRegistry "github.com/cyber5-io/tainer/pkg/tainer/registry"
-	"github.com/cyber5-io/tainer/pkg/tainer/router"
+	"github.com/containers/podman/v6/pkg/tainer/config"
+	"github.com/containers/podman/v6/pkg/tainer/network"
+	projRegistry "github.com/containers/podman/v6/pkg/tainer/registry"
+	"github.com/containers/podman/v6/pkg/tainer/router"
 )
 
 // Stop executes the full tainer stop flow for a project by name.

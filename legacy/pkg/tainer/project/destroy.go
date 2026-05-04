@@ -8,12 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cyber5-io/tainer/pkg/tainer/config"
-	"github.com/cyber5-io/tainer/pkg/tainer/machine"
-	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
-	"github.com/cyber5-io/tainer/pkg/tainer/network"
-	projRegistry "github.com/cyber5-io/tainer/pkg/tainer/registry"
-	"github.com/cyber5-io/tainer/pkg/tainer/router"
+	"github.com/containers/podman/v6/pkg/tainer/config"
+	"github.com/containers/podman/v6/pkg/tainer/machine"
+	"github.com/containers/podman/v6/pkg/tainer/manifest"
+	"github.com/containers/podman/v6/pkg/tainer/network"
+	projRegistry "github.com/containers/podman/v6/pkg/tainer/registry"
+	"github.com/containers/podman/v6/pkg/tainer/router"
 )
 
 // Destroy removes all Tainer resources for a project without deleting project files.

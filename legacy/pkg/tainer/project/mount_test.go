@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
+	"github.com/containers/podman/v6/pkg/tainer/manifest"
 )
 
 func TestMountAdd_CreatesDir(t *testing.T) {

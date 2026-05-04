@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
+	"github.com/containers/podman/v6/pkg/tainer/manifest"
 )
 
 // MountAdd adds a custom top-level mount to the project.

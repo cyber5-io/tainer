@@ -1,63 +1,56 @@
 package network
 
 import (
-	"fmt"
-	"os/exec"
+	"context"
 	"strings"
+
+	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 )
 
-// CreateNetwork creates a Podman network with the given name and subnet.
-func CreateNetwork(name, subnet string) error {
-	cmd := exec.Command("tainer", "network", "create", "--subnet", subnet, name)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		if strings.Contains(string(output), "already exists") {
-			return nil
-		}
-		return fmt.Errorf("creating network %s: %s", name, string(output))
-	}
-	return nil
+// CreateNetwork creates a user-defined bridge with the given subnet.
+// Idempotent.
+func CreateNetwork(eng *engine.Client, name, subnet string) error {
+	return eng.NetworkCreate(context.Background(), name, subnet)
 }
 
-// RemoveNetwork removes a Podman network.
-func RemoveNetwork(name string) error {
-	cmd := exec.Command("tainer", "network", "rm", "-f", name)
-	cmd.CombinedOutput()
-	return nil
+// RemoveNetwork removes a user-defined bridge. Idempotent.
+func RemoveNetwork(eng *engine.Client, name string) error {
+	return eng.NetworkRemove(context.Background(), name)
 }
 
-// ConnectContainer connects a container to a network.
-func ConnectContainer(network, container string) error {
-	cmd := exec.Command("tainer", "network", "connect", network, container)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		if strings.Contains(string(output), "already connected") {
-			return nil
-		}
-		return fmt.Errorf("connecting %s to %s: %s", container, network, string(output))
-	}
-	return nil
+// ConnectContainer attaches a container to a network. Idempotent.
+func ConnectContainer(eng *engine.Client, networkName, containerName string) error {
+	return eng.NetworkConnect(context.Background(), networkName, containerName)
 }
 
-// DisconnectContainer disconnects a container from a network.
-func DisconnectContainer(network, container string) error {
-	cmd := exec.Command("tainer", "network", "disconnect", network, container)
-	cmd.CombinedOutput() // ignore errors (container may not be connected)
-	return nil
+// DisconnectContainer detaches a container from a network. Idempotent.
+func DisconnectContainer(eng *engine.Client, networkName, containerName string) error {
+	return eng.NetworkDisconnect(context.Background(), networkName, containerName)
 }
 
-// NetworkExists checks if a Podman network with the given name exists.
-func NetworkExists(name string) bool {
-	cmd := exec.Command("tainer", "network", "exists", name)
-	return cmd.Run() == nil
-}
-
-// SubnetInUse checks if a subnet is already used by any Podman network.
-func SubnetInUse(subnet string) bool {
-	cmd := exec.Command("tainer", "network", "ls", "--format", "{{.Subnets}}")
-	output, err := cmd.CombinedOutput()
+// NetworkExists reports whether a user-defined bridge with the given
+// name exists on the engine.
+func NetworkExists(eng *engine.Client, name string) bool {
+	exists, err := eng.NetworkExists(context.Background(), name)
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(output), strings.TrimSuffix(subnet, "/24"))
+	return exists
+}
+
+// SubnetInUse reports whether subnet (e.g. "10.42.7.0/24") overlaps with
+// any subnet currently configured on the engine. Matching is by CIDR
+// stem (preserves the legacy /24-only behaviour).
+func SubnetInUse(eng *engine.Client, subnet string) bool {
+	in, err := eng.NetworkSubnets(context.Background())
+	if err != nil {
+		return false
+	}
+	stem := strings.TrimSuffix(subnet, "/24")
+	for _, s := range in {
+		if strings.Contains(s, stem) {
+			return true
+		}
+	}
+	return false
 }

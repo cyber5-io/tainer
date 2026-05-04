@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
+	"github.com/containers/podman/v6/pkg/tainer/manifest"
 )
 
 // ExtractScaffoldToHost extracts a project's scaffold tarball from its image

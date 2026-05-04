@@ -5,8 +5,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
-	tainerRegistry "github.com/cyber5-io/tainer/pkg/tainer/registry"
+	"github.com/containers/podman/v6/pkg/tainer/manifest"
+	tainerRegistry "github.com/containers/podman/v6/pkg/tainer/registry"
 )
 
 const imageRegistry = "ghcr.io/cyber5-io/tainer"

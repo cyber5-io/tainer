@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
@@ -168,6 +169,53 @@ func (c *Client) NetworkRemove(ctx context.Context, name string) error {
 		return fmt.Errorf("engine: network remove %s: %w", name, err)
 	}
 	return nil
+}
+
+// NetworkConnect attaches a container to a network. Idempotent: returns
+// nil when the container is already attached.
+func (c *Client) NetworkConnect(ctx context.Context, networkName, containerName string) error {
+	err := c.api.NetworkConnect(ctx, networkName, containerName, nil)
+	if err == nil {
+		return nil
+	}
+	// The engine returns 403 with "already exists" when re-attaching;
+	// treat as success.
+	if strings.Contains(err.Error(), "already exists") {
+		return nil
+	}
+	return fmt.Errorf("engine: network connect %s -> %s: %w", containerName, networkName, err)
+}
+
+// NetworkDisconnect detaches a container from a network. Idempotent:
+// nil if the container or network is missing, or if not connected.
+func (c *Client) NetworkDisconnect(ctx context.Context, networkName, containerName string) error {
+	err := c.api.NetworkDisconnect(ctx, networkName, containerName, true)
+	if err == nil || client.IsErrNotFound(err) {
+		return nil
+	}
+	if strings.Contains(err.Error(), "not connected") {
+		return nil
+	}
+	return fmt.Errorf("engine: network disconnect %s <- %s: %w", containerName, networkName, err)
+}
+
+// NetworkSubnets returns every subnet currently in use across all
+// user-defined networks. Used by tainer to pick a free /24 when
+// scaffolding a new project.
+func (c *Client) NetworkSubnets(ctx context.Context) ([]string, error) {
+	nets, err := c.api.NetworkList(ctx, network.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("engine: network list: %w", err)
+	}
+	var out []string
+	for _, n := range nets {
+		for _, cfg := range n.IPAM.Config {
+			if cfg.Subnet != "" {
+				out = append(out, cfg.Subnet)
+			}
+		}
+	}
+	return out, nil
 }
 
 // ErrNotFound is returned by helpers that distinguish "missing" from

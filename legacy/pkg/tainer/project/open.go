@@ -5,7 +5,7 @@ import (
 	"os/exec"
 	"runtime"
 
-	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
+	"github.com/containers/podman/v6/pkg/tainer/manifest"
 )
 
 // OpenBrowser opens the project URL in the default browser.

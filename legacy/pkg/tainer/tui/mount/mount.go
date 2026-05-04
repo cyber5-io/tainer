@@ -8,8 +8,8 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/cyber5-io/tainer/pkg/tainer/project"
-	"github.com/cyber5-io/tainer/pkg/tainer/tui"
+	"github.com/containers/podman/v6/pkg/tainer/project"
+	"github.com/containers/podman/v6/pkg/tainer/tui"
 )
 
 // Result returned after the TUI exits.
