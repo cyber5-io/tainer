@@ -93,7 +93,7 @@ func Engine(ctx context.Context, opts Options) (*engine.Client, error) {
 // even if missing. Useful for `tainer status` and diagnostic surfaces.
 func CurrentStatus(ctx context.Context, opts Options) Status {
 	socket := resolveSocket(opts)
-	st := Status{Socket: socket, PID: readPID(socket)}
+	st := Status{Socket: socket, PID: ReadPID(socket)}
 	if st.PID > 0 {
 		// On Unix, signal 0 is a no-op probe.
 		if err := syscall.Kill(st.PID, 0); err == nil {
@@ -226,7 +226,10 @@ func waitForDaemon(ctx context.Context, socket string) (*engine.Client, error) {
 	return nil, fmt.Errorf("cyberstackd did not become reachable within %s: %w", pingDeadline, lastErr)
 }
 
-func readPID(socket string) int {
+// ReadPID reads the PID written by cyberstackd into its PID file
+// (adjacent to the socket at <socket-dir>/cyberstackd.pid). Returns 0
+// if the file is absent or unparseable.
+func ReadPID(socket string) int {
 	path := filepath.Join(filepath.Dir(socket), pidFile)
 	b, err := os.ReadFile(path)
 	if err != nil {
