@@ -11,14 +11,14 @@ import (
 	"sort"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
-	"github.com/cyber5-io/tainer/pkg/tainer/pod"
 )
 
-// Container names — generic role-based, same convention as pods.
-// Aliased from pod.* so the dependency direction stays one-way.
+// Container names — match pod.RouterWebName / pod.RouterSSHName exactly.
+// Kept here as literals so the router package does not import pod (which
+// would create a cycle now that pod/start.go imports router).
 const (
-	WebContainerName = pod.RouterWebName
-	SSHContainerName = pod.RouterSSHName
+	WebContainerName = "tainer-router-web"
+	SSHContainerName = "tainer-router-ssh"
 )
 
 // PodEndpoint describes one pod from the router's perspective.
@@ -67,10 +67,17 @@ func Ensure(ctx context.Context, eng *engine.Client, extraHTTPPorts []int) error
 	return ensureImpl(ctx, eng, extraHTTPPorts)
 }
 
+// podNetworkName returns the engine network name for the given pod.
+// Mirrors pod.NetworkName — inlined here to avoid an import cycle
+// (pod/start.go imports router; router must not import pod).
+func podNetworkName(podName string) string {
+	return "tainer-" + podName
+}
+
 // AttachToPod connects both router containers to the pod's network.
 // Idempotent (engine.NetworkConnect handles "already connected").
 func AttachToPod(ctx context.Context, eng *engine.Client, podName string) error {
-	netName := pod.NetworkName(podName)
+	netName := podNetworkName(podName)
 	if err := eng.NetworkConnect(ctx, netName, WebContainerName); err != nil {
 		return fmt.Errorf("router attach web: %w", err)
 	}
@@ -83,7 +90,7 @@ func AttachToPod(ctx context.Context, eng *engine.Client, podName string) error 
 // DetachFromPod disconnects both router containers from the pod's
 // network. Idempotent.
 func DetachFromPod(ctx context.Context, eng *engine.Client, podName string) error {
-	netName := pod.NetworkName(podName)
+	netName := podNetworkName(podName)
 	if err := eng.NetworkDisconnect(ctx, netName, WebContainerName); err != nil {
 		return fmt.Errorf("router detach web: %w", err)
 	}

@@ -35,15 +35,17 @@ type Mount struct {
 // (cgroup parents, ulimits, capabilities, etc.) — add as needed, not
 // speculatively.
 type RunSpec struct {
-	Image   string
-	Name    string
-	Network string   // user-defined bridge to attach the container to
-	Env     []string // KEY=VALUE form
-	Cmd     []string
-	Mounts  []Mount
-	Ports   []PortMap
-	Detach  bool // true = create+start detached; false = create only (caller starts)
-	Restart string
+	Image     string
+	Name      string
+	Network   string   // user-defined bridge to attach the container to
+	Env       []string // KEY=VALUE form
+	Cmd       []string
+	Mounts    []Mount
+	Ports     []PortMap
+	Detach    bool // true = create+start detached; false = create only (caller starts)
+	Restart   string
+	Resources container.Resources // memory + NanoCPUs
+	Labels    map[string]string
 }
 
 // Run creates a container per spec and (if Detach) starts it.
@@ -54,7 +56,9 @@ func (c *Client) Run(ctx context.Context, spec RunSpec) (string, error) {
 		Env:   spec.Env,
 		Cmd:   spec.Cmd,
 	}
+	cfg.Labels = spec.Labels
 	hostCfg := &container.HostConfig{}
+	hostCfg.Resources = spec.Resources
 	if spec.Restart != "" {
 		hostCfg.RestartPolicy = container.RestartPolicy{Name: container.RestartPolicyMode(spec.Restart)}
 	}
