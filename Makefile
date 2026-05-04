@@ -1,7 +1,7 @@
 .PHONY: build test clean
 
 # Single source of truth for the binary version.
-VERSION := 1.0.0-dev
+VERSION := 0.9.0-dev
 LDFLAGS := -X main.version=$(VERSION)
 
 BIN_DIR := bin

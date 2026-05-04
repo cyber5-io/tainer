@@ -220,6 +220,8 @@ Roughly the 11.7K LOC that is actually tainer survives the move, with engine cal
 > **Status note (2026-04-26):** CyberStack `v0.2.0` is live — VM bring-up + agent handshake shipped. Apple Virt UEFI → systemd-boot → Linux 6.12.83 → custom initramfs → `cyberstack-agent` dials home over vsock; daemon accepts and exposes live VM stats through Docker `/info`. End-to-end handshake measured at ~470ms (budget was <3s pass). See `docs/superpowers/plans/2026-04-25-cyberstack-0.2-vm-bringup-agent-handshake.md` for the completed milestone. Container runtime work begins next (0.3).
 >
 > **Status note (2026-05-01):** CyberStack `v0.3.0` is live — container runtime tier B shipped. `docker pull / run / exec / logs / inspect / stop / rm / rmi` work end-to-end against `cyberstackd`. Cold-pull P50 = 860ms over n=100 against `mirror.gcr.io/library/alpine`, well inside the 3s budget; honest gap to OrbStack on the same machine (P50 467ms): +393ms — diagnosed and sized for 0.4 in `docs/superpowers/specs/2026-05-01-cyberstack-0.4-pull-pipeline-design.md`. See `docs/superpowers/plans/2026-04-27-cyberstack-0.3-container-runtime.md` for the completed milestone (with a header listing five plan deviations: external gvproxy supervisor, vfs→overlay, CGO+zig+SQLite cache, init.sh stderr-blocking fix, instrumentation revert). 0.4 starts on the pull-pipeline performance work.
+>
+> **Status note (2026-05-04):** Step 8 design landed at `docs/superpowers/specs/2026-05-04-tainer-0.9-pod-lifecycle-network-design.md`. The original plan targeted 1.0.0 for the rebuild; that milestone has been retargeted to **0.9.0** to reserve 1.0.0 for the smart-pod cap stone (aggregate cgroup enforcement, requires cyberstack 0.5). Step 12 is now "Ship 0.9.0"; a new roadmap entry below sequences smart pods + 1.0.
 
 1. **Set up CyberStack repo.** Create `/Users/lenineto/dev/cyber5-io/cyber-stack` as a private repo. Bootstrap with Go module, repo layout, CI skeleton. ✅ **Done — v0.1.0**
 2. **CyberStack MVP — VM lifecycle.** Embedded Virtualization.framework or vfkit wrapper, minimal guest boot, virtio-fs mount, vsock to agent, lifecycle commands. ✅ **Done — v0.2.0** (agent handshake + live `/info`; virtio-fs mount lands with the container runtime in 0.3)
@@ -232,7 +234,8 @@ Roughly the 11.7K LOC that is actually tainer survives the move, with engine cal
 9. **Parity validation.** All 9 project types start/stop/exec/db-import/db-export/status/list successfully. `tainer claude-skill` works.
 10. **DDEV integration test.** DDEV running transparently against CyberStack as a published test case.
 11. **Installer builds.** `release.sh` variant that produces the matched tainer + CyberStack bundles per platform.
-12. **Ship 1.0.0.** Merge `dev/v1` → `main` on tainer, cut 1.0.0 releases on both repos, remove `legacy/` from `main` on tainer, retain on `legacy-archive` branch.
+12. **Ship 0.9.0.** Merge `dev/v1` → `main` on tainer, cut 0.9.0 releases on both repos, remove `legacy/` from `main` on tainer, retain on `legacy-archive` branch.
+13. **Ship 1.0.0.** Smart pods (aggregate-pod cgroup enforcement) land in cyberstack 0.5; tainer 1.0 picks them up — `pod.size` becomes a parent-cgroup budget instead of summed per-container limits. Full Blenzi-ready resource model.
 
 ## MVP acceptance criteria
 

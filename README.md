@@ -6,7 +6,7 @@ A local-first development tool for containerised projects on macOS.
 
 ## Status
 
-This branch (`dev/v1`) is a **fresh rebuild** towards `1.0.0`. The previous tree (a podman fork that shipped as tainer 0.2.x) lives under [`legacy/`](./legacy) for reference and will be removed from `main` after the 1.0.0 merge.
+This branch (`dev/v1`) is a **fresh rebuild** towards `0.9.0` — see [docs/superpowers/specs/2026-05-04-tainer-0.9-pod-lifecycle-network-design.md](./docs/superpowers/specs/2026-05-04-tainer-0.9-pod-lifecycle-network-design.md) for the milestone scope. `1.0.0` is reserved for smart pods (aggregate-cgroup pod limits). The previous tree (a podman fork that shipped as tainer 0.2.x) lives under [`legacy/`](./legacy) for reference and will be removed from `main` after the 0.9.0 merge.
 
 The rebuild plan and design are in [`docs/superpowers/`](./docs/superpowers/).
 
