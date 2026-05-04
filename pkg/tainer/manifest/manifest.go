@@ -218,7 +218,19 @@ func Load(path string) (*Manifest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading manifest: %w", err)
 	}
-	return ParseBytes(data)
+	m, err := ParseBytes(data)
+	if err != nil {
+		return nil, err
+	}
+	// Apply overlay if present
+	dir := filepath.Dir(path)
+	overlayPath := filepath.Join(dir, LocalOverlayName)
+	if _, err := os.Stat(overlayPath); err == nil {
+		if err := applyOverlay(m, overlayPath); err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
 }
 
 func LoadFromDir(dir string) (*Manifest, error) {
@@ -248,11 +260,6 @@ func ParseBytes(data []byte) (*Manifest, error) {
 	// Apply defaults
 	m.defaults()
 
-	// Apply overlay (stub for now)
-	if err := applyOverlay(&m); err != nil {
-		return nil, err
-	}
-
 	// Validate
 	if err := m.validate(); err != nil {
 		return nil, err
@@ -277,9 +284,12 @@ func migrateV1(m *Manifest, raw []byte) error {
 }
 
 // applyOverlay applies the local overlay file to the manifest.
-// Stub for now; real implementation is Task 6.
-func applyOverlay(m *Manifest) error {
-	return nil
+// Delegates via applyOverlayFunc hook set in overlay.go init().
+func applyOverlay(m *Manifest, path string) error {
+	if applyOverlayFunc == nil {
+		return fmt.Errorf("overlay loader unavailable")
+	}
+	return applyOverlayFunc(m, path)
 }
 
 func (m *Manifest) defaults() {
