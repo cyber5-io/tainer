@@ -135,3 +135,62 @@ func TestSplitCustomMissingRole(t *testing.T) {
 		t.Fatal("want error for missing custom role, got nil")
 	}
 }
+
+func TestSplitNodeNoDatabase(t *testing.T) {
+	m := &manifest.Manifest{
+		Project: manifest.ProjectConfig{Type: manifest.TypeNodeJS},
+		Runtime: manifest.RuntimeConfig{Database: manifest.DatabaseNone},
+		Pod:     &manifest.PodConfig{Size: manifest.PodSizeSmall},
+	}
+	split, err := Split(m)
+	if err != nil {
+		t.Fatalf("Split: %v", err)
+	}
+	if _, hasDB := split["db"]; hasDB {
+		t.Error("db role should not be in split for database:none")
+	}
+	// web + app keep their preset budgets unchanged.
+	if split["web"].Memory != "128M" || split["app"].Memory != "640M" {
+		t.Errorf("expected web=128M app=640M, got %+v", split)
+	}
+}
+
+func TestSplitReactNoDatabaseDropsDB(t *testing.T) {
+	m := &manifest.Manifest{
+		Project: manifest.ProjectConfig{Type: manifest.TypeReact},
+		Runtime: manifest.RuntimeConfig{Database: manifest.DatabaseNone},
+		Pod:     &manifest.PodConfig{Size: manifest.PodSizeNano},
+	}
+	split, err := Split(m)
+	if err != nil {
+		t.Fatalf("Split: %v", err)
+	}
+	if len(split) != 1 {
+		t.Errorf("expected 1 entry (web only), got %d: %+v", len(split), split)
+	}
+	if split["web"].Memory != "384M" {
+		t.Errorf("expected web=384M (preset stays), got %+v", split["web"])
+	}
+}
+
+func TestSplitCustomNoDatabaseSkipsDBLimits(t *testing.T) {
+	m := &manifest.Manifest{
+		Project: manifest.ProjectConfig{Type: manifest.TypeNodeJS},
+		Runtime: manifest.RuntimeConfig{Database: manifest.DatabaseNone},
+		Pod: &manifest.PodConfig{
+			Size: manifest.PodSizeCustom,
+			Containers: map[string]manifest.ContainerLimits{
+				"web": {Memory: "200M", CPU: 0.3},
+				"app": {Memory: "700M", CPU: 0.6},
+				// no "db" entry — should not be required
+			},
+		},
+	}
+	split, err := Split(m)
+	if err != nil {
+		t.Fatalf("Split: %v", err)
+	}
+	if _, hasDB := split["db"]; hasDB {
+		t.Error("db role should not be in split for database:none + custom")
+	}
+}

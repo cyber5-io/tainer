@@ -26,6 +26,32 @@ func TestRolesForType(t *testing.T) {
 	}
 }
 
+func TestRolesForPod(t *testing.T) {
+	cases := []struct {
+		name string
+		typ  manifest.ProjectType
+		db   manifest.DatabaseType
+		want []string
+	}{
+		{"wp+mariadb", manifest.TypeWordPress, manifest.DatabaseMariaDB, []string{"web", "app", "db"}},
+		{"wp+none", manifest.TypeWordPress, manifest.DatabaseNone, []string{"web", "app"}},
+		{"node+postgres", manifest.TypeNodeJS, manifest.DatabasePostgres, []string{"web", "app", "db"}},
+		{"node+none", manifest.TypeNodeJS, manifest.DatabaseNone, []string{"web", "app"}},
+		{"react+mariadb", manifest.TypeReact, manifest.DatabaseMariaDB, []string{"web", "db"}},
+		{"react+none", manifest.TypeReact, manifest.DatabaseNone, []string{"web"}},
+	}
+	for _, c := range cases {
+		m := &manifest.Manifest{
+			Project: manifest.ProjectConfig{Type: c.typ},
+			Runtime: manifest.RuntimeConfig{Database: c.db},
+		}
+		got := RolesForPod(m)
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func TestDefaultExecRole(t *testing.T) {
 	if got := DefaultExecRole(manifest.TypeWordPress); got != "app" {
 		t.Errorf("WordPress: got %q, want app", got)

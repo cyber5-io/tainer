@@ -64,7 +64,7 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 	}
 
 	mhash := ManifestHash(m)
-	for _, role := range RolesForType(m.Project.Type) {
+	for _, role := range RolesForPod(m) {
 		if err := startContainer(ctx, eng, m, opts, role, octet, mhash, split[role]); err != nil {
 			return nil, err
 		}

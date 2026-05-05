@@ -34,7 +34,7 @@ func Update(ctx context.Context, eng *engine.Client, opts StartOptions, uopt Upd
 	if err != nil {
 		return err
 	}
-	for _, role := range RolesForType(m.Project.Type) {
+	for _, role := range RolesForPod(m) {
 		if err := eng.Pull(ctx, ImageRef(m, role)); err != nil {
 			return fmt.Errorf("update: pull %s: %w", role, err)
 		}

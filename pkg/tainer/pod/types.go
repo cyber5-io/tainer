@@ -8,6 +8,10 @@ import (
 
 // RolesForType returns the ordered set of roles that compose a pod of
 // the given project type. Spec §"Role mapping per project type".
+//
+// This is the type-only view. For lifecycle decisions (start, update,
+// resource split) prefer RolesForPod, which also drops the db role when
+// the manifest declares no database.
 func RolesForType(t manifest.ProjectType) []string {
 	switch t {
 	case manifest.TypeReact:
@@ -16,6 +20,24 @@ func RolesForType(t manifest.ProjectType) []string {
 		// All other types: 3-container web+app+db.
 		return []string{RoleWeb, RoleApp, RoleDB}
 	}
+}
+
+// RolesForPod is RolesForType filtered by the manifest's runtime
+// config: pods declared with `database: none` skip the db role so we
+// don't pull a database image we'll never use.
+func RolesForPod(m *manifest.Manifest) []string {
+	roles := RolesForType(m.Project.Type)
+	if m.HasDatabase() {
+		return roles
+	}
+	out := make([]string, 0, len(roles))
+	for _, r := range roles {
+		if r == RoleDB {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 // DefaultExecRole returns the role that `tainer exec <project>`

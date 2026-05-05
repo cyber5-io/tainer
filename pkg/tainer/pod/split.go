@@ -21,11 +21,21 @@ func Split(m *manifest.Manifest) (map[string]Limits, error) {
 	if m.Pod == nil {
 		return nil, fmt.Errorf("pod: Split: manifest has no pod config")
 	}
-	roles := RolesForType(m.Project.Type)
+	// allRoles drives the preset table lookup (table keyed by full-type
+	// container count); activeRoles drops db when the manifest declares
+	// no database. Anything not in active is omitted from the output —
+	// for presets the slot's budget is simply unused, for custom sizes
+	// we don't demand the user declare limits we'll never apply.
+	allRoles := RolesForType(m.Project.Type)
+	activeRoles := RolesForPod(m)
+	active := map[string]bool{}
+	for _, r := range activeRoles {
+		active[r] = true
+	}
 
 	if m.Pod.Size == manifest.PodSizeCustom {
-		out := make(map[string]Limits, len(roles))
-		for _, r := range roles {
+		out := make(map[string]Limits, len(activeRoles))
+		for _, r := range activeRoles {
 			lim, ok := m.Pod.Containers[r]
 			if !ok {
 				return nil, fmt.Errorf("pod.size=custom but pod.containers.%s is missing", r)
@@ -35,12 +45,15 @@ func Split(m *manifest.Manifest) (map[string]Limits, error) {
 		return out, nil
 	}
 
-	tbl, ok := splitTable[len(roles)][m.Pod.Size]
+	tbl, ok := splitTable[len(allRoles)][m.Pod.Size]
 	if !ok {
-		return nil, fmt.Errorf("no split for %d-container type at size %q", len(roles), m.Pod.Size)
+		return nil, fmt.Errorf("no split for %d-container type at size %q", len(allRoles), m.Pod.Size)
 	}
-	out := make(map[string]Limits, len(roles))
-	for i, r := range roles {
+	out := make(map[string]Limits, len(activeRoles))
+	for i, r := range allRoles {
+		if !active[r] {
+			continue
+		}
 		out[r] = tbl[i]
 	}
 	return out, nil
