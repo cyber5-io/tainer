@@ -18,7 +18,7 @@ import (
 // `tainer.pod=<name>` containers from the engine and grouping them.
 type Pod struct {
 	Name         string
-	SubnetOctet  int
+	PodID        int
 	Containers   []Container
 	ManifestHash string
 }
@@ -79,8 +79,8 @@ func List(ctx context.Context, eng *engine.Client) ([]Pod, error) {
 		}
 		p, ok := byPod[name]
 		if !ok {
-			octet, _ := strconv.Atoi(c.Labels[LabelSubnetOctet])
-			p = &Pod{Name: name, SubnetOctet: octet, ManifestHash: c.Labels[LabelManifestHash]}
+			podID, _ := strconv.Atoi(c.Labels[LabelPodID])
+			p = &Pod{Name: name, PodID: podID, ManifestHash: c.Labels[LabelManifestHash]}
 			byPod[name] = p
 		}
 		role := c.Labels[LabelRole]

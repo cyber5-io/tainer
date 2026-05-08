@@ -22,7 +22,7 @@ type StartOptions struct {
 // StartResult is what the CLI prints after a successful start.
 type StartResult struct {
 	Pod          string
-	SubnetOctet  int
+	PodID        int
 	Domain       string
 	HTTPServices []HTTPSvcResult
 	TCPServices  []TCPSvcResult
@@ -51,7 +51,7 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 	if err != nil {
 		return nil, fmt.Errorf("pod start: subnet: %w", err)
 	}
-	octet := subnetOctet(subnet)
+	podID := podIDFromSubnet(subnet)
 
 	netName := NetworkName(m.Project.Name)
 	if err := eng.NetworkCreate(ctx, netName, subnet); err != nil {
@@ -65,7 +65,7 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 
 	mhash := ManifestHash(m)
 	for _, role := range RolesForPod(m) {
-		if err := startContainer(ctx, eng, m, opts, role, octet, mhash, split[role]); err != nil {
+		if err := startContainer(ctx, eng, m, opts, role, podID, mhash, split[role]); err != nil {
 			return nil, err
 		}
 	}
@@ -95,7 +95,7 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 		return nil, err
 	}
 
-	return makeStartResult(m, octet), nil
+	return makeStartResult(m, podID), nil
 }
 
 // startContainer creates+starts one role's container with the right
@@ -103,17 +103,17 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 func startContainer(
 	ctx context.Context, eng *engine.Client,
 	m *manifest.Manifest, opts StartOptions,
-	role string, octet int, mhash string, lim Limits,
+	role string, podID int, mhash string, lim Limits,
 ) error {
 	memBytes, _ := units.RAMInBytes(lim.Memory)
 	envs := buildEnv(m, role)
 	mounts := buildMounts(m, opts.ProjectDir, role)
-	tcpBindings := buildTCPBindings(m, octet, role)
+	tcpBindings := buildTCPBindings(m, podID, role)
 
 	labels := map[string]string{
 		LabelPod:          m.Project.Name,
 		LabelRole:         role,
-		LabelSubnetOctet:  strconv.Itoa(octet),
+		LabelPodID:        strconv.Itoa(podID),
 		LabelManifestPath: opts.ManifestPath,
 		LabelManifestHash: mhash,
 	}
@@ -140,7 +140,7 @@ func startContainer(
 	return err
 }
 
-func subnetOctet(subnet string) int {
+func podIDFromSubnet(subnet string) int {
 	var o1, o2, o3 int
 	fmt.Sscanf(subnet, "%d.%d.%d.0/24", &o1, &o2, &o3)
 	return o3
@@ -227,11 +227,11 @@ func buildEndpoints(ctx context.Context, eng *engine.Client, pods []Pod) ([]rout
 	return out, nil
 }
 
-func makeStartResult(m *manifest.Manifest, octet int) *StartResult {
+func makeStartResult(m *manifest.Manifest, podID int) *StartResult {
 	r := &StartResult{
-		Pod:         m.Project.Name,
-		SubnetOctet: octet,
-		Domain:      m.Project.Domain,
+		Pod:    m.Project.Name,
+		PodID:  podID,
+		Domain: m.Project.Domain,
 	}
 	for _, p := range m.Ports {
 		switch p.Protocol {
@@ -243,7 +243,7 @@ func makeStartResult(m *manifest.Manifest, octet int) *StartResult {
 		case manifest.PortTCP:
 			r.TCPServices = append(r.TCPServices, TCPSvcResult{
 				Role: p.Role,
-				Host: fmt.Sprintf("127.0.0.1:%d", DerivePort(octet, p.Role)),
+				Host: fmt.Sprintf("127.0.0.1:%d", DerivePort(podID, p.Role)),
 			})
 		}
 	}

@@ -164,7 +164,7 @@ func cmdStatus() {
 				}
 			}
 			if manifestPath == "" {
-				fmt.Printf("\n%s   octet %d   %s\n", p.Name, p.SubnetOctet, p.State())
+				fmt.Printf("\n%s   pod %d   %s\n", p.Name, p.PodID, p.State())
 				continue
 			}
 			m, err := manifest.Load(manifestPath)
@@ -213,7 +213,7 @@ func cmdStart(args []string) {
 	})
 	must(err)
 
-	fmt.Printf("%s started   (subnet octet %d)\n", res.Pod, res.SubnetOctet)
+	fmt.Printf("%s started   (pod %d)\n", res.Pod, res.PodID)
 	fmt.Printf("  https://%s\n", res.Domain)
 	for _, h := range res.HTTPServices {
 		fmt.Printf("  %s   # %s\n", h.URL, h.Role)
@@ -352,7 +352,7 @@ func cmdList() {
 	must(err)
 
 	for _, p := range pods {
-		fmt.Printf("%s\t%s\toctet %d\n", p.Name, p.State(), p.SubnetOctet)
+		fmt.Printf("%s\t%s\tpod %d\n", p.Name, p.State(), p.PodID)
 	}
 }
 

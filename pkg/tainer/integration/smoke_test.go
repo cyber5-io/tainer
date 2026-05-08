@@ -55,8 +55,8 @@ func TestSmokeWordPressLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	if res.SubnetOctet == 0 {
-		t.Errorf("expected non-zero subnet octet")
+	if res.PodID == 0 {
+		t.Errorf("expected non-zero pod id")
 	}
 	if res.Domain != name+".tainer.me" {
 		t.Errorf("unexpected domain: %q", res.Domain)

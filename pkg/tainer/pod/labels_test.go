@@ -33,7 +33,7 @@ func TestLabelConstants(t *testing.T) {
 	}{
 		{"LabelPod", LabelPod, "tainer.pod"},
 		{"LabelRole", LabelRole, "tainer.role"},
-		{"LabelSubnetOctet", LabelSubnetOctet, "tainer.subnet-octet"},
+		{"LabelPodID", LabelPodID, "tainer.pod-id"},
 		{"LabelManifestPath", LabelManifestPath, "tainer.manifest-path"},
 		{"LabelManifestHash", LabelManifestHash, "tainer.manifest-hash"},
 		{"LabelPublishPrefix", LabelPublishPrefix, "tainer.published."},

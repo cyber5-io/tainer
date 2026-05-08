@@ -32,17 +32,17 @@ func Exec(ctx context.Context, eng *engine.Client, podName, role string, cmd []s
 }
 
 // FormatStatus formats one Pod for the `tainer status` output. The
-// octet line is highlighted because the spec promised it appears on
+// pod line is highlighted because the spec promised it appears on
 // every status print.
 func FormatStatus(p Pod, domain string, ports []manifest.PortEntry) string {
-	out := fmt.Sprintf("%s   octet %d   %s\n", p.Name, p.SubnetOctet, p.State())
+	out := fmt.Sprintf("%s   pod %d   %s\n", p.Name, p.PodID, p.State())
 	out += fmt.Sprintf("  https://%s\n", domain)
 	for _, port := range ports {
 		switch port.Protocol {
 		case manifest.PortHTTP:
 			out += fmt.Sprintf("  https://%s:%d   # %s\n", domain, port.Container, port.Role)
 		case manifest.PortTCP:
-			host := DerivePort(p.SubnetOctet, port.Role)
+			host := DerivePort(p.PodID, port.Role)
 			out += fmt.Sprintf("  127.0.0.1:%d   # %s\n", host, port.Role)
 		}
 	}
