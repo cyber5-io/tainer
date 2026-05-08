@@ -39,7 +39,7 @@ func Run(opts Options) error {
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
 		return err
 	}
-	for _, sub := range []string{"app", "data"} {
+	for _, sub := range []string{"html", "data", "db"} {
 		if err := os.MkdirAll(filepath.Join(projectDir, sub), 0755); err != nil {
 			return err
 		}

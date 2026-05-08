@@ -52,3 +52,20 @@ func TestRunKompoziDefaultsToPostgres(t *testing.T) {
 		t.Errorf("Kompozi db: got %q, want postgres", m.Runtime.Database)
 	}
 }
+
+func TestRunCreatesHtmlDataDbDirs(t *testing.T) {
+	dir := t.TempDir()
+	if err := Run(Options{Type: manifest.TypeWordPress, Name: "site", Dir: dir}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	for _, sub := range []string{"html", "data", "db"} {
+		fi, err := os.Stat(filepath.Join(dir, "site", sub))
+		if err != nil {
+			t.Errorf("expected %s/ to exist: %v", sub, err)
+			continue
+		}
+		if !fi.IsDir() {
+			t.Errorf("%s exists but isn't a directory", sub)
+		}
+	}
+}
