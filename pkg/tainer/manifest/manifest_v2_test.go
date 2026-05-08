@@ -142,6 +142,104 @@ pod:
 	}
 }
 
+func TestPortEntryHostPortAccepted(t *testing.T) {
+	data := []byte(`version: 2
+project:
+  name: myapp
+  type: nodejs
+  domain: myapp.test
+runtime:
+  node: "20"
+  database: none
+pod:
+  size: small
+ports:
+  - role: metrics
+    container: 9090
+    protocol: tcp
+    host_port: 45678
+`)
+	m, err := ParseBytes(data)
+	if err != nil {
+		t.Fatalf("ParseBytes failed: %v", err)
+	}
+	if len(m.Ports) != 1 {
+		t.Fatalf("expected 1 port, got %d", len(m.Ports))
+	}
+	if m.Ports[0].HostPort != 45678 {
+		t.Errorf("expected HostPort 45678, got %d", m.Ports[0].HostPort)
+	}
+}
+
+func TestPortEntryHostPortRejectedBelowBand(t *testing.T) {
+	data := []byte(`version: 2
+project:
+  name: myapp
+  type: nodejs
+  domain: myapp.test
+runtime:
+  node: "20"
+  database: none
+pod:
+  size: small
+ports:
+  - role: metrics
+    container: 9090
+    protocol: tcp
+    host_port: 30121
+`)
+	_, err := ParseBytes(data)
+	if err == nil {
+		t.Fatal("expected error for host_port below band, got nil")
+	}
+}
+
+func TestPortEntryHostPortRejectedAboveBand(t *testing.T) {
+	data := []byte(`version: 2
+project:
+  name: myapp
+  type: nodejs
+  domain: myapp.test
+runtime:
+  node: "20"
+  database: none
+pod:
+  size: small
+ports:
+  - role: metrics
+    container: 9090
+    protocol: tcp
+    host_port: 50000
+`)
+	_, err := ParseBytes(data)
+	if err == nil {
+		t.Fatal("expected error for host_port above band, got nil")
+	}
+}
+
+func TestPortEntryHostPortRejectedOnHTTP(t *testing.T) {
+	data := []byte(`version: 2
+project:
+  name: myapp
+  type: nodejs
+  domain: myapp.test
+runtime:
+  node: "20"
+  database: none
+pod:
+  size: small
+ports:
+  - role: web
+    container: 3000
+    protocol: http
+    host_port: 45000
+`)
+	_, err := ParseBytes(data)
+	if err == nil {
+		t.Fatal("expected error for host_port on http protocol, got nil")
+	}
+}
+
 func TestMigrateV1WordPress(t *testing.T) {
 	v1 := `
 version: 1

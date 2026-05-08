@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	FileName            = "tainer.yaml"
-	LocalOverlayName    = ".tainer.local.yaml"
+	FileName         = "tainer.yaml"
+	LocalOverlayName = ".tainer.local.yaml"
 )
 
 type ProjectType string
@@ -39,13 +39,13 @@ const (
 type PodSize string
 
 const (
-	PodSizeNano    PodSize = "nano"
-	PodSizeSmall   PodSize = "small"
-	PodSizeMedium  PodSize = "medium"
-	PodSizeLarge   PodSize = "large"
-	PodSizeXLarge  PodSize = "xlarge"
-	PodSizeXXL     PodSize = "xxl"
-	PodSizeCustom  PodSize = "custom"
+	PodSizeNano   PodSize = "nano"
+	PodSizeSmall  PodSize = "small"
+	PodSizeMedium PodSize = "medium"
+	PodSizeLarge  PodSize = "large"
+	PodSizeXLarge PodSize = "xlarge"
+	PodSizeXXL    PodSize = "xxl"
+	PodSizeCustom PodSize = "custom"
 )
 
 type Protocol string
@@ -141,6 +141,12 @@ type PortEntry struct {
 	Role      string   `yaml:"role"`
 	Container int      `yaml:"container"`
 	Protocol  Protocol `yaml:"protocol,omitempty"`
+	// HostPort, when set, pins the host-side TCP port for this role
+	// instead of the auto-derived pod_id*10+offset. Must fall in
+	// the pinned-only band 40000-49000. Rejected on HTTP-protocol
+	// entries (HTTP routing goes through the edge caddy on the
+	// project domain — no host port allocation).
+	HostPort int `yaml:"host_port,omitempty"`
 }
 
 // BuildDirOrDefault returns the configured build directory or "dist" as default.
@@ -367,6 +373,14 @@ func (m *Manifest) validate() error {
 			case PortHTTP, PortTCP:
 			default:
 				return fmt.Errorf("invalid port protocol: %q (expected http or tcp)", p.Protocol)
+			}
+			if p.HostPort != 0 {
+				if p.Protocol == PortHTTP {
+					return fmt.Errorf("ports entry for role %q: host_port not allowed on http protocol (HTTP routes via edge caddy)", p.Role)
+				}
+				if p.HostPort < 40000 || p.HostPort > 49000 {
+					return fmt.Errorf("ports entry for role %q: host_port %d outside pinned band 40000-49000", p.Role, p.HostPort)
+				}
 			}
 		}
 	}
