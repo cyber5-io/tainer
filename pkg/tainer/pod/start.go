@@ -166,11 +166,11 @@ func buildEnv(m *manifest.Manifest, role string) []string {
 func buildMounts(m *manifest.Manifest, projectDir, role string) []engine.Mount {
 	if role == RoleDB {
 		return []engine.Mount{
-			{Source: m.Project.Name + "-db-data", Target: dbDataPath(m), Volume: true},
+			{Source: projectDir + "/db", Target: dbDataPath(m)},
 		}
 	}
 	out := []engine.Mount{
-		{Source: projectDir + "/app", Target: m.ContainerAppPath()},
+		{Source: projectDir + "/" + m.HostAppDir(), Target: m.ContainerAppPath()},
 		{Source: projectDir + "/data", Target: m.ContainerMountBase() + "/data"},
 	}
 	for _, name := range m.Mounts {
