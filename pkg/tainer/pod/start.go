@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/docker/docker/api/types/container"
-	units "github.com/docker/go-units"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 	"github.com/cyber5-io/tainer/pkg/tainer/network"
 	"github.com/cyber5-io/tainer/pkg/tainer/router"
+	"github.com/docker/docker/api/types/container"
+	units "github.com/docker/go-units"
 )
 
 // StartOptions configures a Start call.
@@ -192,7 +192,7 @@ func buildTCPBindings(m *manifest.Manifest, octet int, role string) []engine.Por
 		if p.Role != role || p.Protocol != manifest.PortTCP {
 			continue
 		}
-		host := DerivePort(octet, m.Ports, role)
+		host := DerivePort(octet, role)
 		out = append(out, engine.PortMap{Container: p.Container, Host: host, Proto: "tcp"})
 	}
 	return out
@@ -243,7 +243,7 @@ func makeStartResult(m *manifest.Manifest, octet int) *StartResult {
 		case manifest.PortTCP:
 			r.TCPServices = append(r.TCPServices, TCPSvcResult{
 				Role: p.Role,
-				Host: fmt.Sprintf("127.0.0.1:%d", DerivePort(octet, m.Ports, p.Role)),
+				Host: fmt.Sprintf("127.0.0.1:%d", DerivePort(octet, p.Role)),
 			})
 		}
 	}

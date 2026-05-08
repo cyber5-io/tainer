@@ -42,7 +42,7 @@ func FormatStatus(p Pod, domain string, ports []manifest.PortEntry) string {
 		case manifest.PortHTTP:
 			out += fmt.Sprintf("  https://%s:%d   # %s\n", domain, port.Container, port.Role)
 		case manifest.PortTCP:
-			host := DerivePort(p.SubnetOctet, ports, port.Role)
+			host := DerivePort(p.SubnetOctet, port.Role)
 			out += fmt.Sprintf("  127.0.0.1:%d   # %s\n", host, port.Role)
 		}
 	}
