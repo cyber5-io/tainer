@@ -30,11 +30,16 @@ const (
 
 // Role values.
 const (
-	RoleWeb   = "web"
-	RoleApp   = "app"
-	RoleDB    = "db"
-	RoleMail  = "mail"
-	RoleCache = "cache"
+	RoleWeb     = "web"
+	RoleApp     = "app"
+	RoleDB      = "db"
+	RoleMail    = "mail"
+	RoleCache   = "cache"
+	RoleSearch  = "search"
+	RoleXdebug  = "xdebug"
+	RoleQueue   = "queue"
+	RoleStorage = "storage"
+	RoleCustom  = "custom"
 )
 
 // NetworkName returns the engine network name for the given pod.
