@@ -7,7 +7,6 @@ import (
 
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
-	"github.com/cyber5-io/tainer/pkg/tainer/network"
 	"github.com/cyber5-io/tainer/pkg/tainer/router"
 	"github.com/docker/docker/api/types/container"
 	units "github.com/docker/go-units"
@@ -47,15 +46,20 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 		return nil, err
 	}
 
-	subnet, err := network.AllocateSubnet(m.Project.Name)
+	podID, err := AllocatePodID(m.Project.Name)
 	if err != nil {
-		return nil, fmt.Errorf("pod start: subnet: %w", err)
+		return nil, fmt.Errorf("pod start: allocate pod id: %w", err)
 	}
-	podID := podIDFromSubnet(subnet)
 
-	netName := NetworkName(m.Project.Name)
-	if err := eng.NetworkCreate(ctx, netName, subnet); err != nil {
-		return nil, err
+	// Persist any manifest-pinned ports up-front so future allocations
+	// can avoid them across pods (manifest validation already restricts
+	// pinned values to 40000-49000).
+	for _, p := range m.Ports {
+		if p.Protocol == manifest.PortTCP && p.HostPort != 0 {
+			if err := PinTCPPort(m.Project.Name, p.Role, p.HostPort); err != nil {
+				return nil, fmt.Errorf("pod start: pin %s: %w", p.Role, err)
+			}
+		}
 	}
 
 	split, err := Split(m)
@@ -64,8 +68,23 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 	}
 
 	mhash := ManifestHash(m)
-	for _, role := range RolesForPod(m) {
-		if err := startContainer(ctx, eng, m, opts, role, podID, mhash, split[role]); err != nil {
+	leader := ContainerName(m.Project.Name, RoleWeb)
+
+	// Build the full TCP port-binding set for the pod and apply it to
+	// the leader. Followers don't get PortBindings — those would be
+	// silently no-op'd by cyberstack since the netns is shared.
+	leaderPortBindings := buildLeaderPortBindings(m, podID)
+
+	roles := RolesForPod(m)
+	for i, role := range roles {
+		var bindings []engine.PortMap
+		var netMode string
+		if i == 0 { // leader
+			bindings = leaderPortBindings
+		} else {
+			netMode = "container:" + leader
+		}
+		if err := startContainer(ctx, eng, m, opts, role, podID, mhash, split[role], bindings, netMode); err != nil {
 			return nil, err
 		}
 	}
@@ -82,15 +101,6 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 	if err := router.Ensure(ctx, eng, router.ExtraHTTPPorts(endpoints)); err != nil {
 		return nil, err
 	}
-	if err := router.AttachToPod(ctx, eng, m.Project.Name); err != nil {
-		return nil, err
-	}
-	// Re-build endpoints now that the router is attached so its IPs
-	// resolve correctly when we POST the new Caddyfile.
-	endpoints, err = buildEndpoints(ctx, eng, allPods)
-	if err != nil {
-		return nil, err
-	}
 	if err := router.UpdateConfig(ctx, eng, endpoints); err != nil {
 		return nil, err
 	}
@@ -98,17 +108,43 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 	return makeStartResult(m, podID), nil
 }
 
-// startContainer creates+starts one role's container with the right
-// labels, resources, mounts, and port bindings.
+// buildLeaderPortBindings collects every TCP port binding for the pod
+// — auto-derived from pod_id*10+offset for known roles, or the user's
+// `host_port:` value where set.
+func buildLeaderPortBindings(m *manifest.Manifest, podID int) []engine.PortMap {
+	out := make([]engine.PortMap, 0, len(m.Ports))
+	for _, p := range m.Ports {
+		if p.Protocol != manifest.PortTCP {
+			continue
+		}
+		host := p.HostPort
+		if host == 0 {
+			host = DerivePort(podID, p.Role)
+		}
+		if host == 0 {
+			continue // unknown role with no pin — nothing to publish
+		}
+		out = append(out, engine.PortMap{
+			Container: p.Container,
+			Host:      host,
+			Proto:     "tcp",
+		})
+	}
+	return out
+}
+
+// startContainer creates+starts one role's container. The leader gets
+// its own veth on cs0 (NetworkMode empty) and owns all PortBindings;
+// followers attach via NetworkMode=container:<leader>.
 func startContainer(
 	ctx context.Context, eng *engine.Client,
 	m *manifest.Manifest, opts StartOptions,
 	role string, podID int, mhash string, lim Limits,
+	bindings []engine.PortMap, netMode string,
 ) error {
 	memBytes, _ := units.RAMInBytes(lim.Memory)
 	envs := buildEnv(m, role)
 	mounts := buildMounts(m, opts.ProjectDir, role)
-	tcpBindings := buildTCPBindings(m, podID, role)
 
 	labels := map[string]string{
 		LabelPod:          m.Project.Name,
@@ -117,19 +153,20 @@ func startContainer(
 		LabelManifestPath: opts.ManifestPath,
 		LabelManifestHash: mhash,
 	}
-	for _, b := range tcpBindings {
+	for _, b := range bindings {
+		// One label per published role (we only emit one port per role).
 		labels[PublishLabel(role)] = strconv.Itoa(b.Host)
 	}
 
 	spec := engine.RunSpec{
-		Image:   ImageRef(m, role),
-		Name:    ContainerName(m.Project.Name, role),
-		Network: NetworkName(m.Project.Name),
-		Env:     envs,
-		Mounts:  mounts,
-		Ports:   tcpBindings,
-		Detach:  true,
-		Restart: "unless-stopped",
+		Image:       ImageRef(m, role),
+		Name:        ContainerName(m.Project.Name, role),
+		NetworkMode: netMode,
+		Env:         envs,
+		Mounts:      mounts,
+		Ports:       bindings,
+		Detach:      true,
+		Restart:     "unless-stopped",
 		Resources: container.Resources{
 			Memory:   memBytes,
 			NanoCPUs: int64(lim.CPU * 1e9),
@@ -140,17 +177,6 @@ func startContainer(
 	return err
 }
 
-func podIDFromSubnet(subnet string) int {
-	var o1, o2, o3 int
-	fmt.Sscanf(subnet, "%d.%d.%d.0/24", &o1, &o2, &o3)
-	return o3
-}
-
-// buildEnv, buildMounts, buildTCPBindings, buildEndpoints, makeStartResult:
-// kept in adjacent files split.go / mounts.go for readability — the
-// implementation stubs below should be expanded per project type during
-// integration. For initial smoke (TestStartWordPress in Task 27) the
-// minimal env/mount set below is enough.
 func buildEnv(m *manifest.Manifest, role string) []string {
 	env := []string{
 		"TAINER_PROJECT=" + m.Project.Name,
@@ -186,18 +212,6 @@ func dbDataPath(m *manifest.Manifest) string {
 	return "/var/lib/mysql"
 }
 
-func buildTCPBindings(m *manifest.Manifest, octet int, role string) []engine.PortMap {
-	var out []engine.PortMap
-	for _, p := range m.Ports {
-		if p.Role != role || p.Protocol != manifest.PortTCP {
-			continue
-		}
-		host := DerivePort(octet, role)
-		out = append(out, engine.PortMap{Container: p.Container, Host: host, Proto: "tcp"})
-	}
-	return out
-}
-
 func buildEndpoints(ctx context.Context, eng *engine.Client, pods []Pod) ([]router.PodEndpoint, error) {
 	out := make([]router.PodEndpoint, 0, len(pods))
 	for _, p := range pods {
@@ -207,12 +221,7 @@ func buildEndpoints(ctx context.Context, eng *engine.Client, pods []Pod) ([]rout
 			if err != nil {
 				continue
 			}
-			netName := NetworkName(p.Name)
-			netInfo, ok := insp.NetworkSettings.Networks[netName]
-			if !ok {
-				continue
-			}
-			ip := netInfo.IPAddress
+			ip := insp.NetworkSettings.IPAddress
 			switch c.Role {
 			case RoleWeb:
 				ep.WebIP = ip

@@ -35,17 +35,18 @@ type Mount struct {
 // (cgroup parents, ulimits, capabilities, etc.) — add as needed, not
 // speculatively.
 type RunSpec struct {
-	Image     string
-	Name      string
-	Network   string   // user-defined bridge to attach the container to
-	Env       []string // KEY=VALUE form
-	Cmd       []string
-	Mounts    []Mount
-	Ports     []PortMap
-	Detach    bool // true = create+start detached; false = create only (caller starts)
-	Restart   string
-	Resources container.Resources // memory + NanoCPUs
-	Labels    map[string]string
+	Image       string
+	Name        string
+	Network     string   // legacy: user-defined bridge to attach to (kept for now, unused by tainer 0.9.x)
+	NetworkMode string   // "" = default bridge (own veth on cs0); "container:<id-or-name>" = shared netns
+	Env         []string // KEY=VALUE form
+	Cmd         []string
+	Mounts      []Mount
+	Ports       []PortMap
+	Detach      bool // true = create+start detached; false = create only (caller starts)
+	Restart     string
+	Resources   container.Resources // memory + NanoCPUs
+	Labels      map[string]string
 }
 
 // Run creates a container per spec and (if Detach) starts it.
@@ -98,6 +99,10 @@ func (c *Client) Run(ctx context.Context, spec RunSpec) (string, error) {
 		}
 		cfg.ExposedPorts = exposed
 		hostCfg.PortBindings = bindings
+	}
+
+	if spec.NetworkMode != "" {
+		hostCfg.NetworkMode = container.NetworkMode(spec.NetworkMode)
 	}
 
 	var netCfg *network.NetworkingConfig
