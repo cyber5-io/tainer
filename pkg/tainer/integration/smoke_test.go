@@ -4,6 +4,8 @@ package integration
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,11 +57,48 @@ func TestSmokeWordPressLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	if res.PodID == 0 {
-		t.Errorf("expected non-zero pod id")
+	if res.PodID < 3001 || res.PodID > 3999 {
+		t.Errorf("pod id outside band 3001-3999: %d", res.PodID)
 	}
 	if res.Domain != name+".tainer.me" {
 		t.Errorf("unexpected domain: %q", res.Domain)
+	}
+
+	// Verify the leader (web) is on cs0 and followers share its netns.
+	leaderInsp, err := eng.Inspect(ctx, fmt.Sprintf("tainer-%s-web", name))
+	if err != nil {
+		t.Fatalf("inspect leader: %v", err)
+	}
+	leaderSandbox := leaderInsp.NetworkSettings.SandboxKey
+	for _, role := range []string{"app", "db"} {
+		// React projects skip "app"; non-existent containers are silent skips.
+		insp, err := eng.Inspect(ctx, fmt.Sprintf("tainer-%s-%s", name, role))
+		if err != nil {
+			continue
+		}
+		if insp.NetworkSettings.SandboxKey != leaderSandbox {
+			t.Errorf("role %s: sandbox %s != leader %s (shared-netns broken)",
+				role, insp.NetworkSettings.SandboxKey, leaderSandbox)
+		}
+	}
+
+	// Host TCP db port reachable via gvproxy → in-VM nft DNAT → container.
+	dbPort := pod.DerivePort(res.PodID, pod.RoleDB)
+	if dbPort > 0 {
+		var conn net.Conn
+		for attempts := 0; attempts < 3; attempts++ {
+			c, derr := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", dbPort), 500*time.Millisecond)
+			if derr == nil {
+				conn = c
+				break
+			}
+			time.Sleep(time.Second)
+		}
+		if conn == nil {
+			t.Errorf("host port %d (db) unreachable", dbPort)
+		} else {
+			conn.Close()
+		}
 	}
 
 	// Verify https://<domain> reaches the project's caddy via dig +
