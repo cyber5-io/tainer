@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
-	"github.com/cyber5-io/tainer/pkg/tainer/network"
 )
 
 // DestroyMode selects the destroy variant.
@@ -22,8 +21,8 @@ const (
 	DestroyNuke
 )
 
-// Destroy removes the pod's containers + network. Behaviour by mode:
-//   - DestroyDefault: containers + network only; project files untouched
+// Destroy removes the pod's containers. Behaviour by mode:
+//   - DestroyDefault: containers only; project files untouched
 //   - DestroyClean:   plus tainer-managed files in project dir; data/ kept
 //   - DestroyNuke:    plus data/; requires interactive name confirmation
 func Destroy(ctx context.Context, eng *engine.Client, podName, projectDir string, mode DestroyMode, prompt func() string) error {
@@ -44,11 +43,6 @@ func Destroy(ctx context.Context, eng *engine.Client, podName, projectDir string
 			}
 		}
 	}
-	if err := eng.NetworkRemove(ctx, NetworkName(podName)); err != nil {
-		return err
-	}
-	network.FreeSubnet(podName)
-
 	// Release the registry slot so the pod ID is reusable.
 	if err := FreePodID(podName); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: free pod id %q: %v\n", podName, err)
