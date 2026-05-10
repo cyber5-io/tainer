@@ -223,38 +223,32 @@ func dbDataPath(m *manifest.Manifest) string {
 }
 
 // buildEndpoints derives a PodEndpoint per pod by inspecting the leader
-// (web) container's IP. Under shared-netns the leader owns the whole pod's
-// network identity; followers attach via NetworkMode=container:<leader> and
-// don't have their own IP, so SSHIP is also the leader's IP — sshpiper
-// reaches the in-pod sshd by routing through the leader's namespace.
+// (web) container's IP. Under shared-netns / shared bridge the leader owns
+// the whole pod's network identity; use the first non-empty IP from the
+// Networks map (IPAddress is only set for the default bridge).
 func buildEndpoints(ctx context.Context, eng *engine.Client, pods []Pod) ([]router.PodEndpoint, error) {
 	out := make([]router.PodEndpoint, 0, len(pods))
 	for _, p := range pods {
 		ep := router.PodEndpoint{Pod: p.Name}
+		var webName string
 		for _, c := range p.Containers {
-			if c.Role != RoleWeb {
-				continue
+			if c.Role == RoleWeb {
+				webName = c.Name
+				break
 			}
-			insp, err := eng.Inspect(ctx, c.Name)
-			if err != nil {
-				continue
+		}
+		if webName == "" {
+			continue
+		}
+		insp, err := eng.Inspect(ctx, webName)
+		if err != nil {
+			continue
+		}
+		for _, netInfo := range insp.NetworkSettings.Networks {
+			if netInfo.IPAddress != "" {
+				ep.WebIP = netInfo.IPAddress
+				break
 			}
-			// docker SDK v28: NetworkSettings.IPAddress is only populated
-			// for the default `bridge` network. For containers on cs0 (or
-			// any custom bridge) the IP lives under Networks[<name>].
-			// Iterate to find the first non-empty IP — there is exactly
-			// one per leader on cyberstack 0.5+.
-			ip := insp.NetworkSettings.IPAddress
-			if ip == "" {
-				for _, nw := range insp.NetworkSettings.Networks {
-					if nw.IPAddress != "" {
-						ip = nw.IPAddress
-						break
-					}
-				}
-			}
-			ep.WebIP = ip
-			ep.SSHIP = ip
 		}
 		out = append(out, ep)
 	}

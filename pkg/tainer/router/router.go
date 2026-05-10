@@ -1,8 +1,7 @@
 // Package router supervises tainer's two long-lived edge containers
-// (caddy + sshpiper). They live outside the pod abstraction — each
-// pod's lifecycle attaches/detaches them from the pod's network so
-// the router can reach project containers. UpdateConfig regenerates
-// Caddyfile + sshpiper upstream files after every lifecycle event.
+// (caddy + sshpiper). They share a bridge (cs0) with all pod containers;
+// UpdateConfig regenerates Caddyfile + sshpiper upstream files after
+// every lifecycle event.
 package router
 
 import (
@@ -29,7 +28,6 @@ type PodEndpoint struct {
 	Domain       string
 	WebIP        string
 	HTTPServices []HTTPService
-	SSHIP        string // app/web container IP — sshpiper forwards here
 }
 
 // HTTPService is one extra HTTP-protocol port declared by a pod's
@@ -65,39 +63,6 @@ func ExtraHTTPPorts(pods []PodEndpoint) []int {
 // running container).
 func Ensure(ctx context.Context, eng *engine.Client, extraHTTPPorts []int) error {
 	return ensureImpl(ctx, eng, extraHTTPPorts)
-}
-
-// podNetworkName returns the engine network name for the given pod.
-// Mirrors pod.NetworkName — inlined here to avoid an import cycle
-// (pod/start.go imports router; router must not import pod).
-func podNetworkName(podName string) string {
-	return "tainer-" + podName
-}
-
-// AttachToPod connects both router containers to the pod's network.
-// Idempotent (engine.NetworkConnect handles "already connected").
-func AttachToPod(ctx context.Context, eng *engine.Client, podName string) error {
-	netName := podNetworkName(podName)
-	if err := eng.NetworkConnect(ctx, netName, WebContainerName); err != nil {
-		return fmt.Errorf("router attach web: %w", err)
-	}
-	if err := eng.NetworkConnect(ctx, netName, SSHContainerName); err != nil {
-		return fmt.Errorf("router attach ssh: %w", err)
-	}
-	return nil
-}
-
-// DetachFromPod disconnects both router containers from the pod's
-// network. Idempotent.
-func DetachFromPod(ctx context.Context, eng *engine.Client, podName string) error {
-	netName := podNetworkName(podName)
-	if err := eng.NetworkDisconnect(ctx, netName, WebContainerName); err != nil {
-		return fmt.Errorf("router detach web: %w", err)
-	}
-	if err := eng.NetworkDisconnect(ctx, netName, SSHContainerName); err != nil {
-		return fmt.Errorf("router detach ssh: %w", err)
-	}
-	return nil
 }
 
 // ensureImpl is the implementation seam for Ensure — the actual create

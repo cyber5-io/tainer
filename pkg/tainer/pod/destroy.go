@@ -11,7 +11,6 @@ import (
 
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/network"
-	"github.com/cyber5-io/tainer/pkg/tainer/router"
 )
 
 // DestroyMode selects the destroy variant.
@@ -44,9 +43,6 @@ func Destroy(ctx context.Context, eng *engine.Client, podName, projectDir string
 				return fmt.Errorf("remove %s: %w", c.Name, err)
 			}
 		}
-	}
-	if err := router.DetachFromPod(ctx, eng, podName); err != nil {
-		return err
 	}
 	if err := eng.NetworkRemove(ctx, NetworkName(podName)); err != nil {
 		return err

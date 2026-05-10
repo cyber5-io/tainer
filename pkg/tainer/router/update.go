@@ -53,11 +53,11 @@ func writeSSHPiperUpstreams(pods []PodEndpoint) error {
 		return err
 	}
 	for _, p := range pods {
-		if p.SSHIP == "" {
+		if p.WebIP == "" {
 			continue
 		}
 		// AddSSHPiperEntry already exists in pkg/tainer/router/sshpiper.go.
-		if err := AddSSHPiperEntry(dir, p.Pod, p.SSHIP, config.PrivateKey()); err != nil {
+		if err := AddSSHPiperEntry(dir, p.Pod, p.WebIP, config.PrivateKey()); err != nil {
 			return err
 		}
 	}
