@@ -15,6 +15,7 @@ type PortMap struct {
 	Container int    // port number inside the container
 	Host      int    // port number to publish on the host (0 = random)
 	Proto     string // "tcp" (default) or "udp"
+	Role      string // tainer role this binding belongs to (e.g. "db", "app"); informational only — not sent to docker
 }
 
 // Mount describes a bind- or volume-mount for a container.

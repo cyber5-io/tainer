@@ -76,6 +76,9 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 	leaderPortBindings := buildLeaderPortBindings(m, podID)
 
 	roles := RolesForPod(m)
+	if len(roles) == 0 || roles[0] != RoleWeb {
+		return nil, fmt.Errorf("pod start: leader must be %q, got roles=%v", RoleWeb, roles)
+	}
 	for i, role := range roles {
 		var bindings []engine.PortMap
 		var netMode string
@@ -128,6 +131,7 @@ func buildLeaderPortBindings(m *manifest.Manifest, podID int) []engine.PortMap {
 			Container: p.Container,
 			Host:      host,
 			Proto:     "tcp",
+			Role:      p.Role,
 		})
 	}
 	return out
@@ -153,9 +157,15 @@ func startContainer(
 		LabelManifestPath: opts.ManifestPath,
 		LabelManifestHash: mhash,
 	}
+	// Emit one published-port label per binding, keyed by the binding's
+	// own role rather than this container's role. Under shared-netns the
+	// leader carries every role's bindings, but List() / Inspect() expect
+	// each role's port to live under its own PublishLabel(role) key.
 	for _, b := range bindings {
-		// One label per published role (we only emit one port per role).
-		labels[PublishLabel(role)] = strconv.Itoa(b.Host)
+		if b.Role == "" {
+			continue
+		}
+		labels[PublishLabel(b.Role)] = strconv.Itoa(b.Host)
 	}
 
 	spec := engine.RunSpec{
@@ -212,24 +222,39 @@ func dbDataPath(m *manifest.Manifest) string {
 	return "/var/lib/mysql"
 }
 
+// buildEndpoints derives a PodEndpoint per pod by inspecting the leader
+// (web) container's IP. Under shared-netns the leader owns the whole pod's
+// network identity; followers attach via NetworkMode=container:<leader> and
+// don't have their own IP, so SSHIP is also the leader's IP — sshpiper
+// reaches the in-pod sshd by routing through the leader's namespace.
 func buildEndpoints(ctx context.Context, eng *engine.Client, pods []Pod) ([]router.PodEndpoint, error) {
 	out := make([]router.PodEndpoint, 0, len(pods))
 	for _, p := range pods {
 		ep := router.PodEndpoint{Pod: p.Name}
 		for _, c := range p.Containers {
+			if c.Role != RoleWeb {
+				continue
+			}
 			insp, err := eng.Inspect(ctx, c.Name)
 			if err != nil {
 				continue
 			}
+			// docker SDK v28: NetworkSettings.IPAddress is only populated
+			// for the default `bridge` network. For containers on cs0 (or
+			// any custom bridge) the IP lives under Networks[<name>].
+			// Iterate to find the first non-empty IP — there is exactly
+			// one per leader on cyberstack 0.5+.
 			ip := insp.NetworkSettings.IPAddress
-			switch c.Role {
-			case RoleWeb:
-				ep.WebIP = ip
-			case RoleApp:
-				ep.SSHIP = ip
+			if ip == "" {
+				for _, nw := range insp.NetworkSettings.Networks {
+					if nw.IPAddress != "" {
+						ip = nw.IPAddress
+						break
+					}
+				}
 			}
-			// HTTPServices are inferred by re-reading the manifest at the
-			// labeled path. Out of scope for this stub — wired in Task 24.
+			ep.WebIP = ip
+			ep.SSHIP = ip
 		}
 		out = append(out, ep)
 	}
@@ -250,9 +275,16 @@ func makeStartResult(m *manifest.Manifest, podID int) *StartResult {
 				URL:  fmt.Sprintf("https://%s:%d", m.Project.Domain, p.Container),
 			})
 		case manifest.PortTCP:
+			host := p.HostPort
+			if host == 0 {
+				host = DerivePort(podID, p.Role)
+			}
+			if host == 0 {
+				continue
+			}
 			r.TCPServices = append(r.TCPServices, TCPSvcResult{
 				Role: p.Role,
-				Host: fmt.Sprintf("127.0.0.1:%d", DerivePort(podID, p.Role)),
+				Host: fmt.Sprintf("127.0.0.1:%d", host),
 			})
 		}
 	}
