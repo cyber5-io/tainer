@@ -53,6 +53,11 @@ func Destroy(ctx context.Context, eng *engine.Client, podName, projectDir string
 	}
 	network.FreeSubnet(podName)
 
+	// Release the registry slot so the pod ID is reusable.
+	if err := FreePodID(podName); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: free pod id %q: %v\n", podName, err)
+	}
+
 	if mode == DestroyClean || mode == DestroyNuke {
 		if err := cleanProjectDir(projectDir); err != nil {
 			return err
