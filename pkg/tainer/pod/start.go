@@ -67,6 +67,16 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 		return nil, err
 	}
 
+	// Pull each role's image up-front. eng.Pull is idempotent — fast no-op
+	// when the image is already local. Without this, Create fails with
+	// "image not known" because the engine API doesn't auto-pull on create
+	// (only the docker CLI does).
+	for _, role := range RolesForPod(m) {
+		if err := eng.Pull(ctx, ImageRef(m, role)); err != nil {
+			return nil, fmt.Errorf("pod start: pull %s: %w", role, err)
+		}
+	}
+
 	mhash := ManifestHash(m)
 	leader := ContainerName(m.Project.Name, RoleWeb)
 
