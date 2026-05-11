@@ -2,6 +2,8 @@ package pod
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 )
@@ -49,26 +51,42 @@ func DefaultExecRole(t manifest.ProjectType) string {
 	return RoleApp
 }
 
+// imageRepo returns the configured image registry prefix. Defaults to
+// ghcr.io/cyber5-io but can be overridden via the TAINER_IMAGE_REPO env
+// var for users who run their own registry or want to smoke against
+// alternative builds. The trailing slash is normalised away.
+func imageRepo() string {
+	v := os.Getenv("TAINER_IMAGE_REPO")
+	if v == "" {
+		return "ghcr.io/cyber5-io"
+	}
+	return strings.TrimSuffix(v, "/")
+}
+
 // ImageRef returns the registry image reference for a (project, role).
 // Tags are derived from the manifest's runtime block (PHP version,
 // Node version) so a single tainer.yaml fully pins the image set.
+//
+// The registry prefix defaults to ghcr.io/cyber5-io and can be overridden
+// by setting TAINER_IMAGE_REPO (e.g. localhost:5000/myorg).
 func ImageRef(m *manifest.Manifest, role string) string {
+	repo := imageRepo()
 	switch role {
 	case RoleWeb:
 		// Project's edge caddy is bundled with the per-type web image.
-		return fmt.Sprintf("ghcr.io/cyber5-io/tainer-%s-web:%s", m.Project.Type, m.Project.Type)
+		return fmt.Sprintf("%s/tainer-%s-web:%s", repo, m.Project.Type, m.Project.Type)
 	case RoleApp:
 		switch m.Project.Type {
 		case manifest.TypeWordPress, manifest.TypePHP:
-			return fmt.Sprintf("ghcr.io/cyber5-io/tainer-%s:php-%s", m.Project.Type, m.Runtime.PHP)
+			return fmt.Sprintf("%s/tainer-%s:php-%s", repo, m.Project.Type, m.Runtime.PHP)
 		default: // node-flavoured
-			return fmt.Sprintf("ghcr.io/cyber5-io/tainer-%s:node-%s", m.Project.Type, m.Runtime.Node)
+			return fmt.Sprintf("%s/tainer-%s:node-%s", repo, m.Project.Type, m.Runtime.Node)
 		}
 	case RoleDB:
 		if m.Runtime.Database == manifest.DatabasePostgres {
-			return "ghcr.io/cyber5-io/tainer-postgres:16"
+			return fmt.Sprintf("%s/tainer-postgres:16", repo)
 		}
-		return "ghcr.io/cyber5-io/tainer-mariadb:11"
+		return fmt.Sprintf("%s/tainer-mariadb:11", repo)
 	}
 	return ""
 }

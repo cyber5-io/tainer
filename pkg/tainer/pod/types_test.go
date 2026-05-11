@@ -99,3 +99,42 @@ func TestImageRef(t *testing.T) {
 		t.Errorf("NextJS web image: got %q", got)
 	}
 }
+
+// TestImageRefEnvOverride verifies that TAINER_IMAGE_REPO replaces the
+// default ghcr.io/cyber5-io prefix for all roles and project types.
+func TestImageRefEnvOverride(t *testing.T) {
+	t.Setenv("TAINER_IMAGE_REPO", "localhost:5000/myorg")
+
+	mWP := &manifest.Manifest{
+		Project: manifest.ProjectConfig{Type: manifest.TypeWordPress},
+		Runtime: manifest.RuntimeConfig{PHP: "8.3", Database: manifest.DatabaseMariaDB},
+	}
+	cases := []struct {
+		role string
+		want string
+	}{
+		{"web", "localhost:5000/myorg/tainer-wordpress-web:wordpress"},
+		{"app", "localhost:5000/myorg/tainer-wordpress:php-8.3"},
+		{"db", "localhost:5000/myorg/tainer-mariadb:11"},
+	}
+	for _, c := range cases {
+		if got := ImageRef(mWP, c.role); got != c.want {
+			t.Errorf("role %s with override: got %q, want %q", c.role, got, c.want)
+		}
+	}
+
+	// Trailing slash in TAINER_IMAGE_REPO must be normalised.
+	t.Setenv("TAINER_IMAGE_REPO", "localhost:5000/myorg/")
+	if got := ImageRef(mWP, "web"); got != "localhost:5000/myorg/tainer-wordpress-web:wordpress" {
+		t.Errorf("trailing-slash override: got %q", got)
+	}
+
+	mKompozi := &manifest.Manifest{
+		Project: manifest.ProjectConfig{Type: manifest.TypeKompozi},
+		Runtime: manifest.RuntimeConfig{Database: manifest.DatabasePostgres, Node: "20"},
+	}
+	t.Setenv("TAINER_IMAGE_REPO", "registry.example.com/ci")
+	if got := ImageRef(mKompozi, "db"); got != "registry.example.com/ci/tainer-postgres:16" {
+		t.Errorf("Kompozi postgres override: got %q", got)
+	}
+}
