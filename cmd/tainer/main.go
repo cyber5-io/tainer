@@ -77,7 +77,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "usage: tainer <command>")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "commands:")
-	fmt.Fprintln(os.Stderr, "  init <type> <name>                     scaffold a new project")
+	fmt.Fprintln(os.Stderr, "  init <type> [name]                     scaffold a new project into cwd")
 	fmt.Fprintln(os.Stderr, "  start [project]                        start a project")
 	fmt.Fprintln(os.Stderr, "  stop [project]                         stop a project")
 	fmt.Fprintln(os.Stderr, "  destroy [project] [--clean|--nuke]     tear down a project")
@@ -181,19 +181,29 @@ func cmdStatus() {
 	}
 }
 
-// cmdInit scaffolds a new tainer project.
+// cmdInit scaffolds a new tainer project into the current working directory.
+//
+// Usage:
+//
+//	tainer init <type>         project name defaults to cwd basename
+//	tainer init <type> <name>  explicit project name
+//
+// Matches legacy tainer 0.2.x: init operates on cwd, no project subdir.
 func cmdInit(args []string) {
-	if len(args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: tainer init <type> <name> [--size <preset>]")
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: tainer init <type> [name]")
+		fmt.Fprintln(os.Stderr, "  type: wordpress, php, nodejs, nextjs, nuxtjs, nestjs, react, kompozi")
 		os.Exit(2)
 	}
-	cwd, _ := os.Getwd()
-	must(initcmd.Run(initcmd.Options{
+	opts := initcmd.Options{
 		Type: manifest.ProjectType(args[0]),
-		Name: args[1],
-		Dir:  cwd,
-	}))
-	fmt.Printf("Created %s/. Next: cd %s && tainer start\n", args[1], args[1])
+	}
+	if len(args) >= 2 {
+		opts.Name = args[1]
+	}
+	// Name defaults to cwd basename inside initcmd.Run when opts.Name is empty.
+	must(initcmd.Run(opts))
+	fmt.Println("Next: tainer start")
 }
 
 // cmdStart locates the manifest (cwd or ~/projects/<name>), starts
