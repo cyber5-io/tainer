@@ -15,6 +15,12 @@ import (
 // resource split) prefer RolesForPod, which also drops the db role when
 // the manifest declares no database.
 func RolesForType(t manifest.ProjectType) []string {
+	// Legacy-image smoke mode: the 0.2.x tainer-* images are monolithic
+	// (caddy + php-fpm or node baked into one), so there's no follower
+	// app role to attach. Single leader + optional db.
+	if legacyImages() {
+		return []string{RoleWeb, RoleDB}
+	}
 	switch t {
 	case manifest.TypeReact:
 		return []string{RoleWeb, RoleDB}
@@ -63,6 +69,43 @@ func imageRepo() string {
 	return strings.TrimSuffix(v, "/")
 }
 
+// legacyImages reports whether TAINER_LEGACY_IMAGES is set, in which
+// case ImageRef returns the 0.2.x single-image-per-type layout instead
+// of the 0.9 role-split (-web/-app suffixes). Used for smoke testing
+// against the already-published legacy images while the role-split
+// images aren't built yet.
+func legacyImages() bool {
+	v := os.Getenv("TAINER_LEGACY_IMAGES")
+	return v != "" && v != "0" && v != "false"
+}
+
+// legacyWebTag returns the tag for the legacy monolithic image of a
+// given project type, derived from the manifest's runtime block.
+func legacyWebTag(m *manifest.Manifest) string {
+	switch m.Project.Type {
+	case manifest.TypeWordPress, manifest.TypePHP:
+		if m.Runtime.PHP != "" {
+			return m.Runtime.PHP
+		}
+		return "latest"
+	case manifest.TypeNodeJS:
+		if m.Runtime.Node != "" {
+			return m.Runtime.Node
+		}
+		return "latest"
+	case manifest.TypeNextJS:
+		return "15"
+	case manifest.TypeNuxtJS:
+		return "3"
+	case manifest.TypeNestJS:
+		return "11"
+	case manifest.TypeReact:
+		return "19"
+	default: // kompozi and anything else
+		return "latest"
+	}
+}
+
 // ImageRef returns the registry image reference for a (project, role).
 // Tags are derived from the manifest's runtime block (PHP version,
 // Node version) so a single tainer.yaml fully pins the image set.
@@ -71,6 +114,18 @@ func imageRepo() string {
 // by setting TAINER_IMAGE_REPO (e.g. localhost:5000/myorg).
 func ImageRef(m *manifest.Manifest, role string) string {
 	repo := imageRepo()
+	if legacyImages() {
+		switch role {
+		case RoleWeb:
+			return fmt.Sprintf("%s/tainer-%s:%s", repo, m.Project.Type, legacyWebTag(m))
+		case RoleDB:
+			if m.Runtime.Database == manifest.DatabasePostgres {
+				return fmt.Sprintf("%s/tainer-postgres:latest", repo)
+			}
+			return fmt.Sprintf("%s/tainer-mariadb:latest", repo)
+		}
+		return "" // RoleApp not used in legacy mode
+	}
 	switch role {
 	case RoleWeb:
 		// Project's edge caddy is bundled with the per-type web image.
