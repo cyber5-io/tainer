@@ -31,6 +31,7 @@ import (
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 	"github.com/cyber5-io/tainer/pkg/tainer/networkcmd"
 	"github.com/cyber5-io/tainer/pkg/tainer/pod"
+	"github.com/cyber5-io/tainer/pkg/tainer/registry"
 	"github.com/cyber5-io/tainer/pkg/tainer/runtime"
 )
 
@@ -108,16 +109,21 @@ func ctxWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
 // locateManifest resolves (manifestPath, projectDir) from args.
 //
 // With no args: cwd + tainer.yaml.
-// With one arg: treated as a project name; resolved to ~/projects/<name>
-// following the 0.2.x convention (a project registry lookup may be added
-// later without changing call sites).
+// With one arg: project name. Consults the project registry first
+// (where init records each project's actual path); falls back to
+// ~/projects/<name> only if the name isn't registered, preserving
+// the 0.2.x convention for unregistered local projects.
 func locateManifest(args []string) (manifestPath, projectDir string) {
 	if len(args) > 0 && args[0] != "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			must(err)
+		if p, ok := registry.Get(args[0]); ok && p.Path != "" {
+			projectDir = p.Path
+		} else {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				must(err)
+			}
+			projectDir = filepath.Join(home, "projects", args[0])
 		}
-		projectDir = filepath.Join(home, "projects", args[0])
 	} else {
 		cwd, err := os.Getwd()
 		if err != nil {

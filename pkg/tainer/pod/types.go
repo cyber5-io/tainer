@@ -15,10 +15,10 @@ import (
 // resource split) prefer RolesForPod, which also drops the db role when
 // the manifest declares no database.
 func RolesForType(t manifest.ProjectType) []string {
-	// Legacy-image smoke mode: the 0.2.x tainer-* images are monolithic
-	// (caddy + php-fpm or node baked into one), so there's no follower
-	// app role to attach. Single leader + optional db.
-	if legacyImages() {
+	// Smoke-images mode (nginx + mariadb stock images) and legacy-images
+	// mode (0.2.x tainer-* monolithic images) both run a single web
+	// leader + optional db follower — no separate app role.
+	if smokeImages() || legacyImages() {
 		return []string{RoleWeb, RoleDB}
 	}
 	switch t {
@@ -79,6 +79,19 @@ func legacyImages() bool {
 	return v != "" && v != "0" && v != "false"
 }
 
+// smokeImages reports whether TAINER_SMOKE_IMAGES is set, in which
+// case ImageRef returns stock public images (nginx:alpine for web,
+// mariadb:11 for db) that run with minimal env wiring. Used ONLY
+// to validate orchestration end-to-end (init/start/stop, shared
+// netns, port forwarding) without dragging in image-content quirks
+// like the legacy tainer-entrypoint.sh's MYSQL_HOST requirements.
+// Not a production mode — the real tainer 0.9 images will use caddy
+// and our own build pipeline.
+func smokeImages() bool {
+	v := os.Getenv("TAINER_SMOKE_IMAGES")
+	return v != "" && v != "0" && v != "false"
+}
+
 // legacyWebTag returns the tag for the legacy monolithic image of a
 // given project type, derived from the manifest's runtime block.
 func legacyWebTag(m *manifest.Manifest) string {
@@ -114,6 +127,17 @@ func legacyWebTag(m *manifest.Manifest) string {
 // by setting TAINER_IMAGE_REPO (e.g. localhost:5000/myorg).
 func ImageRef(m *manifest.Manifest, role string) string {
 	repo := imageRepo()
+	if smokeImages() {
+		// Smoke goal is to validate orchestration plumbing
+		// (init/start/stop, leader+follower shared netns, port
+		// bindings on the leader). Real DB engines try to chown
+		// /var/lib/mysql or /var/lib/postgresql on virtio-fs binds,
+		// which fails ("Operation not permitted") on our minimal
+		// mount setup. Use busybox + sleep infinity for both roles
+		// so the smoke can focus on orchestration, not image
+		// entrypoint quirks.
+		return "docker.io/library/busybox:latest"
+	}
 	if legacyImages() {
 		switch role {
 		case RoleWeb:

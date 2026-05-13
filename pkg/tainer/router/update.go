@@ -1,11 +1,10 @@
 package router
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"net/http"
 	"os"
+	"strings"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
@@ -13,15 +12,21 @@ import (
 
 // UpdateConfig regenerates the Caddyfile + sshpiper upstream files
 // from pods, writes them to host paths the router containers mount,
-// and POSTs the new Caddyfile to caddy's admin API for hot reload.
-// sshpiper's workingdir plugin re-reads upstream files on every new
-// SSH connection — no reload needed.
+// and reloads caddy via container exec (`caddy reload`). sshpiper's
+// workingdir plugin re-reads upstream files on every new SSH
+// connection — no reload needed.
+//
+// We use `caddy reload` over exec rather than caddy's admin HTTP API
+// because the admin port is host-unreachable in vmnet-helper mode:
+// DNAT to a 127.0.0.1-bound listener inside the container rewrites
+// the destination to the container's veth IP, which the listener
+// rejects. Exec-based reload sidesteps that entirely.
 func UpdateConfig(ctx context.Context, eng *engine.Client, pods []PodEndpoint) error {
 	caddyContent := GenerateCaddyfileV2(pods, "/certs/tainer.me.crt", "/certs/tainer.me.key")
 	if err := os.WriteFile(config.CaddyfilePath(), []byte(caddyContent), 0644); err != nil {
 		return fmt.Errorf("router: write Caddyfile: %w", err)
 	}
-	if err := reloadCaddy([]byte(caddyContent)); err != nil {
+	if err := reloadCaddy(ctx, eng); err != nil {
 		return fmt.Errorf("router: reload caddy: %w", err)
 	}
 	if err := writeSSHPiperUpstreams(pods); err != nil {
@@ -30,19 +35,14 @@ func UpdateConfig(ctx context.Context, eng *engine.Client, pods []PodEndpoint) e
 	return nil
 }
 
-func reloadCaddy(caddyfile []byte) error {
-	req, err := http.NewRequest("POST", "http://"+caddyAdmin+"/load", bytes.NewReader(caddyfile))
+func reloadCaddy(ctx context.Context, eng *engine.Client) error {
+	res, err := eng.Exec(ctx, WebContainerName,
+		[]string{"caddy", "reload", "--config", "/etc/caddy/Caddyfile"})
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "text/caddyfile")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		return fmt.Errorf("caddy admin returned %s", resp.Status)
+	if res.ExitCode != 0 {
+		return fmt.Errorf("exit %d: %s", res.ExitCode, strings.TrimSpace(string(res.Stderr)))
 	}
 	return nil
 }

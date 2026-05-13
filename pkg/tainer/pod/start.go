@@ -178,15 +178,25 @@ func startContainer(
 		labels[PublishLabel(b.Role)] = strconv.Itoa(b.Host)
 	}
 
+	// Smoke mode: no restart policy. Real pods auto-restart on
+	// crash (unless-stopped). Smoke containers shouldn't — a crash
+	// in the smoke is a signal we want to investigate, not paper
+	// over with a retry loop (which trips crun's container-id
+	// reuse limitation).
+	restartPolicy := "unless-stopped"
+	if smokeImages() {
+		restartPolicy = "no"
+	}
 	spec := engine.RunSpec{
 		Image:       ImageRef(m, role),
 		Name:        ContainerName(m.Project.Name, role),
 		NetworkMode: netMode,
+		Cmd:         smokeCmd(role),
 		Env:         envs,
 		Mounts:      mounts,
 		Ports:       bindings,
 		Detach:      true,
-		Restart:     "unless-stopped",
+		Restart:     restartPolicy,
 		Resources: container.Resources{
 			Memory:   memBytes,
 			NanoCPUs: int64(lim.CPU * 1e9),
@@ -197,6 +207,19 @@ func startContainer(
 	return err
 }
 
+// smokeCmd overrides the container's CMD in TAINER_SMOKE_IMAGES mode.
+// Both roles run busybox + sleep infinity so the pod survives long
+// enough to exercise orchestration (leader/follower netns sharing,
+// port bindings, tainer stop). Real engine images are out of scope
+// for smoke — they require uid-mapping chowns the virtio-fs binds
+// don't permit.
+func smokeCmd(role string) []string {
+	if !smokeImages() {
+		return nil
+	}
+	return []string{"sh", "-c", "echo tainer-smoke " + role + " up; exec sleep infinity"}
+}
+
 func buildEnv(m *manifest.Manifest, role string) []string {
 	env := []string{
 		"TAINER_PROJECT=" + m.Project.Name,
@@ -205,6 +228,15 @@ func buildEnv(m *manifest.Manifest, role string) []string {
 	}
 	if role == RoleApp && m.IsPHP() {
 		env = append(env, m.Runtime.PHPLimits.EnvFlags()...)
+	}
+	// Smoke-images mode: stock mariadb/postgres images need a password
+	// env to boot. Empty-password is fine for a throwaway smoke.
+	if smokeImages() && role == RoleDB {
+		if m.Runtime.Database == manifest.DatabasePostgres {
+			env = append(env, "POSTGRES_HOST_AUTH_METHOD=trust")
+		} else {
+			env = append(env, "MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=yes")
+		}
 	}
 	return env
 }

@@ -10,8 +10,13 @@ import (
 )
 
 const (
-	caddyImage    = "caddy:2-alpine"
-	sshpiperImage = "farmer1992/sshpiperd:latest"
+	// Use fully-qualified docker.io refs so cyberstackd's image
+	// lookup (which is case-sensitive on the ref string) matches the
+	// pulled image's stored name. Short refs like "caddy:2-alpine"
+	// get normalized at pull time but lookup is exact, causing
+	// "image not known" on create.
+	caddyImage    = "docker.io/library/caddy:2-alpine"
+	sshpiperImage = "docker.io/farmer1992/sshpiperd:latest"
 	caddyAdmin    = "127.0.0.1:2019"
 )
 
@@ -125,7 +130,13 @@ func caddyMounts() []engine.Mount {
 func containerHasBindings(ctx context.Context, eng *engine.Client, name string, want []engine.PortMap) (bool, bool, error) {
 	insp, err := eng.Inspect(ctx, name)
 	if err != nil {
-		if strings.Contains(err.Error(), "No such container") || strings.Contains(err.Error(), "not found") {
+		// Treat any "container doesn't exist" signal as not-present.
+		// cyberstackd returns "open .../state.json: no such file or
+		// directory" for missing containers; Docker proper returns
+		// "No such container" or "not found".
+		msg := err.Error()
+		if strings.Contains(msg, "No such container") || strings.Contains(msg, "not found") ||
+			strings.Contains(msg, "state.json: no such file") {
 			return false, false, nil
 		}
 		return false, false, err
