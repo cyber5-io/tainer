@@ -21,6 +21,7 @@ const (
 	LabelPod          = "tainer.pod"
 	LabelRole         = "tainer.role"
 	LabelPodID        = "tainer.pod-id"
+	LabelDomain       = "tainer.domain"
 	LabelManifestPath = "tainer.manifest-path"
 	LabelManifestHash = "tainer.manifest-hash"
 	// LabelPublishPrefix is concatenated with the role to form the full

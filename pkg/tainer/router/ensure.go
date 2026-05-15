@@ -41,17 +41,47 @@ func ensureWeb(ctx context.Context, eng *engine.Client, extraHTTPPorts []int) er
 		{Container: 2019, Host: 2019, Proto: "tcp"},
 	}, extraPortMaps(extraHTTPPorts)...)
 
-	exists, sameBindings, err := containerHasBindings(ctx, eng, WebContainerName, wantPorts)
-	if err != nil {
-		return err
-	}
-	if exists && sameBindings {
-		return nil
+	insp, ierr := eng.Inspect(ctx, WebContainerName)
+	exists := ierr == nil
+	if !exists && !isNotFoundErr(ierr) {
+		return ierr
 	}
 	if exists {
-		// Bindings changed: recreate the container so Docker picks up new -p flags.
-		if err := eng.Remove(ctx, WebContainerName, true); err != nil {
-			return fmt.Errorf("router web: remove for recreate: %w", err)
+		// Check bindings match before deciding whether to reuse.
+		// cyberstackd's inspect doesn't yet surface HostConfig so
+		// nil-guard the map access — when HostConfig is unset, we
+		// can't verify bindings and conservatively assume same
+		// (so we don't endlessly recreate the router on every start).
+		have := map[int]bool{}
+		if insp.HostConfig != nil {
+			for p := range insp.HostConfig.PortBindings {
+				have[p.Int()] = true
+			}
+		}
+		sameBindings := true
+		if insp.HostConfig != nil {
+			for _, w := range wantPorts {
+				if !have[w.Container] {
+					sameBindings = false
+					break
+				}
+			}
+		}
+		if !sameBindings {
+			// Bindings changed: recreate.
+			if err := eng.Remove(ctx, WebContainerName, true); err != nil {
+				return fmt.Errorf("router web: remove for recreate: %w", err)
+			}
+			exists = false
+		} else {
+			// Reuse the existing container. Start it if stopped;
+			// nothing to do if already running.
+			if insp.State == nil || !insp.State.Running {
+				if err := eng.Start(ctx, WebContainerName); err != nil {
+					return fmt.Errorf("router web: start existing: %w", err)
+				}
+			}
+			return nil
 		}
 	}
 	if err := eng.Pull(ctx, caddyImage); err != nil {
@@ -72,15 +102,31 @@ func ensureWeb(ctx context.Context, eng *engine.Client, extraHTTPPorts []int) er
 	return nil
 }
 
-func ensureSSH(ctx context.Context, eng *engine.Client) error {
-	exists, _, err := containerHasBindings(ctx, eng, SSHContainerName, []engine.PortMap{
-		{Container: 2222, Host: 2222, Proto: "tcp"},
-	})
-	if err != nil {
-		return err
+// isNotFoundErr recognises cyberstackd's + Docker's "container doesn't
+// exist" error wording.
+func isNotFoundErr(err error) bool {
+	if err == nil {
+		return false
 	}
-	if exists {
+	msg := err.Error()
+	return strings.Contains(msg, "No such container") ||
+		strings.Contains(msg, "not found") ||
+		strings.Contains(msg, "state.json: no such file")
+}
+
+func ensureSSH(ctx context.Context, eng *engine.Client) error {
+	insp, ierr := eng.Inspect(ctx, SSHContainerName)
+	if ierr == nil {
+		// Reuse existing container — start if stopped, no-op if running.
+		if insp.State == nil || !insp.State.Running {
+			if err := eng.Start(ctx, SSHContainerName); err != nil {
+				return fmt.Errorf("router ssh: start existing: %w", err)
+			}
+		}
 		return nil
+	}
+	if !isNotFoundErr(ierr) {
+		return ierr
 	}
 	if err := eng.Pull(ctx, sshpiperImage); err != nil {
 		return fmt.Errorf("router ssh: pull %s: %w", sshpiperImage, err)

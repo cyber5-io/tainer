@@ -19,6 +19,7 @@ import (
 type Pod struct {
 	Name         string
 	PodID        int
+	Domain       string
 	Containers   []Container
 	ManifestHash string
 }
@@ -80,7 +81,12 @@ func List(ctx context.Context, eng *engine.Client) ([]Pod, error) {
 		p, ok := byPod[name]
 		if !ok {
 			podID, _ := strconv.Atoi(c.Labels[LabelPodID])
-			p = &Pod{Name: name, PodID: podID, ManifestHash: c.Labels[LabelManifestHash]}
+			p = &Pod{
+				Name:         name,
+				PodID:        podID,
+				Domain:       c.Labels[LabelDomain],
+				ManifestHash: c.Labels[LabelManifestHash],
+			}
 			byPod[name] = p
 		}
 		role := c.Labels[LabelRole]

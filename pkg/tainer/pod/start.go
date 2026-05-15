@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
@@ -164,6 +165,7 @@ func startContainer(
 		LabelPod:          m.Project.Name,
 		LabelRole:         role,
 		LabelPodID:        strconv.Itoa(podID),
+		LabelDomain:       m.Project.Domain,
 		LabelManifestPath: opts.ManifestPath,
 		LabelManifestHash: mhash,
 	}
@@ -203,8 +205,52 @@ func startContainer(
 		},
 		Labels: labels,
 	}
+
+	// Idempotent start: if a container with this name already exists
+	// from a previous `tainer start`/`stop` cycle, restart it in place
+	// rather than recreating. Preserves any container-side state
+	// (database files in the bind mount, etc) between cycles.
+	//
+	// EXCEPTION: shared-netns followers (netMode="container:<leader>")
+	// have the leader's PID baked into their OCI config at create
+	// time. On restart, the leader gets a new PID, so the follower's
+	// stale config points at /proc/<dead-pid>/ns/net and crun fails.
+	// For followers we always destroy + recreate so the new config
+	// resolves to the leader's current PID. Followers have no
+	// stateful filesystem mounts that would be lost (port bindings
+	// + bind mounts live on the leader / are the same on recreate).
+	insp, ierr := eng.Inspect(ctx, spec.Name)
+	if ierr == nil {
+		if netMode != "" {
+			// Follower with stale netns reference — recreate.
+			if err := eng.Remove(ctx, spec.Name, true); err != nil {
+				return fmt.Errorf("remove stale follower: %w", err)
+			}
+		} else {
+			if insp.State != nil && insp.State.Running {
+				return nil // leader already up — nothing to do
+			}
+			// Leader exists but is stopped — start it in place.
+			return eng.Start(ctx, spec.Name)
+		}
+	} else if !isNotFound(ierr) {
+		return ierr
+	}
 	_, err := eng.Run(ctx, spec)
 	return err
+}
+
+// isNotFound reports whether err is the engine's "container doesn't
+// exist" error. cyberstackd returns "open .../state.json: no such file"
+// and Docker proper returns "No such container" / "not found".
+func isNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "No such container") ||
+		strings.Contains(msg, "not found") ||
+		strings.Contains(msg, "state.json: no such file")
 }
 
 // smokeCmd overrides the container's CMD in TAINER_SMOKE_IMAGES mode.
@@ -271,7 +317,7 @@ func dbDataPath(m *manifest.Manifest) string {
 func buildEndpoints(ctx context.Context, eng *engine.Client, pods []Pod) ([]router.PodEndpoint, error) {
 	out := make([]router.PodEndpoint, 0, len(pods))
 	for _, p := range pods {
-		ep := router.PodEndpoint{Pod: p.Name}
+		ep := router.PodEndpoint{Pod: p.Name, Domain: p.Domain}
 		var webName string
 		for _, c := range p.Containers {
 			if c.Role == RoleWeb {
@@ -291,6 +337,18 @@ func buildEndpoints(ctx context.Context, eng *engine.Client, pods []Pod) ([]rout
 				ep.WebIP = netInfo.IPAddress
 				break
 			}
+		}
+		// cyberstackd reports the leader's IP at the top-level
+		// NetworkSettings.IPAddress (no per-network map). Fall back
+		// to that when Networks is empty.
+		if ep.WebIP == "" {
+			ep.WebIP = insp.NetworkSettings.IPAddress
+		}
+		// Skip pods we can't route to (e.g. stopped — no IP). The
+		// router doesn't need a site block for them and an empty
+		// Domain/WebIP would produce a malformed Caddyfile.
+		if ep.Domain == "" || ep.WebIP == "" {
+			continue
 		}
 		out = append(out, ep)
 	}
