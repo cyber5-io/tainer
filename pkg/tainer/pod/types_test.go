@@ -69,10 +69,10 @@ func TestImageRef(t *testing.T) {
 		Project: manifest.ProjectConfig{Type: manifest.TypeWordPress},
 		Runtime: manifest.RuntimeConfig{PHP: "8.3"},
 	}
-	if got := ImageRef(m, "app"); got != "ghcr.io/cyber5-io/tainer-wordpress:php-8.3" {
+	if got := ImageRef(m, "app"); got != "ghcr.io/cyber5-io/tainer-wordpress-app:php-8.3" {
 		t.Errorf("WordPress app image: got %q", got)
 	}
-	if got := ImageRef(m, "db"); got != "ghcr.io/cyber5-io/tainer-mariadb:11" {
+	if got := ImageRef(m, "db"); got != "ghcr.io/cyber5-io/tainer-mariadb-db:11" {
 		t.Errorf("WordPress db image: got %q", got)
 	}
 
@@ -80,7 +80,7 @@ func TestImageRef(t *testing.T) {
 		Project: manifest.ProjectConfig{Type: manifest.TypeNextJS},
 		Runtime: manifest.RuntimeConfig{Node: "20"},
 	}
-	if got := ImageRef(mNode, "app"); got != "ghcr.io/cyber5-io/tainer-nextjs:node-20" {
+	if got := ImageRef(mNode, "app"); got != "ghcr.io/cyber5-io/tainer-nextjs-app:node-20" {
 		t.Errorf("NextJS app image: got %q", got)
 	}
 
@@ -88,14 +88,15 @@ func TestImageRef(t *testing.T) {
 		Project: manifest.ProjectConfig{Type: manifest.TypeKompozi},
 		Runtime: manifest.RuntimeConfig{Database: manifest.DatabasePostgres, Node: "20"},
 	}
-	if got := ImageRef(mKompozi, "db"); got != "ghcr.io/cyber5-io/tainer-postgres:16" {
+	if got := ImageRef(mKompozi, "db"); got != "ghcr.io/cyber5-io/tainer-postgres-db:16" {
 		t.Errorf("Kompozi db image: got %q", got)
 	}
 
-	if got := ImageRef(m, "web"); got != "ghcr.io/cyber5-io/tainer-wordpress-web:wordpress" {
+	// Web image is a single generic caddy — same ref regardless of project type.
+	if got := ImageRef(m, "web"); got != "ghcr.io/cyber5-io/tainer-caddy-web:2-alpine" {
 		t.Errorf("WordPress web image: got %q", got)
 	}
-	if got := ImageRef(mNode, "web"); got != "ghcr.io/cyber5-io/tainer-nextjs-web:nextjs" {
+	if got := ImageRef(mNode, "web"); got != "ghcr.io/cyber5-io/tainer-caddy-web:2-alpine" {
 		t.Errorf("NextJS web image: got %q", got)
 	}
 }
@@ -113,9 +114,9 @@ func TestImageRefEnvOverride(t *testing.T) {
 		role string
 		want string
 	}{
-		{"web", "localhost:5000/myorg/tainer-wordpress-web:wordpress"},
-		{"app", "localhost:5000/myorg/tainer-wordpress:php-8.3"},
-		{"db", "localhost:5000/myorg/tainer-mariadb:11"},
+		{"web", "localhost:5000/myorg/tainer-caddy-web:2-alpine"},
+		{"app", "localhost:5000/myorg/tainer-wordpress-app:php-8.3"},
+		{"db", "localhost:5000/myorg/tainer-mariadb-db:11"},
 	}
 	for _, c := range cases {
 		if got := ImageRef(mWP, c.role); got != c.want {
@@ -125,7 +126,7 @@ func TestImageRefEnvOverride(t *testing.T) {
 
 	// Trailing slash in TAINER_IMAGE_REPO must be normalised.
 	t.Setenv("TAINER_IMAGE_REPO", "localhost:5000/myorg/")
-	if got := ImageRef(mWP, "web"); got != "localhost:5000/myorg/tainer-wordpress-web:wordpress" {
+	if got := ImageRef(mWP, "web"); got != "localhost:5000/myorg/tainer-caddy-web:2-alpine" {
 		t.Errorf("trailing-slash override: got %q", got)
 	}
 
@@ -134,7 +135,7 @@ func TestImageRefEnvOverride(t *testing.T) {
 		Runtime: manifest.RuntimeConfig{Database: manifest.DatabasePostgres, Node: "20"},
 	}
 	t.Setenv("TAINER_IMAGE_REPO", "registry.example.com/ci")
-	if got := ImageRef(mKompozi, "db"); got != "registry.example.com/ci/tainer-postgres:16" {
+	if got := ImageRef(mKompozi, "db"); got != "registry.example.com/ci/tainer-postgres-db:16" {
 		t.Errorf("Kompozi postgres override: got %q", got)
 	}
 }

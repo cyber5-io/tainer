@@ -150,22 +150,25 @@ func ImageRef(m *manifest.Manifest, role string) string {
 		}
 		return "" // RoleApp not used in legacy mode
 	}
+	// 0.9 image family — generic engine images tagged tainer-<engine>-<role>.
+	// One caddy image serves all project types (per-type Caddyfiles baked
+	// in, picked at runtime via TAINER_PROJECT_TYPE env). App + db images
+	// stay per-engine. See tainer-images/docs/0.9-images.md.
 	switch role {
 	case RoleWeb:
-		// Project's edge caddy is bundled with the per-type web image.
-		return fmt.Sprintf("%s/tainer-%s-web:%s", repo, m.Project.Type, m.Project.Type)
+		return fmt.Sprintf("%s/tainer-caddy-web:2-alpine", repo)
 	case RoleApp:
 		switch m.Project.Type {
 		case manifest.TypeWordPress, manifest.TypePHP:
-			return fmt.Sprintf("%s/tainer-%s:php-%s", repo, m.Project.Type, m.Runtime.PHP)
+			return fmt.Sprintf("%s/tainer-%s-app:php-%s", repo, m.Project.Type, m.Runtime.PHP)
 		default: // node-flavoured
-			return fmt.Sprintf("%s/tainer-%s:node-%s", repo, m.Project.Type, m.Runtime.Node)
+			return fmt.Sprintf("%s/tainer-%s-app:node-%s", repo, m.Project.Type, m.Runtime.Node)
 		}
 	case RoleDB:
 		if m.Runtime.Database == manifest.DatabasePostgres {
-			return fmt.Sprintf("%s/tainer-postgres:16", repo)
+			return fmt.Sprintf("%s/tainer-postgres-db:16", repo)
 		}
-		return fmt.Sprintf("%s/tainer-mariadb:11", repo)
+		return fmt.Sprintf("%s/tainer-mariadb-db:11", repo)
 	}
 	return ""
 }

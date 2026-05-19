@@ -3,6 +3,7 @@ package pod
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -12,6 +13,15 @@ import (
 	"github.com/docker/docker/api/types/container"
 	units "github.com/docker/go-units"
 )
+
+// podCtx holds per-pod state that buildEnv / buildMounts / etc. need
+// but that's stable across all containers in the pod. Built once in
+// Start() and threaded through.
+type podCtx struct {
+	secrets *Secrets
+	hostUID int
+	hostGID int
+}
 
 // StartOptions configures a Start call.
 type StartOptions struct {
@@ -78,6 +88,22 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 		}
 	}
 
+	// Per-project DB credentials. Generated + persisted on first start;
+	// loaded on subsequent starts. Skipped in smoke mode (busybox images
+	// don't read these env vars and writing the file pollutes ~).
+	var secrets *Secrets
+	if !smokeImages() {
+		secrets, err = LoadOrCreateSecrets(m.Project.Name)
+		if err != nil {
+			return nil, fmt.Errorf("pod start: load secrets: %w", err)
+		}
+	}
+	pctx := &podCtx{
+		secrets: secrets,
+		hostUID: os.Getuid(),
+		hostGID: os.Getgid(),
+	}
+
 	mhash := ManifestHash(m)
 	leader := ContainerName(m.Project.Name, RoleWeb)
 
@@ -98,7 +124,7 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 		} else {
 			netMode = "container:" + leader
 		}
-		if err := startContainer(ctx, eng, m, opts, role, podID, mhash, split[role], bindings, netMode); err != nil {
+		if err := startContainer(ctx, eng, m, opts, pctx, role, podID, mhash, split[role], bindings, netMode); err != nil {
 			return nil, err
 		}
 	}
@@ -154,11 +180,11 @@ func buildLeaderPortBindings(m *manifest.Manifest, podID int) []engine.PortMap {
 func startContainer(
 	ctx context.Context, eng *engine.Client,
 	m *manifest.Manifest, opts StartOptions,
-	role string, podID int, mhash string, lim Limits,
+	pctx *podCtx, role string, podID int, mhash string, lim Limits,
 	bindings []engine.PortMap, netMode string,
 ) error {
 	memBytes, _ := units.RAMInBytes(lim.Memory)
-	envs := buildEnv(m, role)
+	envs := buildEnv(m, role, pctx)
 	mounts := buildMounts(m, opts.ProjectDir, role)
 
 	labels := map[string]string{
@@ -266,24 +292,78 @@ func smokeCmd(role string) []string {
 	return []string{"sh", "-c", "echo tainer-smoke " + role + " up; exec sleep infinity"}
 }
 
-func buildEnv(m *manifest.Manifest, role string) []string {
+func buildEnv(m *manifest.Manifest, role string, pctx *podCtx) []string {
 	env := []string{
 		"TAINER_PROJECT=" + m.Project.Name,
 		"TAINER_DOMAIN=" + m.Project.Domain,
 		"TAINER_ROLE=" + role,
 	}
-	if role == RoleApp && m.IsPHP() {
-		env = append(env, m.Runtime.PHPLimits.EnvFlags()...)
+
+	// Smoke-images mode: minimal env wiring. Stock mariadb/postgres need
+	// a password env to boot; empty-password is fine for a throwaway smoke.
+	if smokeImages() {
+		if role == RoleDB {
+			if m.Runtime.Database == manifest.DatabasePostgres {
+				env = append(env, "POSTGRES_HOST_AUTH_METHOD=trust")
+			} else {
+				env = append(env, "MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=yes")
+			}
+		}
+		return env
 	}
-	// Smoke-images mode: stock mariadb/postgres images need a password
-	// env to boot. Empty-password is fine for a throwaway smoke.
-	if smokeImages() && role == RoleDB {
+
+	// Real image env contract (see tainer-images/docs/0.9-images.md).
+	env = append(env,
+		"TAINER_UID="+strconv.Itoa(pctx.hostUID),
+		"TAINER_GID="+strconv.Itoa(pctx.hostGID),
+	)
+
+	// DB connection details — everything sees the same loopback under
+	// shared netns, so DB_HOST is always 127.0.0.1.
+	if pctx.secrets != nil && m.HasDatabase() {
+		env = append(env,
+			"DB_HOST=127.0.0.1",
+			"DB_PORT="+m.DBPort(),
+			"DB_NAME="+pctx.secrets.DBName,
+			"DB_USER="+pctx.secrets.DBUser,
+			"DB_PASSWORD="+pctx.secrets.DBPassword,
+		)
+	}
+
+	switch role {
+	case RoleWeb:
+		// caddy-web entrypoint picks /etc/caddy/sites/<type>.Caddyfile.
+		env = append(env, "TAINER_PROJECT_TYPE="+string(m.Project.Type))
+
+	case RoleApp:
+		if m.IsPHP() {
+			env = append(env, m.Runtime.PHPLimits.EnvFlags()...)
+		}
+		// WordPress wp-config needs the site URL.
+		if m.Project.Type == manifest.TypeWordPress && m.Project.Domain != "" {
+			env = append(env, "WP_HOME=https://"+m.Project.Domain)
+		}
+
+	case RoleDB:
+		if pctx.secrets == nil {
+			break
+		}
 		if m.Runtime.Database == manifest.DatabasePostgres {
-			env = append(env, "POSTGRES_HOST_AUTH_METHOD=trust")
+			env = append(env,
+				"POSTGRES_DB="+pctx.secrets.DBName,
+				"POSTGRES_USER="+pctx.secrets.DBUser,
+				"POSTGRES_PASSWORD="+pctx.secrets.DBPassword,
+			)
 		} else {
-			env = append(env, "MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=yes")
+			env = append(env,
+				"MARIADB_DATABASE="+pctx.secrets.DBName,
+				"MARIADB_USER="+pctx.secrets.DBUser,
+				"MARIADB_PASSWORD="+pctx.secrets.DBPassword,
+				"MARIADB_ROOT_PASSWORD="+pctx.secrets.DBRootPassword,
+			)
 		}
 	}
+
 	return env
 }
 
