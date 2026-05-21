@@ -215,7 +215,9 @@ func cmdInit(args []string) {
 // cmdStart locates the manifest (cwd or ~/projects/<name>), starts
 // cyberstackd if needed, and calls pod.Start.
 func cmdStart(args []string) {
-	ctx, cancel := ctxWithTimeout(2 * time.Minute)
+	// First-time pulls of multi-hundred-MB images plus VM cold-boot can
+	// run past 2 min easily — give it real headroom.
+	ctx, cancel := ctxWithTimeout(10 * time.Minute)
 	defer cancel()
 
 	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
@@ -242,10 +244,10 @@ func cmdStart(args []string) {
 
 // cmdStop stops a running pod. The pod name is derived from the manifest.
 func cmdStop(args []string) {
-	ctx, cancel := ctxWithTimeout(30 * time.Second)
+	ctx, cancel := ctxWithTimeout(2 * time.Minute)
 	defer cancel()
 
-	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: false})
+	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
 	must(err)
 	defer eng.Close()
 
@@ -272,10 +274,10 @@ func cmdDestroy(args []string) {
 		mode = pod.DestroyNuke
 	}
 
-	ctx, cancel := ctxWithTimeout(30 * time.Second)
+	ctx, cancel := ctxWithTimeout(2 * time.Minute)
 	defer cancel()
 
-	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: false})
+	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
 	must(err)
 	defer eng.Close()
 
@@ -346,7 +348,7 @@ func cmdExec(args []string) {
 	ctx, cancel := ctxWithTimeout(5 * time.Minute)
 	defer cancel()
 
-	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: false})
+	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
 	must(err)
 	defer eng.Close()
 
@@ -357,10 +359,10 @@ func cmdExec(args []string) {
 
 // cmdList lists all pods known to the engine.
 func cmdList() {
-	ctx, cancel := ctxWithTimeout(10 * time.Second)
+	ctx, cancel := ctxWithTimeout(2 * time.Minute)
 	defer cancel()
 
-	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: false})
+	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
 	must(err)
 	defer eng.Close()
 
@@ -413,7 +415,7 @@ func cmdDBExport(args []string) {
 	ctx, cancel := ctxWithTimeout(5 * time.Minute)
 	defer cancel()
 
-	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: false})
+	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
 	must(err)
 	defer eng.Close()
 
@@ -437,7 +439,7 @@ func cmdDBImport(args []string) {
 	ctx, cancel := ctxWithTimeout(5 * time.Minute)
 	defer cancel()
 
-	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: false})
+	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
 	must(err)
 	defer eng.Close()
 
@@ -459,7 +461,7 @@ func cmdUpdate(args []string) {
 	ctx, cancel := ctxWithTimeout(10 * time.Minute)
 	defer cancel()
 
-	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: false})
+	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
 	must(err)
 	defer eng.Close()
 

@@ -28,8 +28,12 @@ const (
 	envDockerHost   = "DOCKER_HOST"
 	envCyberstackd  = "CYBERSTACKD"
 	pidFile         = "cyberstackd.pid"
-	pingDeadline    = 8 * time.Second
-	pingPollEvery   = 100 * time.Millisecond
+	// VM cold-boot — vfkit + Linux init + cs-agent startup — typically
+	// finishes in 20–30s, occasionally longer on macOS with cold disk
+	// caches. Set generously so the very first auto-spawn after a
+	// pkill cyberstackd doesn't bail mid-boot.
+	pingDeadline  = 60 * time.Second
+	pingPollEvery = 250 * time.Millisecond
 	// dnsPort is the embedded DNS responder port we tell cyberstackd to bind.
 	dnsPort = 7753
 )
@@ -138,11 +142,17 @@ func dialAndPing(ctx context.Context, socket string) (*engine.Client, error) {
 // DaemonArgs builds the cyberstackd CLI flags from the runtime config.
 // Exposed for testing and for the network-mode-switch flow that needs
 // to spawn cyberstackd directly.
+//
+// -console-log is always on — captures the in-VM kernel + init + agent
+// log to <socketDir>/console.log so panics inside the guest are
+// recoverable. Tiny cost (file grows ~MB/min idle) for big debuggability.
 func DaemonArgs(socket string, mode network.Mode, dnsPort int) []string {
+	consoleLog := filepath.Join(filepath.Dir(socket), "console.log")
 	return []string{
 		"-socket", socket,
 		"-dns-port", fmt.Sprintf("%d", dnsPort),
 		"-network-mode", string(mode),
+		"-console-log", consoleLog,
 	}
 }
 
