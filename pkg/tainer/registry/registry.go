@@ -63,7 +63,12 @@ func Add(name, path, projType, domain string) error {
 	defer mu.Unlock()
 	r := load()
 	if existing, ok := r.Projects[name]; ok && existing.Path != path {
-		return fmt.Errorf("project name %q is already registered at %s", name, existing.Path)
+		// A different live project owns this name — refuse. But if the old
+		// path is gone (deleted dir, tmpfs from a test run, etc), silently
+		// reclaim the slot. Stale entries shouldn't block legitimate inits.
+		if manifest.Exists(existing.Path) {
+			return fmt.Errorf("project name %q is already registered at %s", name, existing.Path)
+		}
 	}
 	r.Projects[name] = Project{
 		Path:    path,
