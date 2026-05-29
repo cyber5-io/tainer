@@ -237,28 +237,17 @@ func startContainer(
 	// rather than recreating. Preserves any container-side state
 	// (database files in the bind mount, etc) between cycles.
 	//
-	// EXCEPTION: shared-netns followers (netMode="container:<leader>")
-	// have the leader's PID baked into their OCI config at create
-	// time. On restart, the leader gets a new PID, so the follower's
-	// stale config points at /proc/<dead-pid>/ns/net and crun fails.
-	// For followers we always destroy + recreate so the new config
-	// resolves to the leader's current PID. Followers have no
-	// stateful filesystem mounts that would be lost (port bindings
-	// + bind mounts live on the leader / are the same on recreate).
+	// This applies to shared-netns followers too: cyberstack 0.5.2
+	// re-resolves the leader PID and rewrites the follower's config.json
+	// at Start time, so a stale /proc/<pid>/ns/net no longer wedges the
+	// restart and we no longer destroy + recreate followers each cycle.
 	insp, ierr := eng.Inspect(ctx, spec.Name)
 	if ierr == nil {
-		if netMode != "" {
-			// Follower with stale netns reference — recreate.
-			if err := eng.Remove(ctx, spec.Name, true); err != nil {
-				return fmt.Errorf("remove stale follower: %w", err)
-			}
-		} else {
-			if insp.State != nil && insp.State.Running {
-				return nil // leader already up — nothing to do
-			}
-			// Leader exists but is stopped — start it in place.
-			return eng.Start(ctx, spec.Name)
+		if insp.State != nil && insp.State.Running {
+			return nil // already up — nothing to do
 		}
+		// Container exists but is stopped — start it in place.
+		return eng.Start(ctx, spec.Name)
 	} else if !isNotFound(ierr) {
 		return ierr
 	}
