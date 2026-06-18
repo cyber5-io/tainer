@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
+	"github.com/cyber5-io/tainer/pkg/tainer/registry"
 )
 
 // DestroyMode selects the destroy variant.
@@ -47,6 +48,10 @@ func Destroy(ctx context.Context, eng *engine.Client, podName, projectDir string
 	if err := FreePodID(podName); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: free pod id %q: %v\n", podName, err)
 	}
+	// Drop the project name from the global registry so `tainer init` can
+	// re-use it on the same path or a different one. Without this, destroy
+	// leaves the name occupied until the user hand-edits projects.json.
+	registry.Remove(podName)
 
 	if mode == DestroyClean || mode == DestroyNuke {
 		if err := cleanProjectDir(projectDir); err != nil {
