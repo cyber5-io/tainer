@@ -14,7 +14,11 @@ import (
 // MariaDB pods and pg_dump for Postgres pods (Kompozi or any pod with
 // runtime.database=postgres).
 func DBExport(ctx context.Context, eng *engine.Client, podName string, m *manifest.Manifest, outPath string) error {
-	cmd := dumpCmd(m)
+	secrets, err := LoadOrCreateSecrets(podName)
+	if err != nil {
+		return fmt.Errorf("load secrets for %s: %w", podName, err)
+	}
+	cmd := dumpCmd(m, secrets)
 	res, err := eng.Exec(ctx, ContainerName(podName, RoleDB), cmd)
 	if err != nil {
 		return err
@@ -28,6 +32,10 @@ func DBExport(ctx context.Context, eng *engine.Client, podName string, m *manife
 // DBImport reads a dump from inPath and pipes it into the pod's
 // database container's restore command.
 func DBImport(ctx context.Context, eng *engine.Client, podName string, m *manifest.Manifest, inPath string) error {
+	secrets, err := LoadOrCreateSecrets(podName)
+	if err != nil {
+		return fmt.Errorf("load secrets for %s: %w", podName, err)
+	}
 	in, err := os.Open(inPath)
 	if err != nil {
 		return err
@@ -37,7 +45,7 @@ func DBImport(ctx context.Context, eng *engine.Client, podName string, m *manife
 	if err != nil {
 		return err
 	}
-	cmd := restoreCmd(m)
+	cmd := restoreCmd(m, secrets)
 	res, err := eng.ExecWithStdin(ctx, ContainerName(podName, RoleDB), cmd, data)
 	if err != nil {
 		return err
@@ -48,16 +56,21 @@ func DBImport(ctx context.Context, eng *engine.Client, podName string, m *manife
 	return nil
 }
 
-func dumpCmd(m *manifest.Manifest) []string {
+// dumpCmd / restoreCmd use the per-project credentials stored in
+// ~/.cyberstack/tainer/secrets/<project>.env (DBUser / DBPassword /
+// DBName). The legacy hardcoded "tainer/tainer/<project-name>" predates
+// per-project secrets and silently failed auth — process exited before
+// the SQL was even written, surfacing as "broken pipe" client-side.
+func dumpCmd(m *manifest.Manifest, s *Secrets) []string {
 	if m.Runtime.Database == manifest.DatabasePostgres {
-		return []string{"pg_dump", "-U", "tainer", m.Project.Name}
+		return []string{"pg_dump", "-U", s.DBUser, s.DBName}
 	}
-	return []string{"mariadb-dump", "-u", "tainer", "-ptainer", m.Project.Name}
+	return []string{"mariadb-dump", "-u", s.DBUser, "-p" + s.DBPassword, s.DBName}
 }
 
-func restoreCmd(m *manifest.Manifest) []string {
+func restoreCmd(m *manifest.Manifest, s *Secrets) []string {
 	if m.Runtime.Database == manifest.DatabasePostgres {
-		return []string{"psql", "-U", "tainer", m.Project.Name}
+		return []string{"psql", "-U", s.DBUser, s.DBName}
 	}
-	return []string{"mariadb", "-u", "tainer", "-ptainer", m.Project.Name}
+	return []string{"mariadb", "-u", s.DBUser, "-p" + s.DBPassword, s.DBName}
 }
