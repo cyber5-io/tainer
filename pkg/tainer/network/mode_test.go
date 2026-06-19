@@ -9,8 +9,8 @@ func TestModeRoundtrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "network-mode")
 
-	if got, err := ReadMode(path); err != nil || got != ModePerformance {
-		t.Errorf("default ReadMode: got (%q,%v), want (%q,nil)", got, err, ModePerformance)
+	if got, err := ReadMode(path); err != nil || got != DefaultMode {
+		t.Errorf("default ReadMode: got (%q,%v), want (%q,nil)", got, err, DefaultMode)
 	}
 
 	if err := WriteMode(path, ModeCompatibility); err != nil {
@@ -29,6 +29,8 @@ func TestParseShortForms(t *testing.T) {
 		"compat":           ModeCompatibility,
 		"compatibility":    ModeCompatibility,
 		"external-gvproxy": ModeCompatibility,
+		"hybrid":           ModeHybrid,
+		"h":                ModeHybrid,
 	}
 	for in, want := range cases {
 		got, err := ParseMode(in)

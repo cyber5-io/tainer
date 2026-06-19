@@ -15,11 +15,19 @@ type Mode string
 const (
 	ModePerformance   Mode = "vmnet-helper"
 	ModeCompatibility Mode = "external-gvproxy"
+	// ModeHybrid is the 0.9 default: gvproxy for outbound (pod →
+	// internet, VPN-safe) + direct gRPC-tunneled forwarder for
+	// inbound (host → pod, low latency). Gives perf-mode TTFB
+	// without perf mode's susceptibility to macOS VPN/network
+	// extensions. See project_perf_vs_compat_benchmarks memory and
+	// internal/vm/hybridforwarder for the design.
+	ModeHybrid Mode = "hybrid"
 )
 
 // DefaultMode is what runtime.Engine uses when the persistence file
-// is missing — vmnet-helper for speed, mirrors cyberstackd's default.
-const DefaultMode = ModePerformance
+// is missing. Hybrid is the safe-and-fast choice for the 99% case;
+// users who want absolute perf and have no VPN can flip to perf.
+const DefaultMode = ModeHybrid
 
 // DefaultModeFile returns ~/.cyberstack/network-mode.
 func DefaultModeFile() string {
@@ -67,8 +75,10 @@ func ParseMode(s string) (Mode, error) {
 		return ModePerformance, nil
 	case "compat", "compatibility", "external-gvproxy":
 		return ModeCompatibility, nil
+	case "hybrid", "h":
+		return ModeHybrid, nil
 	default:
-		return "", fmt.Errorf("unknown network mode %q (want perf|compat)", s)
+		return "", fmt.Errorf("unknown network mode %q (want perf|compat|hybrid)", s)
 	}
 }
 
@@ -83,6 +93,8 @@ func (m Mode) Display() string {
 		return "performance (vmnet-helper)"
 	case ModeCompatibility:
 		return "compatibility (external-gvproxy)"
+	case ModeHybrid:
+		return "hybrid (gvproxy out, direct gRPC in)"
 	default:
 		return string(m)
 	}
