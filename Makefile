@@ -82,7 +82,7 @@ pkg-only: pkg-only-root
 # separate Developer ID certificates per team. productsign needs the
 # Installer one; codesign uses the Application one.
 INSTALLER_SIGN_IDENTITY := $(TAINER_SIGNING_INSTALLER_IDENTITY)
-NOTARY_PROFILE := $(if $(TAINER_NOTARY_PROFILE),$(TAINER_NOTARY_PROFILE),tainer-notary)
+NOTARY_PROFILE := $(if $(TAINER_NOTARY_PROFILE),$(TAINER_NOTARY_PROFILE),tainer-notarize)
 
 pkg-only-signed: pkg-only
 	@if [ -z "$(INSTALLER_SIGN_IDENTITY)" ]; then \

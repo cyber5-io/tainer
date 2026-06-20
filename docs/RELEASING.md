@@ -20,7 +20,7 @@ for the full walkthrough. In short:
 - Developer ID **Application** + Developer ID **Installer** certs in your
   keychain, exposed via `$TAINER_SIGNING_IDENTITY` and
   `$TAINER_SIGNING_INSTALLER_IDENTITY`.
-- A `notarytool` keychain profile (default name `tainer-notary`,
+- A `notarytool` keychain profile (default name `tainer-notarize`,
   override with `$TAINER_NOTARY_PROFILE`).
 - A local checkout of `cyber-stack` at `../cyber-stack` (relative to
   this repo) — or pass `CS_REPO=/abs/path` on the `make` command line.
