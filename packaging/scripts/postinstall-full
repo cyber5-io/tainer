@@ -1,0 +1,34 @@
+#!/bin/bash
+# postinstall-full - runs after the tainer.pkg starter-pack payload lands.
+#
+# Does everything cyberstack.pkg's postinstall does (pf anchor, sudoers
+# for cyberstack-pf and vmnet-helper) PLUS creates the /usr/local/bin/
+# tainer symlink so the tainer CLI is on PATH out of the box.
+set -euo pipefail
+
+PREFIX=/opt
+PF_INSTALLER="${PREFIX}/tainer/share/cyberstack/install-cyberstack-pf.sh"
+VMNET_SUDOERS_SRC="${PREFIX}/vmnet-helper/share/doc/vmnet-helper/sudoers.d/vmnet-helper"
+VMNET_SUDOERS_DST=/etc/sudoers.d/vmnet-helper
+
+# 1. cyberstack-pf: pf anchor + sudoers (idempotent helper).
+if [[ -x "$PF_INSTALLER" ]]; then
+    CYBERSTACK_PF_USER='%staff' "$PF_INSTALLER"
+else
+    echo "postinstall-full: missing $PF_INSTALLER" >&2
+    exit 1
+fi
+
+# 2. vmnet-helper sudoers.
+if [[ -f "$VMNET_SUDOERS_SRC" ]]; then
+    install -m 0440 "$VMNET_SUDOERS_SRC" "$VMNET_SUDOERS_DST"
+    visudo -c -f "$VMNET_SUDOERS_DST" >/dev/null
+    echo "postinstall-full: installed $VMNET_SUDOERS_DST"
+fi
+
+# 3. tainer CLI symlink.
+install -d -m 0755 -o root -g wheel /usr/local/bin
+ln -sf /opt/tainer/bin/tainer /usr/local/bin/tainer
+echo "postinstall-full: tainer CLI linked at /usr/local/bin/tainer"
+
+exit 0

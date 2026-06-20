@@ -1,0 +1,15 @@
+#!/bin/bash
+# postinstall-only - runs after the tainer-only.pkg payload lands.
+#
+# Just creates /usr/local/bin/tainer → /opt/tainer/bin/tainer so the CLI
+# is on PATH out of the box. No sudoers / pf changes — those belong to
+# cyberstack.pkg (which the user must have already installed separately).
+set -euo pipefail
+
+# /usr/local/bin may not exist on a fresh-out-of-box Mac (it's user-owned
+# and only created on demand). Make sure it's there before linking.
+install -d -m 0755 -o root -g wheel /usr/local/bin
+ln -sf /opt/tainer/bin/tainer /usr/local/bin/tainer
+
+echo "postinstall: tainer CLI installed at /usr/local/bin/tainer"
+exit 0

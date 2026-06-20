@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- tainer is the user-facing CLI. It talks to cyberstackd over its
+	     Unix socket (no network), reads/writes the user's project files,
+	     and shells out to git for `tainer clone`. Minimal entitlements. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+</dict>
+</plist>
