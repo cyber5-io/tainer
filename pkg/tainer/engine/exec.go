@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/pkg/stdcopy"
@@ -52,6 +53,113 @@ func (c *Client) Exec(ctx context.Context, name string, cmd []string) (ExecResul
 		Stdout:   stdout.Bytes(),
 		Stderr:   stderr.Bytes(),
 	}, nil
+}
+
+// ExecStreamOptions configures a streaming exec session for
+// interactive commands (bash, wp shell, artisan tinker) and for
+// long-running commands whose output should reach the user live.
+//
+// When Tty is true, Stdout and Stderr streams are merged in the
+// container so we only bind Stdout; call sites should still set
+// Stderr in case a legacy container doesn't honour the request.
+type ExecStreamOptions struct {
+	Cmd     []string
+	User    string    // optional: --user
+	WorkDir string    // optional: --workdir
+	Env     []string  // optional: extra env vars (KEY=VAL)
+	Tty     bool      // allocate a container-side TTY
+	Stdin   io.Reader // nil to skip stdin attach
+	Stdout  io.Writer // required
+	Stderr  io.Writer // required
+}
+
+// ExecStream runs cmd inside the named container and streams stdio
+// live. Returns the exit code when the command finishes. Blocks until
+// the command exits OR ctx is cancelled.
+//
+// Design notes:
+//   - Distinct from Exec/ExecWithStdin (which buffer output) so
+//     internal short commands (db.dump, router.update) don't change.
+//   - When Tty is true the container writes a single interleaved
+//     byte stream to Stdout — no stdcopy demux, no Stderr split.
+//   - Stdin copy runs in a goroutine; we CloseWrite() when it finishes
+//     so the container sees EOF on stdin (essential for commands like
+//     `cat` reading from a pipe).
+func (c *Client) ExecStream(ctx context.Context, name string, opts ExecStreamOptions) (int, error) {
+	if opts.Stdout == nil || opts.Stderr == nil {
+		return 1, fmt.Errorf("engine: ExecStream needs Stdout and Stderr")
+	}
+
+	createResp, err := c.api.ContainerExecCreate(ctx, name, container.ExecOptions{
+		Cmd:          opts.Cmd,
+		User:         opts.User,
+		WorkingDir:   opts.WorkDir,
+		Env:          opts.Env,
+		Tty:          opts.Tty,
+		AttachStdin:  opts.Stdin != nil,
+		AttachStdout: true,
+		AttachStderr: true,
+	})
+	if err != nil {
+		return 1, fmt.Errorf("engine: exec create on %s: %w", name, err)
+	}
+
+	hijack, err := c.api.ContainerExecAttach(ctx, createResp.ID, container.ExecStartOptions{
+		Tty: opts.Tty,
+	})
+	if err != nil {
+		return 1, fmt.Errorf("engine: exec attach on %s: %w", name, err)
+	}
+	defer hijack.Close()
+
+	// stdin pump: block-copy user stdin into the hijacked conn until
+	// EOF. When we finish, CloseWrite() so the container sees EOF —
+	// otherwise commands like `cat` block forever.
+	stdinDone := make(chan struct{})
+	if opts.Stdin != nil {
+		go func() {
+			defer close(stdinDone)
+			_, _ = io.Copy(hijack.Conn, opts.Stdin)
+			_ = hijack.CloseWrite()
+		}()
+	} else {
+		close(stdinDone)
+	}
+
+	// stdout+stderr pump: TTY mode is a single interleaved byte stream
+	// (no docker frame header), non-TTY uses stdcopy to demux frames.
+	outDone := make(chan error, 1)
+	go func() {
+		var err error
+		if opts.Tty {
+			_, err = io.Copy(opts.Stdout, hijack.Reader)
+		} else {
+			_, err = stdcopy.StdCopy(opts.Stdout, opts.Stderr, hijack.Reader)
+		}
+		outDone <- err
+	}()
+
+	// Wait for output stream to finish (that's the definitive signal
+	// the exec is done producing bytes). Then inspect for exit code.
+	select {
+	case err := <-outDone:
+		if err != nil {
+			// io.Copy returning an error mid-stream can still leave
+			// meaningful exit-code info in the inspect call; log but
+			// don't abort here.
+			_ = err
+		}
+	case <-ctx.Done():
+		return 1, ctx.Err()
+	}
+	// Best-effort: let any straggler stdin bytes finish flushing.
+	<-stdinDone
+
+	insp, err := c.api.ContainerExecInspect(ctx, createResp.ID)
+	if err != nil {
+		return 1, fmt.Errorf("engine: exec inspect on %s: %w", name, err)
+	}
+	return insp.ExitCode, nil
 }
 
 // ExecWithStdin is like Exec but pipes stdin into the exec session.

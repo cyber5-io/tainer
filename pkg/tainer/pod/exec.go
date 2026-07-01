@@ -3,6 +3,7 @@ package pod
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
@@ -18,17 +19,43 @@ func ResolveExecRole(t manifest.ProjectType, argRole string) string {
 	return DefaultExecRole(t)
 }
 
+// ExecOptions configures an interactive exec run against a pod
+// container. See the field docs and the equivalent flags on
+// cmdExec for the user-facing shape.
+type ExecOptions struct {
+	Cmd     []string
+	User    string
+	WorkDir string
+	Env     []string
+	Tty     bool
+	Stdin   io.Reader // nil to skip stdin attach
+	Stdout  io.Writer // required
+	Stderr  io.Writer // required
+}
+
 // Exec runs cmd inside the pod's container of the resolved role.
-// Streams stdout/stderr to the user's terminal and returns the exit
-// code.
-func Exec(ctx context.Context, eng *engine.Client, podName, role string, cmd []string) (int, error) {
-	res, err := eng.Exec(ctx, ContainerName(podName, role), cmd)
-	if err != nil {
-		return 1, err
+// Streams stdio live and returns the exit code.
+//
+// The old "buffer and dump" behaviour has been replaced with a
+// streaming pump; internal callers that need the buffered variant
+// should hit engine.Exec directly (see pod/db.go for the pattern).
+func Exec(ctx context.Context, eng *engine.Client, podName, role string, opts ExecOptions) (int, error) {
+	if opts.Stdout == nil {
+		opts.Stdout = os.Stdout
 	}
-	_, _ = os.Stdout.Write(res.Stdout)
-	_, _ = os.Stderr.Write(res.Stderr)
-	return res.ExitCode, nil
+	if opts.Stderr == nil {
+		opts.Stderr = os.Stderr
+	}
+	return eng.ExecStream(ctx, ContainerName(podName, role), engine.ExecStreamOptions{
+		Cmd:     opts.Cmd,
+		User:    opts.User,
+		WorkDir: opts.WorkDir,
+		Env:     opts.Env,
+		Tty:     opts.Tty,
+		Stdin:   opts.Stdin,
+		Stdout:  opts.Stdout,
+		Stderr:  opts.Stderr,
+	})
 }
 
 // FormatStatus formats one Pod for the `tainer status` output. The
