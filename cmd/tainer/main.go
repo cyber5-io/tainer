@@ -23,10 +23,13 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"charm.land/lipgloss/v2"
@@ -1425,15 +1428,44 @@ func cmdExec(args []string) {
 	// If we're going to allocate a TTY on the container, put the local
 	// terminal into raw mode too so keystrokes flow through unbuffered
 	// and control chars (Ctrl-C, arrow keys) reach the container.
-	// Restore on exit no matter how we leave.
+	//
+	// CRITICAL: os.Exit() bypasses deferred functions. If any subsequent
+	// code panics or we os.Exit before restoring, the user's terminal
+	// stays in raw mode and they can't recover without `reset` / `stty
+	// sane`. Explicit restore() calls before every exit path, plus a
+	// signal handler for Ctrl-C / SIGTERM. defer is a backstop only.
+	restore := func() {}
 	if tty {
-		restore, err := makeStdinRaw()
+		r, err := makeStdinRaw()
 		if err != nil {
 			// Fall back to non-TTY rather than failing outright.
 			tty = false
 		} else {
+			restore = r
+			installTerminalRestoreOnSignal(restore)
 			defer restore()
 		}
+	}
+
+	// Stdin routing follows Docker's -i semantics:
+	//
+	//   - When stdin is a pipe/file (echo "..." | tainer exec, or
+	//     tainer exec < file), always attach. Users piping input
+	//     obviously want the container to see it.
+	//   - When stdin is an idle terminal (user just typed `tainer
+	//     exec -- ls`), DON'T attach. Otherwise ExecStream blocks on
+	//     `<-stdinDone` after the command exits — the stdin-copy
+	//     goroutine is stuck reading from the terminal and only
+	//     unblocks when the user presses ENTER (or Ctrl-D). That
+	//     shows up as "why do I have to press ENTER to get my
+	//     prompt back".
+	//   - TTY mode (once wired up per task #4) will always attach
+	//     stdin — that's the whole point of interactive.
+	//
+	// -i / --interactive forces attach regardless.
+	var stdin io.Reader
+	if tty || parsed.interactive || !tui.IsTTY(os.Stdin.Fd()) {
+		stdin = os.Stdin
 	}
 
 	code, err := pod.Exec(ctx, eng, projectName, role, pod.ExecOptions{
@@ -1442,11 +1474,16 @@ func cmdExec(args []string) {
 		WorkDir: parsed.workdir,
 		Env:     parsed.env,
 		Tty:     tty,
-		Stdin:   os.Stdin,
+		Stdin:   stdin,
 		Stdout:  os.Stdout,
 		Stderr:  os.Stderr,
 	})
 	elapsed := time.Since(started)
+
+	// Restore terminal BEFORE we print anything else. Doing it here as
+	// well as via defer guarantees the restore runs before the os.Exit
+	// below (which would otherwise skip the defer).
+	restore()
 
 	// Closing bookend: exit-code-dependent phrasing. Zero → success
 	// (green [✓] Ready). Non-zero → red BookendCloseError so the eye
@@ -1477,6 +1514,27 @@ func cmdExec(args []string) {
 	os.Exit(code)
 }
 
+// installTerminalRestoreOnSignal wires a goroutine that restores the
+// terminal on SIGINT/SIGTERM/SIGHUP. Belt-and-braces with the deferred
+// restore(): if the subprocess catches a signal and we exit through an
+// unusual path, we still put the terminal back into cooked mode.
+//
+// The goroutine leaks intentionally on normal exit — the process is
+// terminating anyway and the OS will reap it.
+func installTerminalRestoreOnSignal(restore func()) {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	go func() {
+		<-ch
+		restore()
+		// Re-raise the signal so shell scripts see the standard exit
+		// status (128+signum). Reset the handler first so the signal
+		// terminates us this time.
+		signal.Reset(syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		os.Exit(130) // 128 + SIGINT (2) — matches shell convention
+	}()
+}
+
 // execParsedArgs holds the parsed pieces of a `tainer exec ...` invocation.
 type execParsedArgs struct {
 	projectName string
@@ -1486,6 +1544,7 @@ type execParsedArgs struct {
 	env         []string
 	ttyForced   bool // true value only meaningful when ttyExplicit
 	ttyExplicit bool // user passed --tty or --no-tty
+	interactive bool // -i / --interactive: force stdin attach even on idle TTY
 	cmd         []string
 }
 
@@ -1524,26 +1583,23 @@ func parseExecArgs(args []string) (execParsedArgs, error) {
 		case a == "-T" || a == "--no-tty":
 			p.ttyForced = false
 			p.ttyExplicit = true
-		case a == "-u" || a == "--user":
-			if i+1 >= len(pre) {
-				return p, fmt.Errorf("%s requires a value", a)
-			}
-			p.user = pre[i+1]
-			i++
-		case a == "-w" || a == "--workdir":
-			if i+1 >= len(pre) {
-				return p, fmt.Errorf("%s requires a value", a)
-			}
-			p.workdir = pre[i+1]
-			i++
-		case a == "-e" || a == "--env":
-			if i+1 >= len(pre) {
-				return p, fmt.Errorf("%s requires KEY=VAL", a)
-			}
-			p.env = append(p.env, pre[i+1])
-			i++
+		case a == "-i" || a == "--interactive":
+			p.interactive = true
 		default:
-			positional = append(positional, a)
+			// Handle both `--flag value` (space) and `--flag=value`
+			// (equals) forms for the value-taking flags. The equals
+			// form doesn't conflict with anything and matches the
+			// convention we already document/use for tainer's other
+			// commands (e.g. --output=file in db export).
+			if v, ok := flagValue(a, pre, &i, "-u", "--user"); ok {
+				p.user = v
+			} else if v, ok := flagValue(a, pre, &i, "-w", "--workdir"); ok {
+				p.workdir = v
+			} else if v, ok := flagValue(a, pre, &i, "-e", "--env"); ok {
+				p.env = append(p.env, v)
+			} else {
+				positional = append(positional, a)
+			}
 		}
 	}
 
@@ -1602,6 +1658,28 @@ func isRegisteredProject(name string) bool {
 	all := registry.All()
 	_, ok := all[name]
 	return ok
+}
+
+// flagValue matches arg against any of the given flag names and
+// returns the associated value. Handles both the space-separated
+// (`--flag value` — value is pre[*i+1] and *i is advanced) and
+// equals-joined (`--flag=value` — value comes from arg itself) forms.
+// Returns (value, true) on match, ("", false) otherwise.
+func flagValue(arg string, pre []string, i *int, names ...string) (string, bool) {
+	for _, name := range names {
+		if arg == name {
+			if *i+1 >= len(pre) {
+				return "", true // caller sees empty value; upstream still accepts
+			}
+			v := pre[*i+1]
+			*i++
+			return v, true
+		}
+		if strings.HasPrefix(arg, name+"=") {
+			return arg[len(name)+1:], true
+		}
+	}
+	return "", false
 }
 
 // containsRune is a tiny helper — strings.ContainsRune is fine but
