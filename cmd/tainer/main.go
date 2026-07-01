@@ -770,7 +770,6 @@ func cmdInit(args []string) {
 	if len(rest) >= 2 {
 		opts.Name = rest[1]
 	}
-
 	switch mode {
 	case tui.ModeJSON:
 		runInitJSON(opts)
@@ -1383,6 +1382,22 @@ func cmdExec(args []string) {
 	projectName := m.Project.Name
 	role := pod.ResolveExecRole(m.Project.Type, parsed.role)
 
+	// Fill in sensible per-project-type defaults for --user and
+	// --workdir so `tainer exec -- wp option get siteurl` picks up
+	// www-data + /var/www/html automatically without every user
+	// having to remember the UID and path. User-supplied flags always
+	// win — the defaults only fill blanks. When we can't infer a
+	// default (unusual role, unknown type), we leave the field empty
+	// and the container's image WORKDIR / USER apply.
+	execUser := parsed.user
+	if execUser == "" {
+		execUser = pod.DefaultExecUser(m.Project.Type, role)
+	}
+	execWorkdir := parsed.workdir
+	if execWorkdir == "" {
+		execWorkdir = pod.DefaultExecWorkdir(m.Project.Type, role)
+	}
+
 	// TTY auto-detection: on when both stdin and stdout are terminals
 	// AND the user hasn't overridden. --tty forces on; --no-tty forces
 	// off. Explicit stdin (heredoc, pipe) drops the default to off.
@@ -1400,7 +1415,14 @@ func cmdExec(args []string) {
 		tty = tui.IsTTY(os.Stdin.Fd()) && tui.IsTTY(os.Stdout.Fd())
 	}
 	if tty {
-		fmt.Fprintln(os.Stderr, "tainer: interactive TTY exec is not yet supported (falling back to non-TTY). Bash/wp-shell/tinker sessions may look broken; use `tainer exec -- <cmd>` for non-interactive commands.")
+		// Only warn if the user asked for TTY explicitly (-t / --tty).
+		// Auto-detection turning on TTY for something like
+		// `tainer exec -- wp option get siteurl` shouldn't print a
+		// scary-looking notice when the command still runs fine
+		// non-interactively. Task #4 tracks the real pty wiring.
+		if parsed.ttyExplicit && parsed.ttyForced {
+			fmt.Fprintln(os.Stderr, "tainer: interactive TTY exec is not yet supported (falling back to non-TTY). Bash/wp-shell/tinker sessions may look broken; use `tainer exec -- <cmd>` for non-interactive commands.")
+		}
 		tty = false
 	}
 
@@ -1470,8 +1492,8 @@ func cmdExec(args []string) {
 
 	code, err := pod.Exec(ctx, eng, projectName, role, pod.ExecOptions{
 		Cmd:     parsed.cmd,
-		User:    parsed.user,
-		WorkDir: parsed.workdir,
+		User:    execUser,
+		WorkDir: execWorkdir,
 		Env:     parsed.env,
 		Tty:     tty,
 		Stdin:   stdin,

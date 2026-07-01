@@ -57,6 +57,54 @@ func DefaultExecRole(t manifest.ProjectType) string {
 	return RoleApp
 }
 
+// DefaultExecUser returns the crun --user value tainer exec should
+// pass by default so commands like `tainer exec -- wp option get
+// siteurl` don't run as root. UID:GID form because crun silently
+// ignores the flag when only UID is given (the agent side also
+// duplicates the UID as a safety net).
+//
+// PHP images (WordPress and plain PHP) ship with www-data at 82.
+// Node images (Next/Nuxt/Nest/plain node/kompozi) use "node" at 1000.
+// Only used for the app role — other roles (web, db) keep their
+// image-baked defaults because that's what runs the actual daemon
+// process.
+func DefaultExecUser(t manifest.ProjectType, role string) string {
+	if role != RoleApp {
+		return "" // fall through to image default (usually root)
+	}
+	switch t {
+	case manifest.TypeWordPress, manifest.TypePHP:
+		return "82:82" // www-data
+	case manifest.TypeNodeJS, manifest.TypeNextJS, manifest.TypeNuxtJS,
+		manifest.TypeNestJS, manifest.TypeKompozi:
+		return "1000:1000" // node
+	}
+	return ""
+}
+
+// DefaultExecWorkdir returns the working directory tainer exec should
+// cd into by default so `wp`, `artisan`, `npm`, etc. see the project
+// files they expect without the user needing to pass --workdir every
+// time.
+//
+// All app roles land in /var/www/html for PHP and /app for Node —
+// matching what the container images set as their WORKDIR. The web
+// and db roles have no useful "project" directory to cd into, so we
+// return empty and let crun use the image default.
+func DefaultExecWorkdir(t manifest.ProjectType, role string) string {
+	if role != RoleApp {
+		return ""
+	}
+	switch t {
+	case manifest.TypeWordPress, manifest.TypePHP:
+		return "/var/www/html"
+	case manifest.TypeNodeJS, manifest.TypeNextJS, manifest.TypeNuxtJS,
+		manifest.TypeNestJS, manifest.TypeKompozi:
+		return "/app"
+	}
+	return ""
+}
+
 // imageRepo returns the configured image registry prefix. Defaults to
 // ghcr.io/cyber5-io but can be overridden via the TAINER_IMAGE_REPO env
 // var for users who run their own registry or want to smoke against
