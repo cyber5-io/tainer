@@ -174,6 +174,7 @@ func startDaemon(opts Options, socket string) error {
 
 	// Detach: stdout/stderr to log file, no controlling terminal.
 	logPath := filepath.Join(filepath.Dir(socket), "cyberstackd.log")
+	rotateLog(logPath)
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("open log %s: %w", logPath, err)
@@ -194,6 +195,23 @@ func startDaemon(opts Options, socket string) error {
 		return fmt.Errorf("release cyberstackd: %w", err)
 	}
 	return nil
+}
+
+// rotateLog caps cyberstackd.log growth at daemon spawn: past the
+// threshold the current file becomes cyberstackd.log.old (replacing
+// any previous .old) and a fresh one starts. One generation is enough
+// history for post-mortems while bounding worst-case disk use to
+// ~2× the threshold. Motivated by a real incident: weeks of
+// reconnect-retry logging grew the file to 107 GB before anyone
+// noticed. Best-effort — a rotation failure must never block the
+// daemon from starting.
+func rotateLog(path string) {
+	const maxLogSize = 50 << 20 // 50 MB
+	fi, err := os.Stat(path)
+	if err != nil || fi.Size() < maxLogSize {
+		return
+	}
+	_ = os.Rename(path, path+".old")
 }
 
 func resolveBinary(opts Options) (string, error) {
