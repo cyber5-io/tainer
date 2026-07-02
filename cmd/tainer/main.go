@@ -74,6 +74,8 @@ func main() {
 		cmdDestroy(os.Args[2:])
 	case "exec":
 		cmdExec(os.Args[2:])
+	case "wp", "artisan", "npm", "yarn", "pnpm", "composer", "node", "php":
+		cmdExecWrapper(os.Args[1], os.Args[2:])
 	case "list", "ls":
 		cmdList(os.Args[2:])
 	case "db":
@@ -99,6 +101,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  stop [project]                         stop a project")
 	fmt.Fprintln(os.Stderr, "  destroy [project] [--clean|--nuke]     tear down a project")
 	fmt.Fprintln(os.Stderr, "  exec <project> [<role>] -- <cmd...>    run a command in a container")
+	fmt.Fprintln(os.Stderr, "  wp|composer|artisan|php <args...>      run the tool in the current project")
+	fmt.Fprintln(os.Stderr, "  npm|yarn|pnpm|node <args...>           run the tool in the current project")
 	fmt.Fprintln(os.Stderr, "  status                                 show pod state(s)")
 	fmt.Fprintln(os.Stderr, "  list (ls)                              list all pods")
 	fmt.Fprintln(os.Stderr, "  db export <project> [outfile]          dump database")
@@ -542,8 +546,8 @@ type podStatus struct {
 	Name   string
 	PodID  int
 	State  string
-	Domain string                // empty when manifest can't be located
-	Ports  []manifest.PortEntry  // empty when manifest can't be located
+	Domain string               // empty when manifest can't be located
+	Ports  []manifest.PortEntry // empty when manifest can't be located
 }
 
 func collectStatus(ctx context.Context) statusSnapshot {
@@ -702,11 +706,11 @@ func runStatusPlain(s statusSnapshot) {
 
 func runStatusJSON(s statusSnapshot) {
 	type jsonPod struct {
-		Name   string                `json:"name"`
-		PodID  int                   `json:"podId"`
-		State  string                `json:"state"`
-		Domain string                `json:"domain,omitempty"`
-		Ports  []manifest.PortEntry  `json:"ports,omitempty"`
+		Name   string               `json:"name"`
+		PodID  int                  `json:"podId"`
+		State  string               `json:"state"`
+		Domain string               `json:"domain,omitempty"`
+		Ports  []manifest.PortEntry `json:"ports,omitempty"`
 	}
 	pods := make([]jsonPod, 0, len(s.Pods))
 	for _, p := range s.Pods {
@@ -889,9 +893,9 @@ func runInitJSON(opts initcmd.Options) {
 		must(err)
 	}
 	out := struct {
-		ProjectName  string           `json:"projectName"`
-		ManifestPath string           `json:"manifestPath"`
-		Steps        []initcmd.Step   `json:"steps"`
+		ProjectName  string         `json:"projectName"`
+		ManifestPath string         `json:"manifestPath"`
+		Steps        []initcmd.Step `json:"steps"`
 	}{
 		ProjectName:  res.ProjectName,
 		ManifestPath: res.ManifestPath,
@@ -1295,11 +1299,11 @@ func runDestroyJSON(ctx context.Context, projectName, projectDir string, destroy
 	defer eng.Close()
 	must(pod.Destroy(ctx, eng, projectName, projectDir, destroyMode, alreadyConfirmedPrompt(projectName)))
 	out := struct {
-		Pod         string `json:"pod"`
-		Mode        string `json:"mode"` // "default" | "clean" | "nuke"
-		Destroyed   bool   `json:"destroyed"`
-		KeepImages  bool   `json:"keepImages"`
-		ElapsedMs   int64  `json:"elapsedMs"`
+		Pod        string `json:"pod"`
+		Mode       string `json:"mode"` // "default" | "clean" | "nuke"
+		Destroyed  bool   `json:"destroyed"`
+		KeepImages bool   `json:"keepImages"`
+		ElapsedMs  int64  `json:"elapsedMs"`
 	}{
 		Pod:        projectName,
 		Mode:       destroyModeJSONLabel(destroyMode),
@@ -1338,6 +1342,7 @@ func alreadyConfirmedPrompt(podName string) func() string {
 //
 //	tainer exec <project> [<role>] -- <cmd...>
 //	tainer exec <project> <cmd...>        (role resolved via ResolveExecRole)
+//
 // cmdExec runs a command inside a pod container. Forms:
 //
 //	tainer exec -- <cmd...>                    (cwd walk-up, default role)
@@ -1430,11 +1435,21 @@ func cmdExec(args []string) {
 	// bookend with exit code + elapsed. Interactive TTY mode skips
 	// most brand chrome so we don't fight the subprocess for the
 	// terminal — just a single opening line and a single closing line.
+	//
+	// Typed-wrapper invocations (`tainer wp plugin list`) show the
+	// tool as the verb — `opp · wp · plugin list` — rather than
+	// leaking the internal exec/role plumbing.
+	verb := "exec " + role
+	display := strings.Join(parsed.cmd, " ")
+	if execWrapperTool != "" && len(parsed.cmd) > 0 && parsed.cmd[0] == execWrapperTool {
+		verb = execWrapperTool
+		display = strings.Join(parsed.cmd[1:], " ")
+	}
 	started := time.Now()
 	if tty {
-		fmt.Println(tui.MarkBrand() + fmt.Sprintf("%s · exec %s · %s", projectName, role, strings.Join(parsed.cmd, " ")))
+		fmt.Println(tui.MarkBrand() + fmt.Sprintf("%s · %s · %s", projectName, verb, display))
 	} else {
-		tui.Bookend(projectName, "exec "+role, strings.Join(parsed.cmd, " "))
+		tui.Bookend(projectName, verb, display)
 	}
 
 	// Long default deadline — user might sit in `bash` for a while.
@@ -1556,6 +1571,62 @@ func installTerminalRestoreOnSignal(restore func()) {
 		os.Exit(130) // 128 + SIGINT (2) — matches shell convention
 	}()
 }
+
+// wrapperTypes limits each typed wrapper to the project types whose
+// app image actually ships the tool. nil means "any type" — the
+// container will complain on its own if the binary is missing, but
+// for the common tools we can catch the mistake before dialing the
+// engine and phrase it in tainer vocabulary.
+var wrapperTypes = map[string][]manifest.ProjectType{
+	"wp":       {manifest.TypeWordPress},
+	"artisan":  {manifest.TypePHP},
+	"composer": {manifest.TypePHP, manifest.TypeWordPress},
+	"php":      {manifest.TypePHP, manifest.TypeWordPress},
+	"npm":      {manifest.TypeNodeJS, manifest.TypeNextJS, manifest.TypeNuxtJS, manifest.TypeNestJS, manifest.TypeReact, manifest.TypeKompozi},
+	"yarn":     {manifest.TypeNodeJS, manifest.TypeNextJS, manifest.TypeNuxtJS, manifest.TypeNestJS, manifest.TypeReact, manifest.TypeKompozi},
+	"pnpm":     {manifest.TypeNodeJS, manifest.TypeNextJS, manifest.TypeNuxtJS, manifest.TypeNestJS, manifest.TypeReact, manifest.TypeKompozi},
+	"node":     {manifest.TypeNodeJS, manifest.TypeNextJS, manifest.TypeNuxtJS, manifest.TypeNestJS, manifest.TypeReact, manifest.TypeKompozi},
+}
+
+// cmdExecWrapper implements the typed shortcuts: `tainer wp plugin
+// list` == `tainer exec -- wp plugin list`. The project comes from
+// the cwd walk-up only (no project positional — it would be ambiguous
+// with the tool's own subcommands), and NO tainer flags are parsed:
+// everything after the tool name belongs to the tool verbatim. That
+// matters because tools like wp-cli define their own --user flag that
+// must not be swallowed by tainer's exec parser. Anyone needing
+// tainer-side flags (--user, --env, a different role...) drops down
+// to the full `tainer exec` form.
+func cmdExecWrapper(tool string, args []string) {
+	// Friendly type guard before we dial the engine: `tainer wp` in a
+	// nextjs project would otherwise surface as a bare "wp: not found"
+	// from the container.
+	manifestPath, _, err := locateManifest(nil)
+	must(err)
+	m, err := manifest.Load(manifestPath)
+	must(err)
+	if allowed, ok := wrapperTypes[tool]; ok {
+		match := false
+		for _, t := range allowed {
+			if m.Project.Type == t {
+				match = true
+				break
+			}
+		}
+		if !match {
+			fmt.Fprintf(os.Stderr, "tainer: `tainer %s` isn't available for %s projects (%s is %s)\n", tool, m.Project.Type, m.Project.Name, m.Project.Type)
+			os.Exit(2)
+		}
+	}
+	execWrapperTool = tool
+	cmdExec(append([]string{"--", tool}, args...))
+}
+
+// execWrapperTool is set by cmdExecWrapper before delegating to
+// cmdExec so the brand header reads `opp · wp · plugin list` instead
+// of the internal `opp · exec app · wp plugin list`. Empty for direct
+// `tainer exec` invocations.
+var execWrapperTool string
 
 // execParsedArgs holds the parsed pieces of a `tainer exec ...` invocation.
 type execParsedArgs struct {
