@@ -13,7 +13,7 @@ import (
 // current working directory — not into a <name> subdirectory.
 func TestRunWordPress(t *testing.T) {
 	dir := t.TempDir()
-	err := RunIn(Options{
+	_, err := RunIn(Options{
 		Type: manifest.TypeWordPress,
 		Name: "mywp",
 	}, dir)
@@ -50,7 +50,7 @@ func TestRunWordPress(t *testing.T) {
 // TestRunKompoziDefaultsToPostgres verifies database type selection.
 func TestRunKompoziDefaultsToPostgres(t *testing.T) {
 	dir := t.TempDir()
-	if err := RunIn(Options{Type: manifest.TypeKompozi, Name: "site"}, dir); err != nil {
+	if _, err := RunIn(Options{Type: manifest.TypeKompozi, Name: "site"}, dir); err != nil {
 		t.Fatal(err)
 	}
 	m, err := manifest.Load(filepath.Join(dir, "tainer.yaml"))
@@ -65,7 +65,7 @@ func TestRunKompoziDefaultsToPostgres(t *testing.T) {
 // TestRunCreatesHtmlDataDbDirs verifies the directory tree lands in cwd.
 func TestRunCreatesHtmlDataDbDirs(t *testing.T) {
 	dir := t.TempDir()
-	if err := RunIn(Options{Type: manifest.TypeWordPress, Name: "site"}, dir); err != nil {
+	if _, err := RunIn(Options{Type: manifest.TypeWordPress, Name: "site"}, dir); err != nil {
 		t.Fatalf("RunIn: %v", err)
 	}
 	// Directories must be in dir, not in dir/site.
@@ -96,7 +96,7 @@ func TestRunNoDatabaseSkipsDbDir(t *testing.T) {
 	// expose DatabaseType yet, we test via the manifest we write.
 	//
 	// Simpler: scaffold wordpress (has db), verify db/ exists.
-	if err := RunIn(Options{Type: manifest.TypeWordPress, Name: "wpdb"}, dir); err != nil {
+	if _, err := RunIn(Options{Type: manifest.TypeWordPress, Name: "wpdb"}, dir); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "db")); err != nil {
@@ -108,7 +108,7 @@ func TestRunNoDatabaseSkipsDbDir(t *testing.T) {
 // WordPress gets data/wp-content/{uploads,plugins,themes}.
 func TestRunWordPressCreatesWPContentDirs(t *testing.T) {
 	dir := t.TempDir()
-	if err := RunIn(Options{Type: manifest.TypeWordPress, Name: "wp"}, dir); err != nil {
+	if _, err := RunIn(Options{Type: manifest.TypeWordPress, Name: "wp"}, dir); err != nil {
 		t.Fatalf("RunIn: %v", err)
 	}
 	for _, sub := range []string{"uploads", "plugins", "themes"} {
@@ -128,7 +128,7 @@ func TestRunDefaultsNameToCwdBasename(t *testing.T) {
 	if err := os.Mkdir(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunIn(Options{Type: manifest.TypeNodeJS}, dir); err != nil {
+	if _, err := RunIn(Options{Type: manifest.TypeNodeJS}, dir); err != nil {
 		t.Fatalf("RunIn: %v", err)
 	}
 	m, err := manifest.Load(filepath.Join(dir, "tainer.yaml"))
@@ -144,10 +144,10 @@ func TestRunDefaultsNameToCwdBasename(t *testing.T) {
 // directory is rejected with a clear message.
 func TestRunErrorsIfTainerYamlExists(t *testing.T) {
 	dir := t.TempDir()
-	if err := RunIn(Options{Type: manifest.TypeNodeJS, Name: "first"}, dir); err != nil {
+	if _, err := RunIn(Options{Type: manifest.TypeNodeJS, Name: "first"}, dir); err != nil {
 		t.Fatalf("first RunIn: %v", err)
 	}
-	err := RunIn(Options{Type: manifest.TypeNodeJS, Name: "second"}, dir)
+	_, err := RunIn(Options{Type: manifest.TypeNodeJS, Name: "second"}, dir)
 	if err == nil {
 		t.Fatal("expected error for duplicate init, got nil")
 	}
@@ -159,7 +159,7 @@ func TestRunErrorsIfTainerYamlExists(t *testing.T) {
 // TestRunWritesDotEnv verifies that a .env file is created in cwd.
 func TestRunWritesDotEnv(t *testing.T) {
 	dir := t.TempDir()
-	if err := RunIn(Options{Type: manifest.TypeWordPress, Name: "envtest"}, dir); err != nil {
+	if _, err := RunIn(Options{Type: manifest.TypeWordPress, Name: "envtest"}, dir); err != nil {
 		t.Fatalf("RunIn: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".env")); err != nil {

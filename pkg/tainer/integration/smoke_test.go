@@ -32,11 +32,10 @@ func TestSmokeWordPressLifecycle(t *testing.T) {
 
 	dir := t.TempDir()
 	name := "smoke-wp-" + filepath.Base(dir)[len(filepath.Base(dir))-6:]
-	if err := initcmd.Run(initcmd.Options{
+	if _, err := initcmd.RunIn(initcmd.Options{
 		Type: manifest.TypeWordPress,
 		Name: name,
-		Dir:  dir,
-	}); err != nil {
+	}, dir); err != nil {
 		t.Fatalf("init: %v", err)
 	}
 

@@ -20,8 +20,21 @@ type UpdateOptions struct {
 func Update(ctx context.Context, eng *engine.Client, opts StartOptions, uopt UpdateOptions) error {
 	if uopt.BaseOnly {
 		// Pull each role's image for the base type. Use a synthesised
-		// manifest so ImageRef can resolve tags.
-		m := &manifest.Manifest{Project: manifest.ProjectConfig{Type: uopt.BaseType}}
+		// manifest so ImageRef can resolve tags. ImageRef interpolates
+		// Runtime.PHP / Runtime.Node into the tag (e.g.
+		// "tainer-wordpress-app:php-8.3"), so an empty Runtime would
+		// give us "php-" → 404. Populate with the same defaults init
+		// would write so `--base <type>` pre-caches the image a fresh
+		// `tainer init <type>` would actually pull.
+		//
+		// TODO(0.9.x): consolidate the three places that hardcode
+		// runtime defaults (initcmd.defaultManifest, wizard, here).
+		// A single `manifest.DefaultRuntime(type)` would let `--base`
+		// also grow `--php` / `--node` overrides later.
+		m := &manifest.Manifest{
+			Project: manifest.ProjectConfig{Type: uopt.BaseType},
+			Runtime: defaultRuntimeFor(uopt.BaseType),
+		}
 		for _, role := range RolesForType(uopt.BaseType) {
 			if err := eng.Pull(ctx, ImageRef(m, role)); err != nil {
 				return fmt.Errorf("update --base: pull %s: %w", role, err)
@@ -57,4 +70,20 @@ func Update(ctx context.Context, eng *engine.Client, opts StartOptions, uopt Upd
 	}
 	_, err = Start(ctx, eng, opts)
 	return err
+}
+
+// defaultRuntimeFor returns the default RuntimeConfig for a project
+// type, matching what initcmd.defaultManifest would write into a fresh
+// tainer.yaml. Kept private to this package — Update is the only
+// caller — but if a future consolidation pulls runtime defaults into
+// the manifest package, this becomes a one-line shim.
+func defaultRuntimeFor(t manifest.ProjectType) manifest.RuntimeConfig {
+	switch t {
+	case manifest.TypeWordPress, manifest.TypePHP:
+		return manifest.RuntimeConfig{PHP: "8.3", Database: manifest.DatabaseMariaDB}
+	case manifest.TypeKompozi:
+		return manifest.RuntimeConfig{Node: "20", Database: manifest.DatabasePostgres}
+	default: // node-flavoured (nodejs, nextjs, nuxtjs, nestjs, react)
+		return manifest.RuntimeConfig{Node: "20", Database: manifest.DatabaseMariaDB}
+	}
 }

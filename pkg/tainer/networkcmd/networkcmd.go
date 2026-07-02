@@ -16,42 +16,59 @@ import (
 	"github.com/cyber5-io/tainer/pkg/tainer/runtime"
 )
 
-// Show prints the current mode and the active vfkit interface (if
-// detectable) to stdout.
-func Show() error {
-	mode, err := network.ReadMode(network.DefaultModeFile())
-	if err != nil {
-		return err
-	}
-	fmt.Printf("network mode: %s\n", mode.Display())
-	return nil
+// Current reads and returns the active network mode. Wraps
+// network.ReadMode + DefaultModeFile so the CLI doesn't have to know
+// where the persistence file lives.
+func Current() (network.Mode, error) {
+	return network.ReadMode(network.DefaultModeFile())
 }
 
-// Set switches the daemon to the requested mode, auto-restarting any
-// running pods. See spec §"Network mode UX" for the flow.
-func Set(ctx context.Context, raw string) error {
+// SwitchResult is what Switch returns on success — pure data, no I/O.
+// CLI renders it via the brand surface (styled / plain / json).
+type SwitchResult struct {
+	Previous  network.Mode
+	New       network.Mode
+	NoChange  bool     // true when Previous == New (no-op)
+	Restarted []string // pods that were running before and came back after
+	Failed    []string // pods we couldn't restart (already-stopped pods aren't here — they weren't running to begin with)
+}
+
+// Switch swaps the daemon's network mode and restarts any pods that
+// were running before. Behaviour mirrors the old Set:
+//
+//  1. List currently-running pods
+//  2. Stop them
+//  3. Stop cyberstackd
+//  4. Persist the new mode
+//  5. Spawn cyberstackd (transparent bring-up reads the new mode)
+//  6. Restart the previously-running pods
+//
+// On failure to spawn the new daemon, the mode file is rolled back.
+// Pure data-only return — the CLI is responsible for rendering.
+func Switch(ctx context.Context, raw string) (*SwitchResult, error) {
 	want, err := network.ParseMode(raw)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	current, err := network.ReadMode(network.DefaultModeFile())
 	if err != nil {
-		return err
+		return nil, err
 	}
+	res := &SwitchResult{Previous: current, New: want}
 	if current == want {
-		fmt.Printf("network mode already %s\n", want.Display())
-		return nil
+		res.NoChange = true
+		return res, nil
 	}
 
 	// 1. Capture currently-running pods.
 	eng, err := engine.New()
 	if err != nil {
-		return err
+		return res, err
 	}
 	defer eng.Close()
 	pods, err := pod.List(ctx, eng)
 	if err != nil {
-		return err
+		return res, err
 	}
 	var running []string
 	for _, p := range pods {
@@ -71,12 +88,12 @@ func Set(ctx context.Context, raw string) error {
 	//    spawn it back with the new mode on next runtime.Engine call).
 	_ = eng.Close()
 	if err := stopDaemon(); err != nil {
-		return fmt.Errorf("stop cyberstackd: %w", err)
+		return res, fmt.Errorf("stop cyberstackd: %w", err)
 	}
 
 	// 4. Persist new mode.
 	if err := network.WriteMode(network.DefaultModeFile(), want); err != nil {
-		return err
+		return res, err
 	}
 
 	// 5. Spawn daemon in new mode + restart pods.
@@ -86,30 +103,24 @@ func Set(ctx context.Context, raw string) error {
 	if err != nil {
 		// Roll back.
 		_ = network.WriteMode(network.DefaultModeFile(), current)
-		return fmt.Errorf("start cyberstackd in %s: %w (reverted to %s)", want, err, current)
+		return res, fmt.Errorf("start cyberstackd in %s: %w (reverted to %s)", want, err, current)
 	}
 	defer eng2.Close()
 
-	var failed []string
 	for _, name := range running {
 		// We rely on the pod's manifest-path label to locate the manifest.
 		manifestPath, ok := manifestPathFor(ctx2, eng2, name)
 		if !ok {
-			failed = append(failed, name+" (manifest path unknown)")
+			res.Failed = append(res.Failed, name+" (manifest path unknown)")
 			continue
 		}
 		if _, err := pod.Start(ctx2, eng2, pod.StartOptions{ManifestPath: manifestPath}); err != nil {
-			failed = append(failed, fmt.Sprintf("%s: %v", name, err))
+			res.Failed = append(res.Failed, fmt.Sprintf("%s: %v", name, err))
+			continue
 		}
+		res.Restarted = append(res.Restarted, name)
 	}
-	fmt.Printf("Switched to %s.\n", want.Display())
-	if len(running) > 0 {
-		fmt.Printf("  Restarted: %v\n", running)
-	}
-	if len(failed) > 0 {
-		fmt.Printf("  Failed:    %v\n", failed)
-	}
-	return nil
+	return res, nil
 }
 
 // manifestPathFor reads the tainer.manifest-path label from any of the

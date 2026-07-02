@@ -27,14 +27,14 @@ type stepDoneMsg struct {
 }
 
 type model struct {
-	title    string
-	steps    []Step
-	current  int
-	done     bool
-	err      error
-	spinner  spinner.Model
-	width    int
-	height   int
+	title   string
+	steps   []Step
+	current int
+	done    bool
+	err     error
+	spinner spinner.Model
+	width   int
+	height  int
 	// Optional completion message lines (shown after all steps succeed).
 	footer []string
 }

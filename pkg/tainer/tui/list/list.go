@@ -1,6 +1,7 @@
 package list
 
 import (
+	"bytes"
 	"fmt"
 	"os/exec"
 	"runtime"
@@ -131,6 +132,20 @@ type model struct {
 	busyAction string // "start" or "stop"
 	spinner    spinner.Model
 	fetchFunc  StatusFetchFunc
+
+	// Two flavours of the table's Selected style. When the cursor row
+	// is busy (start/stop in progress), the spinner is rendered inside
+	// it and its own ANSI colour codes fight the highlight background
+	// paint — the leftmost bracket of the spinner gets clipped. Trick:
+	// swap to selectedBusy on busy rows, which has no background and
+	// just uses the highlight color as bold text. That keeps the row
+	// visually "claimed-by-cursor" while letting the spinner render
+	// cleanly against the terminal's default background. On completion
+	// the spinner snaps to [✓] or [✗] and the row reverts to
+	// selectedNormal.
+	selectedNormal lipgloss.Style
+	selectedBusy   lipgloss.Style
+	baseStyles     table.Styles // kept so applySelectedStyle can rebuild
 }
 
 // Run starts the interactive list TUI. Data loading happens async inside the TUI.
@@ -148,35 +163,41 @@ func initialModel(projects []Project, fetchFunc StatusFetchFunc) model {
 	c := tui.Colors()
 	keys := newAppKeyMap()
 
-	var selected lipgloss.Style
-	if tui.IsDarkBackground() {
-		selected = lipgloss.NewStyle().Bold(true).
-			Background(lipgloss.Color("#FFCC33")).
-			Foreground(lipgloss.Color("#000000"))
-	} else {
-		selected = lipgloss.NewStyle().Bold(true).
-			Background(lipgloss.Color("#2563EB")).
-			Foreground(lipgloss.Color("#FFFFFF"))
+	// Highlight color drives both the normal Selected background AND
+	// the busy-selected text colour so the row still reads as
+	// claimed-by-cursor when we drop the bg paint.
+	highlight := lipgloss.Color("#FFCC33")
+	onHighlight := lipgloss.Color("#000000")
+	if !tui.IsDarkBackground() {
+		highlight = lipgloss.Color("#2563EB")
+		onHighlight = lipgloss.Color("#FFFFFF")
 	}
+	selectedNormal := lipgloss.NewStyle().Bold(true).
+		Background(highlight).
+		Foreground(onHighlight)
+	selectedBusy := lipgloss.NewStyle().Bold(true).
+		Foreground(highlight)
 
-	s := table.Styles{
-		Header:   lipgloss.NewStyle().Bold(true).Foreground(c.Muted).Padding(0, 1),
-		Cell:     lipgloss.NewStyle().Padding(0, 1),
-		Selected: selected,
+	baseStyles := table.Styles{
+		Header: lipgloss.NewStyle().Bold(true).Foreground(c.Muted).Padding(0, 1),
+		Cell:   lipgloss.NewStyle().Padding(0, 1),
 	}
+	s := baseStyles
+	s.Selected = selectedNormal
 
-	// Unstyled spinner — no ANSI color codes, so it won't break the
-	// table's Selected background highlight across the row.
-	sp := spinner.New()
-	sp.Spinner = spinner.Meter
+	// Brand spinner — triad-coloured `[=]` frames. See tui/brandspinner.go.
+	sp := tui.BrandSpinner()
 
 	m := model{
-		projects:  projects,
-		keys:      keys,
-		spinner:   sp,
-		sort:      sortDefault,
-		loading:   true,
-		fetchFunc: fetchFunc,
+		projects:       projects,
+		keys:           keys,
+		spinner:        sp,
+		sort:           sortDefault,
+		loading:        true,
+		fetchFunc:      fetchFunc,
+		selectedNormal: selectedNormal,
+		selectedBusy:   selectedBusy,
+		baseStyles:     baseStyles,
 	}
 	m.buildSorted()
 
@@ -265,41 +286,90 @@ func (m *model) buildSorted() {
 	}
 }
 
+// Status marks. Bracketed family that lines up with the brand vocabulary
+// from pkg/tainer/tui/marks.go: stopped is the inert mark, running is
+// the success mark, busy uses the brand spinner (already bracketed), and
+// mixed gets the warn mark. The brackets act as a constant visual
+// frame; only the centre character changes as state advances, so the
+// transition `[○] → [=] → [✓]` reads as one fluid state machine rather
+// than three separate icons.
+const (
+	markStopped = "[○]"
+	markRunning = "[✓]"
+	markMixed   = "[!]"
+)
+
 func (m model) buildTableRows() []table.Row {
 	c := tui.Colors()
 	cursor := m.table.Cursor()
 	tealStyle := lipgloss.NewStyle().Foreground(c.Teal)
+	mutedStyle := lipgloss.NewStyle().Foreground(c.Muted)
+	orangeStyle := lipgloss.NewStyle().Foreground(c.Orange)
 	blueStyle := lipgloss.NewStyle().Foreground(c.Blue)
 
 	rows := make([]table.Row, len(m.sorted))
 	for i, p := range m.sorted {
 		selected := i == cursor
+		busy := m.isBusy() && p.Name == m.busyName
 		var status string
 		domain := p.Domain
 
 		switch {
-		case p.Status == "" && m.loading:
-			status = lipgloss.NewStyle().Foreground(c.Muted).Render("…")
-		case p.Status == "Running":
-			status = "● running"
-			domain = p.Domain + " ↗"
-			if !selected {
-				status = tealStyle.Render(status)
-				domain = blueStyle.Render(p.Domain) + " ↗"
-			}
-		default:
-			status = "○ stopped"
-		}
-		if m.isBusy() && p.Name == m.busyName {
+		case busy:
+			// Spinner carries its own colour; append the action word.
 			if m.busyAction == "start" {
 				status = m.spinner.View() + " starting"
 			} else {
 				status = m.spinner.View() + " stopping"
 			}
+		case p.Status == "" && m.loading:
+			status = mutedStyle.Render("…")
+		case p.Status == "Running":
+			status = markRunning + " running"
+			domain = p.Domain + " ↗"
+			// When selected, the Selected style paints over the cell;
+			// leave the text uncoloured so the highlight reads cleanly.
+			// When NOT selected, apply teal/blue brand colours.
+			if !selected {
+				status = tealStyle.Render(markRunning) + " " + tealStyle.Render("running")
+				domain = blueStyle.Render(p.Domain) + " ↗"
+			}
+		case p.Status == "Mixed":
+			status = markMixed + " mixed"
+			if !selected {
+				status = orangeStyle.Render(markMixed) + " " + orangeStyle.Render("mixed")
+			}
+		default:
+			status = markStopped + " stopped"
+			if !selected {
+				status = mutedStyle.Render(markStopped) + " " + mutedStyle.Render("stopped")
+			}
 		}
 		rows[i] = table.Row{p.Name, p.Type, domain, status}
 	}
 	return rows
+}
+
+// rebuildRows refreshes the table from the model's current state and
+// keeps the Selected style in sync with busy/cursor state. Single seam
+// so callsites don't have to spell out the SetRows + SetStyles dance.
+//
+// CAREFUL: must call m.table.SetRows directly (NOT m.rebuildRows) —
+// recursion here would lock the TUI's event loop.
+func (m *model) rebuildRows() {
+	cursor := m.table.Cursor()
+	wantsBusy := false
+	if m.isBusy() && cursor >= 0 && cursor < len(m.sorted) {
+		wantsBusy = m.sorted[cursor].Name == m.busyName
+	}
+	styles := m.baseStyles
+	if wantsBusy {
+		styles.Selected = m.selectedBusy
+	} else {
+		styles.Selected = m.selectedNormal
+	}
+	m.table.SetStyles(styles)
+	m.table.SetRows(m.buildTableRows())
 }
 
 func (m model) isBusy() bool {
@@ -349,7 +419,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.BackgroundColorMsg:
 		tui.SetDarkMode(msg.IsDark())
-		m.table.SetRows(m.buildTableRows())
+		m.rebuildRows()
 		return m, nil
 	case dataLoadedMsg:
 		m.loading = false
@@ -360,7 +430,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.buildSorted()
-		m.table.SetRows(m.buildTableRows())
+		m.rebuildRows()
 		m.updateHelpBindings()
 		return m, nil
 	case tea.WindowSizeMsg:
@@ -379,7 +449,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			tableH = 5
 		}
 		m.table.SetHeight(tableH)
-		m.table.SetRows(m.buildTableRows())
+		m.rebuildRows()
 		m.helpModel.SetWidth(innerW)
 		return m, nil
 
@@ -388,7 +458,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			if m.isBusy() {
-				m.table.SetRows(m.buildTableRows())
+				m.rebuildRows()
 			}
 			return m, cmd
 		}
@@ -408,7 +478,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.buildSorted()
-			m.table.SetRows(m.buildTableRows())
+			m.rebuildRows()
 		}
 		m.updateHelpBindings()
 		return m, nil
@@ -432,7 +502,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Sort):
 			m.sort = (m.sort + 1) % 3
 			m.buildSorted()
-			m.table.SetRows(m.buildTableRows())
+			m.rebuildRows()
 			m.updateHelpBindings()
 			return m, nil
 		}
@@ -446,7 +516,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if msg.Button == tea.MouseWheelDown {
 			m.table.MoveDown(1)
 		}
-		m.table.SetRows(m.buildTableRows())
+		m.rebuildRows()
 		m.updateHelpBindings()
 		return m, nil
 
@@ -461,7 +531,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.table, cmd = m.table.Update(msg)
 	if m.table.Cursor() != prev {
-		m.table.SetRows(m.buildTableRows())
+		m.rebuildRows()
 	}
 	m.updateHelpBindings()
 	return m, cmd
@@ -492,11 +562,27 @@ func (m *model) toggleSelectedPod() tea.Cmd {
 	}
 	m.busyName = name
 	m.busyAction = action
+	m.rebuildRows()
 
 	execCmd := func() tea.Msg {
 		cmd := exec.Command("tainer", action)
 		cmd.Dir = path
+		// Without explicit stdio, the child inherits nil pipes from us
+		// (the parent is in alt-screen TUI mode and has nothing
+		// readable on stdin/stdout/stderr). `tainer start` writes
+		// progress to stdout — once the OS pipe buffer fills, write()
+		// blocks and the subprocess hangs forever even though the work
+		// actually completed. Buffer output into in-memory pipes so
+		// the child can write without blocking; on error we surface the
+		// captured text via podActionMsg.
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		cmd.Stdin = nil
 		err := cmd.Run()
+		if err != nil {
+			err = fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+		}
 		return podActionMsg{name: name, action: action, err: err}
 	}
 	return tea.Batch(m.spinner.Tick, execCmd)

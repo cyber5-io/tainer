@@ -11,24 +11,32 @@ import (
 )
 
 // Palette holds a resolved set of colors for dark or light terminals.
+//
+// Brand triad: Teal (success/healthy), Orange (warn/transitional),
+// Blue (identity/info). Red is intentionally outside the triad — failure
+// shouldn't carry brand emotion.
 type Palette struct {
 	Teal      color.Color
 	TealDim   color.Color
 	Orange    color.Color
 	OrangeDim color.Color
 	Blue      color.Color
+	Red       color.Color
 	Text      color.Color
 	Muted     color.Color
 	Border    color.Color
 }
 
-// Colors match the SVG brand kit exactly.
+// Colors match the SVG brand kit exactly. Red is the only non-brand
+// color; it exists so error/failure has its own channel that isn't
+// visually confused with the orange-tinted warn lane.
 var darkPalette = Palette{
 	Teal:      lipgloss.Color("#00D4AA"),
 	TealDim:   lipgloss.Color("#009E80"),
 	Orange:    lipgloss.Color("#FF6B35"),
 	OrangeDim: lipgloss.Color("#CC4F1F"),
 	Blue:      lipgloss.Color("#4E9EF4"),
+	Red:       lipgloss.Color("#F87171"),
 	Text:      lipgloss.Color("#DCE6F8"),
 	Muted:     lipgloss.Color("#7A8AAA"),
 	Border:    lipgloss.Color("#3A4A6E"),
@@ -40,6 +48,7 @@ var lightPalette = Palette{
 	Orange:    lipgloss.Color("#EA580C"),
 	OrangeDim: lipgloss.Color("#A83D10"),
 	Blue:      lipgloss.Color("#2563EB"),
+	Red:       lipgloss.Color("#DC2626"),
 	Text:      lipgloss.Color("#0C1018"),
 	Muted:     lipgloss.Color("#5A6478"),
 	Border:    lipgloss.Color("#A0AAB8"),
