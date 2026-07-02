@@ -128,6 +128,7 @@ func Run(ctx context.Context, opts Options) Report {
 	d.checkAgent(ctx, eng)
 	d.checkNetworkMode()
 	d.checkRouter(ctx, eng)
+	d.checkEdge()
 	d.checkTLS()
 	d.checkDNS(ctx)
 	d.checkPods(ctx, eng)
@@ -141,6 +142,10 @@ type run struct {
 	// agentUp records whether the VM/agent answered — pod checks skip
 	// when it didn't, even if the daemon socket itself is alive.
 	agentUp bool
+	// edgeUp records whether host 443/80 answered — pod HTTP probes
+	// skip when they didn't (they would all fail with the same
+	// connection-refused, drowning the actual root cause).
+	edgeUp bool
 }
 
 func (d *run) add(r Result) {
@@ -294,6 +299,35 @@ func routersDown(ctx context.Context, eng *engine.Client) []string {
 	return down
 }
 
+// checkEdge verifies something is actually listening on the host's
+// 443 and 80 — the last hop before the browser. On macOS those
+// privileged ports are held by per-port forwarder child processes
+// that a sleep/wake cycle (or a VPN network extension) can kill while
+// every daemon-side layer stays healthy: the exact "stack looks fine
+// but the browser says connection refused" failure. Distinguishing
+// this from a pod problem matters because the remedy is different —
+// restarting a pod won't bring the port back; restarting the stack
+// (or waiting for the daemon's watchdog to respawn the child) will.
+func (d *run) checkEdge() {
+	var dead []string
+	for _, port := range []string{"443", "80"} {
+		conn, err := net.DialTimeout("tcp", "127.0.0.1:"+port, 2*time.Second)
+		if err != nil {
+			dead = append(dead, port)
+			continue
+		}
+		conn.Close()
+	}
+	if len(dead) == 0 {
+		d.edgeUp = true
+		d.add(Result{Name: "edge", Status: StatusOK, Detail: "host ports 443 + 80 listening"})
+		return
+	}
+	d.add(Result{Name: "edge", Status: StatusFail,
+		Detail: "nothing listening on host port(s) " + strings.Join(dead, ", ") + " — the port forwarders likely died (sleep/wake or VPN)",
+		Hint:   "restart the stack: `pkill cyberstackd` then `tainer start`"})
+}
+
 // checkTLS verifies the wildcard cert exists and isn't expired or
 // about to. No auto-fix — cert distribution is an install-time
 // concern and re-downloading needs the release URL wiring.
@@ -361,6 +395,10 @@ func (d *run) checkDNS(ctx context.Context) {
 func (d *run) checkPods(ctx context.Context, eng *engine.Client) {
 	if eng == nil || !d.agentUp {
 		d.add(Result{Name: "pods", Status: StatusSkip, Detail: "daemon or agent is down"})
+		return
+	}
+	if !d.edgeUp {
+		d.add(Result{Name: "pods", Status: StatusSkip, Detail: "edge ports down — HTTP probes would all fail for the same reason"})
 		return
 	}
 	pods, err := pod.List(ctx, eng)
