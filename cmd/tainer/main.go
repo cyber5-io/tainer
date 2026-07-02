@@ -53,12 +53,21 @@ var version = "dev"
 func main() {
 	tui.SetVersion(version)
 	if len(os.Args) < 2 {
+		// A brand-new user's first bare `tainer` gets the welcome
+		// screen instead of the usage dump — exactly once, and only
+		// on a real terminal (scripts get usage + exit 2 as always).
+		if firstRun() && tui.IsTTY(os.Stdout.Fd()) {
+			cmdWelcome()
+			return
+		}
 		usage()
 		os.Exit(2)
 	}
 	switch os.Args[1] {
 	case "version":
 		fmt.Println(version)
+	case "welcome":
+		cmdWelcome()
 	case "ui-demo":
 		// Hidden command — visual sandbox for the brand surface.
 		// Not in usage() on purpose; documented in pkg/tainer/tui/.
@@ -73,6 +82,8 @@ func main() {
 		cmdStart(os.Args[2:])
 	case "stop":
 		cmdStop(os.Args[2:])
+	case "restart":
+		cmdRestart(os.Args[2:])
 	case "destroy":
 		cmdDestroy(os.Args[2:])
 	case "exec":
@@ -107,6 +118,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  init <type> [name]                     scaffold a new project into cwd")
 	fmt.Fprintln(os.Stderr, "  start [project]                        start a project")
 	fmt.Fprintln(os.Stderr, "  stop [project]                         stop a project")
+	fmt.Fprintln(os.Stderr, "  restart [project]                      stop + start a project")
 	fmt.Fprintln(os.Stderr, "  destroy [project] [--clean|--nuke]     tear down a project")
 	fmt.Fprintln(os.Stderr, "  exec <project> [<role>] -- <cmd...>    run a command in a container")
 	fmt.Fprintln(os.Stderr, "  wp|composer|artisan|php <args...>      run the tool in the current project")
@@ -118,6 +130,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  db import <project> <file>             restore database")
 	fmt.Fprintln(os.Stderr, "  update [project|--base <type>|--all]   refresh image(s)")
 	fmt.Fprintln(os.Stderr, "  network mode show|set <perf|compat>    inspect / switch network mode")
+	fmt.Fprintln(os.Stderr, "  welcome                                show the quickstart screen")
 	fmt.Fprintln(os.Stderr, "  version                                print version")
 }
 
@@ -1237,6 +1250,78 @@ func runStartWork(ctx context.Context, manifestPath, projectDir string, res **po
 //	tainer stop          styled bookends + brand spinner (auto when TTY)
 //	tainer stop --plain  plain text, no spinner (default when piped)
 //	tainer stop --json   {"pod":"opp","stopped":true,"elapsedMs":2310}
+//
+// cmdRestart is stop + start as one brand frame: a single opening
+// bookend, two spinner phases, and the same service summary the start
+// command prints. Exists because "bounce the pod" is the single most
+// common remedy for a misbehaving site and deserves one verb.
+func cmdRestart(args []string) {
+	flags, rest := tui.ParseOutputFlags(args)
+	mode := flags.Resolve(false)
+
+	// Same generous deadline as start: the start half may pull images.
+	ctx, cancel := ctxWithTimeout(10 * time.Minute)
+	defer cancel()
+
+	manifestPath, projectDir, err := locateManifest(rest)
+	must(err)
+	m, err := manifest.Load(manifestPath)
+	must(err)
+	projectName := m.Project.Name
+
+	stop := func() error {
+		eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
+		if err != nil {
+			return err
+		}
+		defer eng.Close()
+		return pod.Stop(ctx, eng, projectName)
+	}
+
+	switch mode {
+	case tui.ModeJSON:
+		// The restart's meaningful output is the start result; the stop
+		// half runs silently first.
+		if err := stop(); err != nil {
+			enc := json.NewEncoder(os.Stdout)
+			_ = enc.Encode(map[string]string{"error": err.Error()})
+			os.Exit(1)
+		}
+		runStartJSON(ctx, manifestPath, projectDir)
+	case tui.ModePlain:
+		fmt.Printf("stopping %s...\n", projectName)
+		if err := stop(); err != nil {
+			fmt.Fprintln(os.Stderr, "tainer:", err)
+			os.Exit(1)
+		}
+		runStartPlain(ctx, manifestPath, projectDir, projectName)
+	default:
+		started := time.Now()
+		tui.Bookend(projectName, "restart")
+		if err := tui.RunSpinner("stopping pod", stop); err != nil {
+			fmt.Println()
+			tui.BookendCloseError(time.Since(started), "Failed", err.Error())
+			os.Exit(1)
+		}
+		var res *pod.StartResult
+		if err := tui.RunSpinner("starting pod", runStartWork(ctx, manifestPath, projectDir, &res)); err != nil {
+			fmt.Println()
+			tui.BookendCloseError(time.Since(started), "Failed", err.Error())
+			os.Exit(1)
+		}
+		fmt.Println()
+		muted := lipgloss.NewStyle().Foreground(tui.Colors().Muted)
+		for _, h := range res.HTTPServices {
+			fmt.Println("  " + tui.MarkInfo() + h.URL + " " + muted.Render("("+h.Role+")"))
+		}
+		for _, t := range res.TCPServices {
+			fmt.Println("  " + tui.MarkInfo() + t.Host + " " + muted.Render("("+t.Role+")"))
+		}
+		fmt.Println("  " + tui.MarkInfo() + "ssh " + res.Pod + "@ssh.tainer.me")
+		tui.BookendClose(time.Since(started), "Ready", "https://"+res.Domain)
+	}
+}
+
 func cmdStop(args []string) {
 	flags, rest := tui.ParseOutputFlags(args)
 	mode := flags.Resolve(false)
