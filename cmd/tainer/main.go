@@ -946,6 +946,23 @@ func cmdInit(args []string) {
 	flags, rest := tui.ParseOutputFlags(args)
 	mode := flags.Resolve(false)
 
+	// Version overrides: --php 8.2 / --node 22 (both forms). These
+	// fields existed on initcmd.Options since the start but were never
+	// wired to the CLI — the flags were silently swallowed as
+	// positionals. Parsed before the positional split below.
+	var phpVer, nodeVer string
+	positional := make([]string, 0, len(rest))
+	for i := 0; i < len(rest); i++ {
+		if v, ok := flagValue(rest[i], rest, &i, "--php"); ok {
+			phpVer = v
+		} else if v, ok := flagValue(rest[i], rest, &i, "--node"); ok {
+			nodeVer = v
+		} else {
+			positional = append(positional, rest[i])
+		}
+	}
+	rest = positional
+
 	if len(rest) < 1 {
 		// Wizard mode — TODO: hand off to pkg/tainer/tui/wizard. For
 		// now print a usage hint so users know there are positional
@@ -962,7 +979,7 @@ func cmdInit(args []string) {
 		must(fmt.Errorf("unknown project type %q (one of: wordpress, php, nodejs, nextjs, nuxtjs, nestjs, react, kompozi — shortcuts: wp, node, next, nuxt, nest)", rawType))
 	}
 
-	opts := initcmd.Options{Type: canonical}
+	opts := initcmd.Options{Type: canonical, PHP: phpVer, Node: nodeVer}
 	if len(rest) >= 2 {
 		opts.Name = rest[1]
 	}
