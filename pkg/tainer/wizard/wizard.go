@@ -168,4 +168,3 @@ func createProjectDirs(cwd string, m *manifest.Manifest) error {
 
 	return nil
 }
-

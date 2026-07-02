@@ -25,9 +25,9 @@ import (
 // when needed (DOCKER_HOST forces a specific socket path; CYBERSTACKD
 // forces a specific binary path).
 const (
-	envDockerHost   = "DOCKER_HOST"
-	envCyberstackd  = "CYBERSTACKD"
-	pidFile         = "cyberstackd.pid"
+	envDockerHost  = "DOCKER_HOST"
+	envCyberstackd = "CYBERSTACKD"
+	pidFile        = "cyberstackd.pid"
 	// VM cold-boot — vfkit + Linux init + cs-agent startup — typically
 	// finishes in 20–30s, occasionally longer on macOS with cold disk
 	// caches. Set generously so the very first auto-spawn after a
