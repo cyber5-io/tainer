@@ -1005,8 +1005,13 @@ func runInitStyled(opts initcmd.Options) {
 	res, err := initcmd.Run(opts)
 	if err != nil {
 		// Open the bookend even on failure so the error block reads as
-		// a complete frame instead of a bare error line.
-		tui.Bookend(stringOr(opts.Name, "init"), "init")
+		// a complete frame instead of a bare error line. Skip the name
+		// part when it's cwd-derived — `init · init` reads as a stutter.
+		if opts.Name != "" {
+			tui.Bookend(opts.Name, "init")
+		} else {
+			tui.Bookend("init")
+		}
 		fmt.Println()
 		tui.BookendCloseError(time.Since(started), "Failed", err.Error())
 		os.Exit(1)
@@ -1092,16 +1097,6 @@ func runInitJSON(opts initcmd.Options) {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(out)
-}
-
-// stringOr returns s if non-empty, otherwise fallback. Used to give the
-// failed-init bookend something to label itself with when opts.Name is
-// unset (we don't know the final project name until init resolves it).
-func stringOr(s, fallback string) string {
-	if s == "" {
-		return fallback
-	}
-	return s
 }
 
 // cmdStart locates the manifest (cwd or ~/projects/<name>), starts

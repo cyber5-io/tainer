@@ -86,10 +86,11 @@ func BookendClose(elapsed time.Duration, parts ...string) {
 	fmt.Println(joinParts(append(parts, fmtElapsed(elapsed))...))
 }
 
-// BookendCloseError is the failure variant of BookendClose. The first
-// part is rendered in red (typically a single word like "Aborted" or
-// "Failed"); subsequent parts and the elapsed duration follow the
-// normal styling.
+// BookendCloseError is the failure variant of BookendClose. The mark
+// is the red [✗] — failure shouldn't carry the brand triad — and the
+// first part is rendered in red (typically a single word like
+// "Aborted" or "Failed"); subsequent parts and the elapsed duration
+// follow the normal styling.
 func BookendCloseError(elapsed time.Duration, headline string, parts ...string) {
 	fmt.Println()
 	red := lipgloss.NewStyle().Foreground(Colors().Red).Bold(true).Render(headline)
@@ -102,7 +103,7 @@ func BookendCloseError(elapsed time.Duration, headline string, parts ...string) 
 	if e := fmtElapsed(elapsed); e != "" {
 		tail = append(tail, textStyle().Render(e))
 	}
-	out := MarkBrand() + red
+	out := MarkError() + red
 	if len(tail) > 0 {
 		out += sepStyle().Render(" · ") + strings.Join(tail, sepStyle().Render(" · "))
 	}
