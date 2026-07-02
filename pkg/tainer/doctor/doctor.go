@@ -235,19 +235,19 @@ func (d *run) checkNetworkMode() {
 	needsGvproxy := mode == network.ModeCompatibility || mode == network.ModeHybrid
 	if needsGvproxy && !processRunning("gvproxy") {
 		d.add(Result{Name: "network", Status: StatusFail,
-			Detail: mode.Display() + " — gvproxy process not running",
+			Detail: mode.Name() + " mode — network helper (gvproxy) not running",
 			Hint:   "restart the stack: `pkill cyberstackd` then `tainer start`"})
 		return
 	}
 
 	if mode == network.ModePerformance && vpnActive() {
 		d.add(Result{Name: "network", Status: StatusWarn,
-			Detail: mode.Display() + " — VPN detected; performance mode's NAT breaks under VPN network extensions",
+			Detail: "performance mode with a VPN active — sites may be unreachable",
 			Hint:   "switch with `tainer network mode set hybrid`"})
 		return
 	}
 
-	d.add(Result{Name: "network", Status: StatusOK, Detail: mode.Display()})
+	d.add(Result{Name: "network", Status: StatusOK, Detail: "running in " + mode.Name() + " mode"})
 }
 
 // checkRouter verifies both router containers are running; with Fix

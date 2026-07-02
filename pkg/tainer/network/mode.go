@@ -86,7 +86,10 @@ func ParseMode(s string) (Mode, error) {
 // cyberstackd's -network-mode flag).
 func (m Mode) String() string { return string(m) }
 
-// Display returns the user-friendly label printed by `tainer network mode show`.
+// Display returns the label printed by `tainer network mode show` —
+// the one surface where the implementation detail belongs, since
+// that's where users pick a mode and may need to know what each one
+// actually does. Everywhere else (doctor, status) use Name().
 func (m Mode) Display() string {
 	switch m {
 	case ModePerformance:
@@ -95,6 +98,21 @@ func (m Mode) Display() string {
 		return "compatibility (external-gvproxy)"
 	case ModeHybrid:
 		return "hybrid (gvproxy out, direct gRPC in)"
+	default:
+		return string(m)
+	}
+}
+
+// Name returns the plain user-facing mode word with no implementation
+// detail: "performance", "compatibility", "hybrid".
+func (m Mode) Name() string {
+	switch m {
+	case ModePerformance:
+		return "performance"
+	case ModeCompatibility:
+		return "compatibility"
+	case ModeHybrid:
+		return "hybrid"
 	default:
 		return string(m)
 	}
