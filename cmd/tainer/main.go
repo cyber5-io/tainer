@@ -35,6 +35,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"golang.org/x/term"
 
+	"github.com/cyber5-io/tainer/pkg/tainer/doctor"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/initcmd"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
@@ -64,6 +65,8 @@ func main() {
 		cmdUIDemo(os.Args[2:])
 	case "status":
 		cmdStatus()
+	case "doctor":
+		cmdDoctor(os.Args[2:])
 	case "init":
 		cmdInit(os.Args[2:])
 	case "start":
@@ -104,6 +107,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  wp|composer|artisan|php <args...>      run the tool in the current project")
 	fmt.Fprintln(os.Stderr, "  npm|yarn|pnpm|node <args...>           run the tool in the current project")
 	fmt.Fprintln(os.Stderr, "  status                                 show pod state(s)")
+	fmt.Fprintln(os.Stderr, "  doctor [--fix]                         check every layer of the stack")
 	fmt.Fprintln(os.Stderr, "  list (ls)                              list all pods")
 	fmt.Fprintln(os.Stderr, "  db export <project> [outfile]          dump database")
 	fmt.Fprintln(os.Stderr, "  db import <project> <file>             restore database")
@@ -738,6 +742,136 @@ func runStatusJSON(s statusSnapshot) {
 // Matches legacy tainer 0.2.x: init operates on cwd, no project subdir.
 // cmdInit scaffolds a new tainer project into cwd. Forms:
 //
+// cmdDoctor walks every layer of the stack (daemon → agent → network
+// → router → TLS → DNS → pods) and prints one mark per check. --fix
+// applies the safe recoveries (start daemon, restart router).
+//
+// Exit code: 0 when fully healthy (warns allowed), 1 otherwise — so
+// scripts and CI can gate on it.
+func cmdDoctor(args []string) {
+	flags, rest := tui.ParseOutputFlags(args)
+	mode := flags.Resolve(false)
+
+	opts := doctor.Options{}
+	for _, a := range rest {
+		switch a {
+		case "--fix", "-f":
+			opts.Fix = true
+		default:
+			fmt.Fprintln(os.Stderr, "tainer: unknown flag", a)
+			fmt.Fprintln(os.Stderr, "usage: tainer doctor [--fix]")
+			os.Exit(2)
+		}
+	}
+
+	// Generous overall deadline: --fix can cold-boot the VM (~30s) and
+	// each pod probe gets its own 5s HTTP timeout on top.
+	ctx, cancel := ctxWithTimeout(3 * time.Minute)
+	defer cancel()
+
+	// JSON mode: run silently, emit the report as one document.
+	if mode == tui.ModeJSON {
+		rep := doctor.Run(ctx, opts)
+		out := struct {
+			doctor.Report
+			Healthy bool `json:"healthy"`
+		}{rep, rep.Healthy()}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(out)
+		if !rep.Healthy() {
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Styled/plain: render each check as it completes so the user sees
+	// progress during the slower probes (VM boot under --fix, HTTP
+	// timeouts against dead pods). Plain mode drops marks and color for
+	// pipe-friendly `status name detail` columns.
+	verb := "doctor"
+	if opts.Fix {
+		verb = "doctor --fix"
+	}
+	started := time.Now()
+	if mode == tui.ModePlain {
+		opts.Progress = func(r doctor.Result) {
+			fmt.Printf("%-5s %s %s%s\n", r.Status, doctorPad(r.Name), r.Detail, doctorFixedTag(r))
+			if r.Hint != "" && r.Status != doctor.StatusOK {
+				fmt.Printf("%-5s %s -> %s\n", "", doctorPad(""), r.Hint)
+			}
+		}
+	} else {
+		tui.Bookend(verb)
+		opts.Progress = func(r doctor.Result) {
+			fmt.Println("  " + doctorMark(r.Status) + doctorPad(r.Name) + r.Detail + doctorFixedTag(r))
+			if r.Hint != "" && r.Status != doctor.StatusOK {
+				fmt.Println("  " + strings.Repeat(" ", 4+doctorNameWidth) + "→ " + r.Hint)
+			}
+		}
+	}
+	rep := doctor.Run(ctx, opts)
+
+	ok, warn, fail, skip := rep.Counts()
+	summary := fmt.Sprintf("%d ok", ok)
+	if warn > 0 {
+		summary += fmt.Sprintf(" · %d warning", warn)
+	}
+	if fail > 0 {
+		summary += fmt.Sprintf(" · %d failed", fail)
+	}
+	if skip > 0 {
+		summary += fmt.Sprintf(" · %d skipped", skip)
+	}
+	if mode == tui.ModePlain {
+		if rep.Healthy() {
+			fmt.Println("healthy: " + summary)
+		} else {
+			fmt.Println("unhealthy: " + summary)
+			os.Exit(1)
+		}
+		return
+	}
+	fmt.Println()
+	if rep.Healthy() {
+		tui.BookendClose(time.Since(started), "Healthy", summary)
+	} else {
+		tui.BookendCloseError(time.Since(started), "Unhealthy", summary)
+		os.Exit(1)
+	}
+}
+
+// doctorNameWidth aligns check details in one column; "pod <name>"
+// rows may overflow it, which is fine — alignment is a nicety.
+const doctorNameWidth = 18
+
+func doctorPad(name string) string {
+	if len(name) >= doctorNameWidth {
+		return name + " "
+	}
+	return name + strings.Repeat(" ", doctorNameWidth-len(name))
+}
+
+func doctorMark(s doctor.Status) string {
+	switch s {
+	case doctor.StatusOK:
+		return tui.MarkSuccess()
+	case doctor.StatusWarn:
+		return tui.MarkWarn()
+	case doctor.StatusSkip:
+		return tui.MarkInfo()
+	default:
+		return tui.MarkError()
+	}
+}
+
+func doctorFixedTag(r doctor.Result) string {
+	if r.Fixed {
+		return " (fixed)"
+	}
+	return ""
+}
+
 //	tainer init                  (TUI wizard — TODO: wire up tui/wizard)
 //	tainer init <type>           (name defaults to cwd basename)
 //	tainer init <type> <name>    (explicit name)
