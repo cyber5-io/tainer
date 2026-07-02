@@ -73,17 +73,13 @@ func Update(ctx context.Context, eng *engine.Client, opts StartOptions, uopt Upd
 }
 
 // defaultRuntimeFor returns the default RuntimeConfig for a project
-// type, matching what initcmd.defaultManifest would write into a fresh
-// tainer.yaml. Kept private to this package — Update is the only
-// caller — but if a future consolidation pulls runtime defaults into
-// the manifest package, this becomes a one-line shim.
+// type, straight from the manifest.TypeSpec table — the same values
+// initcmd writes into a fresh tainer.yaml.
 func defaultRuntimeFor(t manifest.ProjectType) manifest.RuntimeConfig {
-	switch t {
-	case manifest.TypeWordPress, manifest.TypePHP:
-		return manifest.RuntimeConfig{PHP: "8.3", Database: manifest.DatabaseMariaDB}
-	case manifest.TypeKompozi:
-		return manifest.RuntimeConfig{Node: "20", Database: manifest.DatabasePostgres}
-	default: // node-flavoured (nodejs, nextjs, nuxtjs, nestjs, react)
-		return manifest.RuntimeConfig{Node: "20", Database: manifest.DatabaseMariaDB}
+	if spec, ok := manifest.SpecFor(t); ok {
+		return spec.DefaultRuntime
 	}
+	// Unknown type: node defaults keep Update usable on a manifest
+	// the validator would reject anyway.
+	return manifest.RuntimeConfig{Node: "20", Database: manifest.DatabaseMariaDB}
 }

@@ -77,8 +77,6 @@ func main() {
 		cmdDestroy(os.Args[2:])
 	case "exec":
 		cmdExec(os.Args[2:])
-	case "wp", "artisan", "npm", "yarn", "pnpm", "composer", "node", "php":
-		cmdExecWrapper(os.Args[1], os.Args[2:])
 	case "list", "ls":
 		cmdList(os.Args[2:])
 	case "db":
@@ -88,6 +86,13 @@ func main() {
 	case "network":
 		cmdNetwork(os.Args[2:])
 	default:
+		// Typed tool wrappers (`tainer wp`, `tainer npm`, ...) —
+		// dispatched dynamically from the manifest.TypeSpec table so
+		// the command surface and the per-type tool lists can't drift.
+		if manifest.ToolTypes(os.Args[1]) != nil {
+			cmdExecWrapper(os.Args[1], os.Args[2:])
+			return
+		}
 		usage()
 		os.Exit(2)
 	}
@@ -972,31 +977,10 @@ func cmdInit(args []string) {
 }
 
 // canonicalProjectType normalises shorthand aliases into the canonical
-// manifest.ProjectType values. The manifest validator only accepts the
-// canonical names, so we expand here before they hit it.
-//
-// Single source of truth — when adding a new shortcut, list it here so
-// the CLI surface stays consistent with `tainer init --help` output.
+// manifest.ProjectType values, driven by the manifest.TypeSpec table
+// (the single source of truth for per-type knowledge).
 func canonicalProjectType(s string) (manifest.ProjectType, bool) {
-	switch strings.ToLower(s) {
-	case "wordpress", "wp":
-		return manifest.TypeWordPress, true
-	case "php":
-		return manifest.TypePHP, true
-	case "nodejs", "node":
-		return manifest.TypeNodeJS, true
-	case "nextjs", "next":
-		return manifest.TypeNextJS, true
-	case "nuxtjs", "nuxt":
-		return manifest.TypeNuxtJS, true
-	case "nestjs", "nest":
-		return manifest.TypeNestJS, true
-	case "react":
-		return manifest.TypeReact, true
-	case "kompozi":
-		return manifest.TypeKompozi, true
-	}
-	return "", false
+	return manifest.CanonicalType(s)
 }
 
 func runInitStyled(opts initcmd.Options) {
@@ -1759,22 +1743,6 @@ func installTerminalRestoreOnSignal(restore func()) {
 	}()
 }
 
-// wrapperTypes limits each typed wrapper to the project types whose
-// app image actually ships the tool. nil means "any type" — the
-// container will complain on its own if the binary is missing, but
-// for the common tools we can catch the mistake before dialing the
-// engine and phrase it in tainer vocabulary.
-var wrapperTypes = map[string][]manifest.ProjectType{
-	"wp":       {manifest.TypeWordPress},
-	"artisan":  {manifest.TypePHP},
-	"composer": {manifest.TypePHP, manifest.TypeWordPress},
-	"php":      {manifest.TypePHP, manifest.TypeWordPress},
-	"npm":      {manifest.TypeNodeJS, manifest.TypeNextJS, manifest.TypeNuxtJS, manifest.TypeNestJS, manifest.TypeReact, manifest.TypeKompozi},
-	"yarn":     {manifest.TypeNodeJS, manifest.TypeNextJS, manifest.TypeNuxtJS, manifest.TypeNestJS, manifest.TypeReact, manifest.TypeKompozi},
-	"pnpm":     {manifest.TypeNodeJS, manifest.TypeNextJS, manifest.TypeNuxtJS, manifest.TypeNestJS, manifest.TypeReact, manifest.TypeKompozi},
-	"node":     {manifest.TypeNodeJS, manifest.TypeNextJS, manifest.TypeNuxtJS, manifest.TypeNestJS, manifest.TypeReact, manifest.TypeKompozi},
-}
-
 // cmdExecWrapper implements the typed shortcuts: `tainer wp plugin
 // list` == `tainer exec -- wp plugin list`. The project comes from
 // the cwd walk-up only (no project positional — it would be ambiguous
@@ -1787,23 +1755,22 @@ var wrapperTypes = map[string][]manifest.ProjectType{
 func cmdExecWrapper(tool string, args []string) {
 	// Friendly type guard before we dial the engine: `tainer wp` in a
 	// nextjs project would otherwise surface as a bare "wp: not found"
-	// from the container.
+	// from the container. The tool→types mapping comes from the
+	// manifest.TypeSpec table.
 	manifestPath, _, err := locateManifest(nil)
 	must(err)
 	m, err := manifest.Load(manifestPath)
 	must(err)
-	if allowed, ok := wrapperTypes[tool]; ok {
-		match := false
-		for _, t := range allowed {
-			if m.Project.Type == t {
-				match = true
-				break
-			}
+	match := false
+	for _, t := range manifest.ToolTypes(tool) {
+		if m.Project.Type == t {
+			match = true
+			break
 		}
-		if !match {
-			fmt.Fprintf(os.Stderr, "tainer: `tainer %s` isn't available for %s projects (%s is %s)\n", tool, m.Project.Type, m.Project.Name, m.Project.Type)
-			os.Exit(2)
-		}
+	}
+	if !match {
+		fmt.Fprintf(os.Stderr, "tainer: `tainer %s` isn't available for %s projects (%s is %s)\n", tool, m.Project.Type, m.Project.Name, m.Project.Type)
+		os.Exit(2)
 	}
 	execWrapperTool = tool
 	cmdExec(append([]string{"--", tool}, args...))

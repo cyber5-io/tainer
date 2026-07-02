@@ -21,13 +21,12 @@ func RolesForType(t manifest.ProjectType) []string {
 	if smokeImages() || legacyImages() {
 		return []string{RoleWeb, RoleDB}
 	}
-	switch t {
-	case manifest.TypeReact:
+	if spec, ok := manifest.SpecFor(t); ok && !spec.HasAppRole {
+		// SPA types (react): the web role serves the built bundle,
+		// there is no separate app process.
 		return []string{RoleWeb, RoleDB}
-	default:
-		// All other types: 3-container web+app+db.
-		return []string{RoleWeb, RoleApp, RoleDB}
 	}
+	return []string{RoleWeb, RoleApp, RoleDB}
 }
 
 // RolesForPod is RolesForType filtered by the manifest's runtime
@@ -51,7 +50,7 @@ func RolesForPod(m *manifest.Manifest) []string {
 // DefaultExecRole returns the role that `tainer exec <project>`
 // targets when no role argument is given.
 func DefaultExecRole(t manifest.ProjectType) string {
-	if t == manifest.TypeReact {
+	if spec, ok := manifest.SpecFor(t); ok && !spec.HasAppRole {
 		return RoleWeb
 	}
 	return RoleApp
@@ -63,46 +62,34 @@ func DefaultExecRole(t manifest.ProjectType) string {
 // ignores the flag when only UID is given (the agent side also
 // duplicates the UID as a safety net).
 //
-// PHP images (WordPress and plain PHP) ship with www-data at 82.
-// Node images (Next/Nuxt/Nest/plain node/kompozi) use "node" at 1000.
-// Only used for the app role — other roles (web, db) keep their
-// image-baked defaults because that's what runs the actual daemon
-// process.
+// Only meaningful for the app role — other roles (web, db) keep
+// their image-baked defaults because that's what runs the actual
+// daemon process. Values come from the manifest.TypeSpec table.
 func DefaultExecUser(t manifest.ProjectType, role string) string {
 	if role != RoleApp {
 		return "" // fall through to image default (usually root)
 	}
-	switch t {
-	case manifest.TypeWordPress, manifest.TypePHP:
-		return "82:82" // www-data
-	case manifest.TypeNodeJS, manifest.TypeNextJS, manifest.TypeNuxtJS,
-		manifest.TypeNestJS, manifest.TypeKompozi:
-		return "1000:1000" // node
+	spec, ok := manifest.SpecFor(t)
+	if !ok {
+		return ""
 	}
-	return ""
+	return spec.ExecUser
 }
 
 // DefaultExecWorkdir returns the working directory tainer exec should
 // cd into by default so `wp`, `artisan`, `npm`, etc. see the project
 // files they expect without the user needing to pass --workdir every
-// time.
-//
-// All app roles land in /var/www/html for PHP and /app for Node —
-// matching what the container images set as their WORKDIR. The web
-// and db roles have no useful "project" directory to cd into, so we
-// return empty and let crun use the image default.
+// time. App role only; values come from the manifest.TypeSpec table
+// and match the images' baked WORKDIR.
 func DefaultExecWorkdir(t manifest.ProjectType, role string) string {
 	if role != RoleApp {
 		return ""
 	}
-	switch t {
-	case manifest.TypeWordPress, manifest.TypePHP:
-		return "/var/www/html"
-	case manifest.TypeNodeJS, manifest.TypeNextJS, manifest.TypeNuxtJS,
-		manifest.TypeNestJS, manifest.TypeKompozi:
-		return "/app"
+	spec, ok := manifest.SpecFor(t)
+	if !ok {
+		return ""
 	}
-	return ""
+	return spec.ExecWorkdir
 }
 
 // imageRepo returns the configured image registry prefix. Defaults to
@@ -206,12 +193,10 @@ func ImageRef(m *manifest.Manifest, role string) string {
 	case RoleWeb:
 		return fmt.Sprintf("%s/tainer-caddy-web:2-alpine", repo)
 	case RoleApp:
-		switch m.Project.Type {
-		case manifest.TypeWordPress, manifest.TypePHP:
+		if m.IsPHP() {
 			return fmt.Sprintf("%s/tainer-%s-app:php-%s", repo, m.Project.Type, m.Runtime.PHP)
-		default: // node-flavoured
-			return fmt.Sprintf("%s/tainer-%s-app:node-%s", repo, m.Project.Type, m.Runtime.Node)
 		}
+		return fmt.Sprintf("%s/tainer-%s-app:node-%s", repo, m.Project.Type, m.Runtime.Node)
 	case RoleDB:
 		if m.Runtime.Database == manifest.DatabasePostgres {
 			return fmt.Sprintf("%s/tainer-postgres-db:16", repo)

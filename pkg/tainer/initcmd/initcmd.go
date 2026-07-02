@@ -238,22 +238,22 @@ func defaultManifest(opts Options, name string) *manifest.Manifest {
 		Project: manifest.ProjectConfig{Name: name, Type: opts.Type, Domain: domain},
 		Pod:     &manifest.PodConfig{Size: opts.PodSize},
 	}
-	switch opts.Type {
-	case manifest.TypeWordPress, manifest.TypePHP:
-		m.Runtime = manifest.RuntimeConfig{
-			PHP:      defaultStr(opts.PHP, "8.3"),
-			Database: manifest.DatabaseMariaDB,
-		}
-	case manifest.TypeKompozi:
-		m.Runtime = manifest.RuntimeConfig{
-			Node:     defaultStr(opts.Node, "20"),
-			Database: manifest.DatabasePostgres,
-		}
-	default: // node-flavoured
-		m.Runtime = manifest.RuntimeConfig{
-			Node:     defaultStr(opts.Node, "20"),
-			Database: manifest.DatabaseMariaDB,
-		}
+	// Runtime block: the manifest.TypeSpec table supplies the per-type
+	// defaults (PHP/Node version, database engine); explicit --php /
+	// --node flags override the version.
+	if spec, ok := manifest.SpecFor(opts.Type); ok {
+		m.Runtime = spec.DefaultRuntime
+	} else {
+		m.Runtime = manifest.RuntimeConfig{Node: "20", Database: manifest.DatabaseMariaDB}
+	}
+	// Only the family's own version field is overridable — a stray
+	// --node on a wordpress init shouldn't write a node version into
+	// the manifest.
+	if opts.PHP != "" && m.Runtime.PHP != "" {
+		m.Runtime.PHP = opts.PHP
+	}
+	if opts.Node != "" && m.Runtime.Node != "" {
+		m.Runtime.Node = opts.Node
 	}
 	return m
 }

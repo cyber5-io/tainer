@@ -165,13 +165,13 @@ func (m *Manifest) ShellOrDefault() string {
 }
 
 func (m *Manifest) IsPHP() bool {
-	return m.Project.Type == TypeWordPress || m.Project.Type == TypePHP
+	s, ok := SpecFor(m.Project.Type)
+	return ok && s.Family == FamilyPHP
 }
 
 func (m *Manifest) IsNode() bool {
-	return m.Project.Type == TypeNodeJS || m.Project.Type == TypeNextJS ||
-		m.Project.Type == TypeNuxtJS || m.Project.Type == TypeNestJS ||
-		m.Project.Type == TypeReact || m.Project.Type == TypeKompozi
+	s, ok := SpecFor(m.Project.Type)
+	return ok && s.Family == FamilyNode
 }
 
 // IsReact returns true for project types that are served as SPAs
@@ -319,10 +319,12 @@ func (m *Manifest) validate() error {
 		return fmt.Errorf("invalid project name: %w", err)
 	}
 
-	switch m.Project.Type {
-	case TypeWordPress, TypePHP, TypeNodeJS, TypeNextJS, TypeNuxtJS, TypeNestJS, TypeReact, TypeKompozi:
-	default:
-		return fmt.Errorf("invalid project type: %q (expected wordpress, php, nodejs, nextjs, nuxtjs, nestjs, react, or kompozi)", m.Project.Type)
+	if _, ok := SpecFor(m.Project.Type); !ok {
+		names := make([]string, 0, len(typeSpecs))
+		for _, s := range typeSpecs {
+			names = append(names, string(s.Type))
+		}
+		return fmt.Errorf("invalid project type: %q (expected %s)", m.Project.Type, strings.Join(names, ", "))
 	}
 
 	switch m.Runtime.Database {
