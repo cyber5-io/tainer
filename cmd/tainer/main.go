@@ -803,14 +803,53 @@ func cmdDoctor(args []string) {
 		}
 	} else {
 		tui.Bookend(verb)
+
+		// Spinner choreography: Started fires before each check, the
+		// matching Progress after. StartLineSpinner has a 200ms grace
+		// period, so the sub-second checks never flash a spinner —
+		// only the genuinely slow ones (VM cold-boot under --fix, HTTP
+		// probes racing their timeout) animate.
+		var stopSpin func()
+		spinDone := func() {
+			if stopSpin != nil {
+				stopSpin()
+				stopSpin = nil
+			}
+		}
+		opts.Started = func(name string) {
+			spinDone()
+			stopSpin = tui.StartLineSpinner(name)
+		}
+
+		// The pod probes get their own section: the stack checks above
+		// describe tainer itself, the pod list describes the user's
+		// projects. Header prints lazily before the first pod result.
+		muted := lipgloss.NewStyle().Foreground(tui.Colors().Muted)
+		podHeaderDone := false
 		opts.Progress = func(r doctor.Result) {
+			spinDone()
+			if !podHeaderDone && (strings.HasPrefix(r.Name, "pod ") || r.Name == "pods") {
+				podHeaderDone = true
+				fmt.Println()
+				fmt.Println("  " + muted.Render("Running pods"))
+			}
 			fmt.Println("  " + doctorMark(r.Status) + doctorPad(r.Name) + r.Detail + doctorFixedTag(r))
 			if r.Hint != "" && r.Status != doctor.StatusOK {
 				fmt.Println("  " + strings.Repeat(" ", 4+doctorNameWidth) + "→ " + r.Hint)
 			}
 		}
+		defer spinDone() // safety net if Run bails between Started and Progress
 	}
 	rep := doctor.Run(ctx, opts)
+
+	// Stopped pods aren't listed line-by-line (that's `tainer list`);
+	// a muted one-liner under the pod section keeps the count visible.
+	// Skipped when nothing was probed — the "pods" placeholder result
+	// already carries the stopped count in its detail.
+	if mode != tui.ModePlain && rep.StoppedPods > 0 && doctorHasPodResults(rep) {
+		muted := lipgloss.NewStyle().Foreground(tui.Colors().Muted)
+		fmt.Println("  " + muted.Render(fmt.Sprintf("%d stopped — `tainer list` to see them", rep.StoppedPods)))
+	}
 
 	ok, warn, fail, skip := rep.Counts()
 	summary := fmt.Sprintf("%d ok", ok)
@@ -822,6 +861,9 @@ func cmdDoctor(args []string) {
 	}
 	if skip > 0 {
 		summary += fmt.Sprintf(" · %d skipped", skip)
+	}
+	if rep.StoppedPods > 0 {
+		summary += fmt.Sprintf(" · %d stopped", rep.StoppedPods)
 	}
 	if mode == tui.ModePlain {
 		if rep.Healthy() {
@@ -870,6 +912,17 @@ func doctorFixedTag(r doctor.Result) string {
 		return " (fixed)"
 	}
 	return ""
+}
+
+// doctorHasPodResults reports whether at least one per-pod probe ran
+// (as opposed to the aggregate "pods" placeholder/skip rows).
+func doctorHasPodResults(rep doctor.Report) bool {
+	for _, r := range rep.Results {
+		if strings.HasPrefix(r.Name, "pod ") {
+			return true
+		}
+	}
+	return false
 }
 
 //	tainer init                  (TUI wizard — TODO: wire up tui/wizard)

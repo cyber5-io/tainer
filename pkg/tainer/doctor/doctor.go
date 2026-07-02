@@ -55,6 +55,11 @@ type Result struct {
 // Report is the full doctor run.
 type Report struct {
 	Results []Result `json:"checks"`
+	// StoppedPods counts pods that exist but aren't running. Doctor
+	// only probes running pods — stopped is a valid state, and
+	// `tainer list` is the enumeration surface — so these appear only
+	// as this count.
+	StoppedPods int `json:"stoppedPods,omitempty"`
 }
 
 // Healthy reports whether the stack is fully functional: no fails,
@@ -99,6 +104,14 @@ type Options struct {
 	// completes so the caller can render incrementally. The same
 	// results are also collected into the returned Report.
 	Progress func(Result)
+
+	// Started, when non-nil, is called with a check's name right
+	// before it begins. Callers use it to show a spinner during the
+	// slow checks (VM cold-boot under Fix, HTTP probes against dead
+	// pods); the matching Progress call signals completion. Calls are
+	// strictly sequential: every Started is followed by at least one
+	// Progress before the next Started.
+	Started func(name string)
 }
 
 // Run executes all checks in dependency order and returns the report.
@@ -137,10 +150,17 @@ func (d *run) add(r Result) {
 	}
 }
 
+func (d *run) start(name string) {
+	if d.opts.Started != nil {
+		d.opts.Started(name)
+	}
+}
+
 // checkDaemon covers the first two layers: the cyberstackd process
 // and its Docker-API socket. Returns a connected engine client when
 // the socket answers (possibly after a --fix start), nil otherwise.
 func (d *run) checkDaemon(ctx context.Context) *engine.Client {
+	d.start("daemon")
 	st := runtime.CurrentStatus(ctx, runtime.Options{})
 
 	if st.Reachable {
@@ -182,6 +202,7 @@ func (d *run) checkDaemon(ctx context.Context) *engine.Client {
 // for the container list — that call round-trips through the vsock
 // gRPC channel into the in-guest agent.
 func (d *run) checkAgent(ctx context.Context, eng *engine.Client) {
+	d.start("agent")
 	if eng == nil {
 		d.add(Result{Name: "agent", Status: StatusSkip, Detail: "daemon is down"})
 		return
@@ -203,6 +224,7 @@ func (d *run) checkAgent(ctx context.Context, eng *engine.Client) {
 // mode + a VPN network extension (which black-holes the in-process
 // NAT path).
 func (d *run) checkNetworkMode() {
+	d.start("network")
 	mode, err := network.ReadMode(network.DefaultModeFile())
 	if err != nil {
 		d.add(Result{Name: "network", Status: StatusWarn,
@@ -231,6 +253,7 @@ func (d *run) checkNetworkMode() {
 // checkRouter verifies both router containers are running; with Fix
 // it re-ensures them (create-or-start, config rewrite, caddy reload).
 func (d *run) checkRouter(ctx context.Context, eng *engine.Client) {
+	d.start("router")
 	if eng == nil || !d.agentUp {
 		d.add(Result{Name: "router", Status: StatusSkip, Detail: "daemon or agent is down"})
 		return
@@ -275,6 +298,7 @@ func routersDown(ctx context.Context, eng *engine.Client) []string {
 // about to. No auto-fix — cert distribution is an install-time
 // concern and re-downloading needs the release URL wiring.
 func (d *run) checkTLS() {
+	d.start("tls")
 	certPath := config.CertFile()
 	if !tainertls.CertExists(certPath) {
 		d.add(Result{Name: "tls", Status: StatusFail,
@@ -307,6 +331,7 @@ func (d *run) checkTLS() {
 // diverge: the file can exist while the daemon (and its DNS listener)
 // is down, or vice versa after a half-finished install.
 func (d *run) checkDNS(ctx context.Context) {
+	d.start("dns")
 	installed := dns.IsResolverInstalled(dnsPort)
 	addr, qerr := queryLocalDNS(ctx, "doctor-probe.tainer.me")
 
@@ -327,10 +352,12 @@ func (d *run) checkDNS(ctx context.Context) {
 	}
 }
 
-// checkPods probes every running pod's public URL end to end: DNS
+// checkPods probes each RUNNING pod's public URL end to end: DNS
 // name, router TLS, reverse proxy, pod web container. Stopped pods
-// are reported as informational warns, not failures — being stopped
-// is a valid state.
+// aren't listed — stopped is a valid state and `tainer list` is the
+// enumeration surface — they only feed Report.StoppedPods. A "mixed"
+// pod (some containers up, some down) is genuinely unhealthy and
+// still reports.
 func (d *run) checkPods(ctx context.Context, eng *engine.Client) {
 	if eng == nil || !d.agentUp {
 		d.add(Result{Name: "pods", Status: StatusSkip, Detail: "daemon or agent is down"})
@@ -341,14 +368,19 @@ func (d *run) checkPods(ctx context.Context, eng *engine.Client) {
 		d.add(Result{Name: "pods", Status: StatusFail, Detail: err.Error()})
 		return
 	}
-	if len(pods) == 0 {
-		d.add(Result{Name: "pods", Status: StatusOK, Detail: "no pods"})
-		return
-	}
+	probed := 0
 	for _, p := range pods {
 		name := "pod " + p.Name
-		if p.State() != pod.StateRunning {
-			d.add(Result{Name: name, Status: StatusWarn, Detail: string(p.State())})
+		if p.State() == pod.StateStopped {
+			d.report.StoppedPods++
+			continue
+		}
+		probed++
+		d.start(name)
+		if p.State() == pod.StateMixed {
+			d.add(Result{Name: name, Status: StatusFail,
+				Detail: "some containers are down",
+				Hint:   "try `tainer stop && tainer start` for this project"})
 			continue
 		}
 		domain := podDomain(ctx, eng, p)
@@ -378,6 +410,13 @@ func (d *run) checkPods(ctx context.Context, eng *engine.Client) {
 			d.add(Result{Name: name, Status: StatusOK,
 				Detail: fmt.Sprintf("https://%s → HTTP %d", domain, code)})
 		}
+	}
+	if probed == 0 {
+		detail := "no pods"
+		if d.report.StoppedPods > 0 {
+			detail = fmt.Sprintf("no running pods (%d stopped)", d.report.StoppedPods)
+		}
+		d.add(Result{Name: "pods", Status: StatusOK, Detail: detail})
 	}
 }
 
