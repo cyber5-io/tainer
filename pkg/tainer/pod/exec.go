@@ -31,6 +31,10 @@ type ExecOptions struct {
 	Stdin   io.Reader // nil to skip stdin attach
 	Stdout  io.Writer // required
 	Stderr  io.Writer // required
+
+	// OnAttached: see engine.ExecStreamOptions.OnAttached (TTY resize
+	// hook).
+	OnAttached func(resize func(width, height uint16) error)
 }
 
 // Exec runs cmd inside the pod's container of the resolved role.
@@ -47,14 +51,15 @@ func Exec(ctx context.Context, eng *engine.Client, podName, role string, opts Ex
 		opts.Stderr = os.Stderr
 	}
 	return eng.ExecStream(ctx, ContainerName(podName, role), engine.ExecStreamOptions{
-		Cmd:     opts.Cmd,
-		User:    opts.User,
-		WorkDir: opts.WorkDir,
-		Env:     opts.Env,
-		Tty:     opts.Tty,
-		Stdin:   opts.Stdin,
-		Stdout:  opts.Stdout,
-		Stderr:  opts.Stderr,
+		Cmd:        opts.Cmd,
+		User:       opts.User,
+		WorkDir:    opts.WorkDir,
+		Env:        opts.Env,
+		Tty:        opts.Tty,
+		Stdin:      opts.Stdin,
+		Stdout:     opts.Stdout,
+		Stderr:     opts.Stderr,
+		OnAttached: opts.OnAttached,
 	})
 }
 

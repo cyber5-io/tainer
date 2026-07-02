@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/pkg/stdcopy"
@@ -71,6 +73,14 @@ type ExecStreamOptions struct {
 	Stdin   io.Reader // nil to skip stdin attach
 	Stdout  io.Writer // required
 	Stderr  io.Writer // required
+
+	// OnAttached, when non-nil and Tty is true, is called once the
+	// exec is attached, with a function that resizes the remote TTY.
+	// The caller owns sending the initial size and re-sending on
+	// SIGWINCH; resize errors are advisory (an older daemon without
+	// the resize endpoint just leaves the terminal at its default
+	// size).
+	OnAttached func(resize func(width, height uint16) error)
 }
 
 // ExecStream runs cmd inside the named container and streams stdio
@@ -90,6 +100,14 @@ func (c *Client) ExecStream(ctx context.Context, name string, opts ExecStreamOpt
 		return 1, fmt.Errorf("engine: ExecStream needs Stdout and Stderr")
 	}
 
+	trace := func(string) {}
+	if os.Getenv("TAINER_EXEC_TRACE") != "" {
+		t0 := time.Now()
+		trace = func(phase string) {
+			fmt.Fprintf(os.Stderr, "[trace +%6.0fms] %s\n", time.Since(t0).Seconds()*1000, phase)
+		}
+	}
+	trace("create")
 	createResp, err := c.api.ContainerExecCreate(ctx, name, container.ExecOptions{
 		Cmd:          opts.Cmd,
 		User:         opts.User,
@@ -103,6 +121,7 @@ func (c *Client) ExecStream(ctx context.Context, name string, opts ExecStreamOpt
 	if err != nil {
 		return 1, fmt.Errorf("engine: exec create on %s: %w", name, err)
 	}
+	trace("created")
 
 	hijack, err := c.api.ContainerExecAttach(ctx, createResp.ID, container.ExecStartOptions{
 		Tty: opts.Tty,
@@ -111,6 +130,17 @@ func (c *Client) ExecStream(ctx context.Context, name string, opts ExecStreamOpt
 		return 1, fmt.Errorf("engine: exec attach on %s: %w", name, err)
 	}
 	defer hijack.Close()
+	trace("attached")
+
+	if opts.Tty && opts.OnAttached != nil {
+		execID := createResp.ID
+		opts.OnAttached(func(width, height uint16) error {
+			return c.api.ContainerExecResize(ctx, execID, container.ResizeOptions{
+				Height: uint(height),
+				Width:  uint(width),
+			})
+		})
+	}
 
 	// stdin pump: block-copy user stdin into the hijacked conn until
 	// EOF. When we finish, CloseWrite() so the container sees EOF —
@@ -141,6 +171,7 @@ func (c *Client) ExecStream(ctx context.Context, name string, opts ExecStreamOpt
 
 	// Wait for output stream to finish (that's the definitive signal
 	// the exec is done producing bytes). Then inspect for exit code.
+	trace("pumping")
 	select {
 	case err := <-outDone:
 		if err != nil {
@@ -153,12 +184,20 @@ func (c *Client) ExecStream(ctx context.Context, name string, opts ExecStreamOpt
 		return 1, ctx.Err()
 	}
 	// Best-effort: let any straggler stdin bytes finish flushing.
-	<-stdinDone
+	// NOT in TTY mode: there stdin is the user's terminal, which never
+	// EOFs — the session is over when the output stream ends (the
+	// agent closed the pty), and waiting would hang until the user
+	// pressed a key.
+	if !opts.Tty {
+		<-stdinDone
+	}
 
+	trace("output done")
 	insp, err := c.api.ContainerExecInspect(ctx, createResp.ID)
 	if err != nil {
 		return 1, fmt.Errorf("engine: exec inspect on %s: %w", name, err)
 	}
+	trace("inspected")
 	return insp.ExitCode, nil
 }
 

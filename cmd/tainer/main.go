@@ -1590,28 +1590,13 @@ func cmdExec(args []string) {
 	// AND the user hasn't overridden. --tty forces on; --no-tty forces
 	// off. Explicit stdin (heredoc, pipe) drops the default to off.
 	//
-	// KNOWN LIMITATION: interactive TTY isn't wired up end-to-end yet
-	// on the cyberstack side. crun exec --tty allocates a pty inside
-	// the container, but its master is not connected to a real pty on
-	// the agent's Go side — bash sees a pipe as stdin and tcgetattr
-	// fails ("Inappropriate ioctl for device"). Until we use
-	// github.com/creack/pty on the agent side to allocate a proper pty
-	// pair and hand crun the master, we silently fall back to non-TTY.
-	// Non-interactive commands (curl, ls, cat via pipe) all work fine.
+	// The TTY path is real end to end: the agent allocates a pty pair
+	// and hands crun the slave, so bash/wp-shell/tinker get genuine
+	// terminal semantics and tools render their rich output (colors,
+	// columns, wp-cli's bordered tables).
 	tty := parsed.ttyForced
 	if !parsed.ttyExplicit {
 		tty = tui.IsTTY(os.Stdin.Fd()) && tui.IsTTY(os.Stdout.Fd())
-	}
-	if tty {
-		// Only warn if the user asked for TTY explicitly (-t / --tty).
-		// Auto-detection turning on TTY for something like
-		// `tainer exec -- wp option get siteurl` shouldn't print a
-		// scary-looking notice when the command still runs fine
-		// non-interactively. Task #4 tracks the real pty wiring.
-		if parsed.ttyExplicit && parsed.ttyForced {
-			fmt.Fprintln(os.Stderr, "tainer: interactive TTY exec is not yet supported (falling back to non-TTY). Bash/wp-shell/tinker sessions may look broken; use `tainer exec -- <cmd>` for non-interactive commands.")
-		}
-		tty = false
 	}
 
 	// Brand surface: one-liner header, always. On exit, closing
@@ -1688,15 +1673,39 @@ func cmdExec(args []string) {
 		stdin = os.Stdin
 	}
 
+	// TTY size propagation: send the local terminal's dimensions once
+	// attached, and again on every SIGWINCH, so full-screen programs
+	// (vim, htop) and width-aware tools (wp-cli tables, ls columns)
+	// see the real window instead of a kernel-default 0x0 pty.
+	var onAttached func(func(width, height uint16) error)
+	if tty {
+		onAttached = func(resize func(width, height uint16) error) {
+			doResize := func() {
+				if w, h, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 && h > 0 {
+					_ = resize(uint16(w), uint16(h)) // advisory: older daemons lack the endpoint
+				}
+			}
+			doResize()
+			ch := make(chan os.Signal, 1)
+			signal.Notify(ch, syscall.SIGWINCH)
+			go func() { // leaks on exit by design — process lifetime
+				for range ch {
+					doResize()
+				}
+			}()
+		}
+	}
+
 	code, err := pod.Exec(ctx, eng, projectName, role, pod.ExecOptions{
-		Cmd:     parsed.cmd,
-		User:    execUser,
-		WorkDir: execWorkdir,
-		Env:     parsed.env,
-		Tty:     tty,
-		Stdin:   stdin,
-		Stdout:  os.Stdout,
-		Stderr:  os.Stderr,
+		Cmd:        parsed.cmd,
+		User:       execUser,
+		WorkDir:    execWorkdir,
+		Env:        parsed.env,
+		Tty:        tty,
+		Stdin:      stdin,
+		Stdout:     os.Stdout,
+		Stderr:     os.Stderr,
+		OnAttached: onAttached,
 	})
 	elapsed := time.Since(started)
 
