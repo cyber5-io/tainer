@@ -324,6 +324,11 @@ type projectStatusSnapshot struct {
 	Domain     string
 	Ports      []manifest.PortEntry
 	Containers []containerStatus
+	// QueryError is set when the pod lookup itself failed (agent
+	// unreachable, timeout) — rendering must distinguish "we could
+	// not ask" from "the pod is not running". Post-sleep the two look
+	// identical without this and status lies with an [i] mark.
+	QueryError string
 }
 
 type containerStatus struct {
@@ -367,7 +372,14 @@ func collectProjectStatus(ctx context.Context, project string) projectStatusSnap
 	}
 	defer eng.Close()
 	p, err := pod.Get(ctx, eng, project)
-	if err != nil || p == nil {
+	if err != nil {
+		// Could not ASK — very different from "pod doesn't exist".
+		// Typical cause: the daemon↔agent link is mid-reconnect (e.g.
+		// right after host wake) and the 2s status deadline expired.
+		snap.QueryError = err.Error()
+		return snap
+	}
+	if p == nil {
 		// Pod doesn't exist yet — manifest data is still populated above.
 		return snap
 	}
@@ -403,6 +415,12 @@ func runStatusProjectStyled(s projectStatusSnapshot) {
 	// --- Pod block ---
 	fmt.Println()
 	fmt.Println("  " + muted.Render("Pod"))
+	if s.QueryError != "" {
+		fmt.Println("    " + tui.MarkError() + s.Project + "  couldn't query pod state: " + s.QueryError)
+		fmt.Println()
+		tui.BookendCloseError(0, "Unknown", "try again in a few seconds, or `tainer doctor`")
+		return
+	}
 	if s.State == "" {
 		fmt.Println("    " + tui.MarkInfo() + s.Project + "  " + muted.Render("not running (no containers)"))
 	} else {
@@ -497,6 +515,10 @@ func runStatusProjectPlain(s projectStatusSnapshot) {
 	fmt.Println()
 	fmt.Printf("reachable: %v\n", s.Daemon.Reachable)
 	fmt.Println()
+	if s.QueryError != "" {
+		fmt.Printf("%s   state unknown: %s\n", s.Project, s.QueryError)
+		return
+	}
 	if s.State == "" {
 		fmt.Printf("%s   not running\n", s.Project)
 	} else {
@@ -537,10 +559,11 @@ func runStatusProjectJSON(s projectStatusSnapshot) {
 		Domain     string               `json:"domain,omitempty"`
 		Ports      []manifest.PortEntry `json:"ports,omitempty"`
 		Containers []containerStatus    `json:"containers"`
+		QueryError string               `json:"queryError,omitempty"`
 	}{
 		Daemon: s.Daemon, Project: s.Project, PodID: s.PodID,
 		State: s.State, Domain: s.Domain, Ports: s.Ports,
-		Containers: s.Containers,
+		Containers: s.Containers, QueryError: s.QueryError,
 	}
 	if out.Containers == nil {
 		out.Containers = []containerStatus{}
