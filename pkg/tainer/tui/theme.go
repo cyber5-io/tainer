@@ -73,6 +73,19 @@ func detectOnce() {
 	}
 }
 
+// EnsureThemeDetected runs background-color detection NOW, while the
+// caller still owns stdin. MUST be called before starting any Bubble
+// Tea program whose View touches Colors(): the lazy detectOnce path
+// does a blocking OSC-11 query+read, and once tea's input reader owns
+// stdin in raw mode it steals the terminal's reply — the query then
+// blocks the entire event loop until its multi-second timeout (or
+// until a user keystroke happens to feed the starving read). Symptom:
+// the TUI starts blank and "wakes up" on Enter. lipgloss's own docs
+// warn HasDarkBackground is for standalone use only.
+func EnsureThemeDetected() {
+	detectOnce()
+}
+
 // SetDarkMode updates the theme dynamically. Called by TUI models when
 // they receive tea.BackgroundColorMsg (overrides initial detection).
 func SetDarkMode(dark bool) {

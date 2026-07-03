@@ -19,6 +19,16 @@ import (
 // tickMsg drives the welcome screen text animation.
 type tickMsg time.Time
 
+// repaintMsg forces a full-screen redraw shortly after startup.
+// Bubble Tea's renderer is diff-based: if the very first frame's
+// bytes race the terminal's alt-screen transition and get discarded,
+// the renderer still believes the screen is painted and skips every
+// identical frame after it — the wizard sits blank until a keypress
+// changes enough content. Observed intermittently on Terminal.app.
+// A ClearScreen a beat after startup resets the renderer's buffer so
+// the next frame repaints everything.
+type repaintMsg struct{}
+
 // versionsFetchedMsg delivers async version fetch results.
 type versionsFetchedMsg struct {
 	php, node []string
@@ -132,12 +142,26 @@ func fetchNodeVersions() ([]string, string) {
 }
 
 func defaultDatabase(pt manifest.ProjectType) manifest.DatabaseType {
-	switch pt {
-	case manifest.TypeWordPress, manifest.TypePHP:
-		return manifest.DatabaseMariaDB
-	default:
-		return manifest.DatabasePostgres
+	// Single source of truth: the TypeSpec table. Keeps the wizard's
+	// preselection identical to what `tainer init <type>` writes.
+	if spec, ok := manifest.SpecFor(pt); ok {
+		return spec.DefaultRuntime.Database
 	}
+	return manifest.DatabaseMariaDB
+}
+
+// defaultVersion returns the TypeSpec default runtime version for the
+// family, so the wizard preselects the same version a non-interactive
+// init would write.
+func defaultVersion(pt manifest.ProjectType) string {
+	spec, ok := manifest.SpecFor(pt)
+	if !ok {
+		return ""
+	}
+	if spec.Family == manifest.FamilyPHP {
+		return spec.DefaultRuntime.PHP
+	}
+	return spec.DefaultRuntime.Node
 }
 
 func dbChoices(pt manifest.ProjectType) []string {
@@ -161,7 +185,9 @@ func dbChoices(pt manifest.ProjectType) []string {
 
 func initialModel(cwd, dirName string) model {
 	w, h := 80, 24
-	if tw, th, err := term.GetSize(int(os.Stdout.Fd())); err == nil {
+	// Guard against unsized ptys (CI, expect): GetSize returns 0,0
+	// with a nil error there, and a zero-size model renders nothing.
+	if tw, th, err := term.GetSize(int(os.Stdout.Fd())); err == nil && tw > 0 && th > 0 {
 		w, h = tw, th
 	}
 	return model{
@@ -195,7 +221,14 @@ func tickCmd() tea.Cmd {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(tickCmd(), fetchVersionsCmd())
+	return tea.Batch(tickCmd(), fetchVersionsCmd(), repaintCmd(150*time.Millisecond), repaintCmd(600*time.Millisecond))
+}
+
+// repaintCmd schedules a repaintMsg after d. Two are scheduled at
+// startup: one right after the alt-screen transition settles, one
+// later as a belt-and-braces for slow terminals.
+func repaintCmd(d time.Duration) tea.Cmd {
+	return tea.Tick(d, func(time.Time) tea.Msg { return repaintMsg{} })
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -204,14 +237,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		tui.SetDarkMode(msg.IsDark())
 		return m, nil
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
+		// Unsized ptys (CI, expect, some spawners) deliver 0x0 —
+		// keep the initialModel fallback rather than clobbering it
+		// and rendering into a zero-cell buffer.
+		if msg.Width > 0 && msg.Height > 0 {
+			m.width = msg.Width
+			m.height = msg.Height
+		}
 		return m, nil
 	case versionsFetchedMsg:
 		m.phpVersions = msg.php
 		m.nodeVersions = msg.node
 		m.versionMsg = msg.msg
 		return m, nil
+	case repaintMsg:
+		return m, tea.ClearScreen
 	case tickMsg:
 		if m.step == stepWelcome {
 			m.animTick++
@@ -334,11 +374,10 @@ func (m model) handleChoice(key string) (tea.Model, tea.Cmd) {
 			m.step = stepVersion
 			if m.result.Type == manifest.TypeWordPress || m.result.Type == manifest.TypePHP {
 				m.choices = m.phpVersions
-				m.choiceIdx = findIndex(m.choices, "8.4")
 			} else {
 				m.choices = m.nodeVersions
-				m.choiceIdx = findIndex(m.choices, "22")
 			}
+			m.choiceIdx = findIndex(m.choices, defaultVersion(m.result.Type))
 		case stepVersion:
 			m.result.Version = m.choices[m.choiceIdx]
 			m.step = stepDatabase
@@ -787,50 +826,72 @@ func (m model) bodyGit() string {
 	return b.String()
 }
 
-// renderButtons renders a horizontal row of styled buttons following the
-// huh/v2 button pattern: both states are solid background blocks with
-// consistent padding, differentiated by colour.
+// renderButtons renders a horizontal row of buttons: SOLID slabs,
+// both states, identical geometry — half-cell top edge, full middle
+// row, half-cell bottom edge, with the edges the same colour as the
+// fill so each button reads as one clean borderless rectangle about
+// two text-rows tall. Selected = orange with bold dark text,
+// unselected = the theme's border-grey with muted text.
+//
+// Why half-block glyphs and not lipgloss borders or plain background
+// rows: box-drawing characters are thin strokes at font-dependent
+// cell positions, so any outline-vs-fill pairing reads as mismatched
+// sizes; and a single-line background block reads too thin inside
+// the wizard frame. Half-blocks paint deterministic solid pixels and
+// give the slab its height.
 func renderButtons(labels []string, selectedIdx int) string {
 	c := tui.Colors()
+	dark := lipgloss.Color("#0C1018")
 
-	// Find the widest label so all buttons are the same width.
+	// Widest label decides the shared button width.
 	maxW := 0
 	for _, l := range labels {
-		if len(l) > maxW {
-			maxW = len(l)
+		if w := lipgloss.Width(strings.TrimSpace(l)); w > maxW {
+			maxW = w
 		}
 	}
+	totalW := maxW + 8 // 4 cells of breathing room per side
 
-	focused := lipgloss.NewStyle().
-		Bold(true).
-		Width(maxW + 4). // 2 chars padding each side
-		Align(lipgloss.Center).
-		Foreground(lipgloss.Color("#0C1018")).
-		Background(c.Orange)
+	// Selected fill is teal, not orange: in the mark vocabulary teal
+	// is the success/go colour ([✓], the spinner core) while orange
+	// flags warnings ([!]) — a confirm button shouldn't whisper
+	// "careful".
+	button := func(label string, selected bool) string {
+		fill := c.Border
+		if selected {
+			fill = c.Teal
+		}
+		edge := lipgloss.NewStyle().Foreground(fill)
+		top := edge.Render(strings.Repeat("▄", totalW))
+		bot := edge.Render(strings.Repeat("▀", totalW))
 
-	blurred := lipgloss.NewStyle().
-		Width(maxW + 4).
-		Align(lipgloss.Center).
-		Foreground(c.Text).
-		Background(c.Border)
+		mid := lipgloss.NewStyle().Width(totalW).Align(lipgloss.Center).
+			Foreground(c.Muted).Background(fill).Render(label)
+		if selected {
+			mid = lipgloss.NewStyle().Bold(true).Width(totalW).Align(lipgloss.Center).
+				Foreground(dark).Background(fill).Render(label)
+		}
+		return top + "\n" + mid + "\n" + bot
+	}
 
-	// Build 3 lines manually: blank, label, blank (vertical padding).
-	var topParts, midParts, botParts []string
+	parts := make([]string, 0, len(labels)*2)
 	for i, label := range labels {
-		style := blurred
-		if i == selectedIdx {
-			style = focused
+		if i > 0 {
+			parts = append(parts, "  ")
 		}
-		pad := style.Render(strings.Repeat(" ", maxW))
-		topParts = append(topParts, pad)
-		midParts = append(midParts, style.Render(label))
-		botParts = append(botParts, pad)
+		parts = append(parts, button(strings.TrimSpace(label), i == selectedIdx))
 	}
+	row := lipgloss.JoinHorizontal(lipgloss.Center, parts...)
 
-	gap := "  "
-	return "  " + strings.Join(topParts, gap) + "\n" +
-		"  " + strings.Join(midParts, gap) + "\n" +
-		"  " + strings.Join(botParts, gap)
+	// Indent to match the surrounding body copy.
+	var b strings.Builder
+	for i, line := range strings.Split(row, "\n") {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString("  " + line)
+	}
+	return b.String()
 }
 
 // ---------------------------------------------------------------------------
@@ -851,6 +912,8 @@ func findIndex(items []string, target string) int {
 
 // Run launches the full-screen TUI wizard and returns the user's selections.
 func Run(cwd, dirName string) (*Result, error) {
+	// Detect the theme BEFORE tea owns stdin — see EnsureThemeDetected.
+	tui.EnsureThemeDetected()
 	m := initialModel(cwd, dirName)
 	p := tui.NewProgram(m, true) // full screen
 	finalModel, err := p.Run()

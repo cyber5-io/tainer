@@ -31,6 +31,13 @@ type Options struct {
 	PHP     string // optional, default per type
 	Node    string // optional, default per type
 	PodSize manifest.PodSize
+
+	// Database overrides the type's default engine (wizard flow); the
+	// zero value keeps the TypeSpec default.
+	Database manifest.DatabaseType
+	// Domain overrides the default <name>.tainer.me (wizard's custom
+	// subdomain step).
+	Domain string
 }
 
 // RunResult captures what an init produced. Each Step describes one
@@ -232,7 +239,10 @@ func pathExists(p string) bool {
 }
 
 func defaultManifest(opts Options, name string) *manifest.Manifest {
-	domain := name + ".tainer.me"
+	domain := opts.Domain
+	if domain == "" {
+		domain = name + ".tainer.me"
+	}
 	m := &manifest.Manifest{
 		Version: 2,
 		Project: manifest.ProjectConfig{Name: name, Type: opts.Type, Domain: domain},
@@ -254,6 +264,9 @@ func defaultManifest(opts Options, name string) *manifest.Manifest {
 	}
 	if opts.Node != "" && m.Runtime.Node != "" {
 		m.Runtime.Node = opts.Node
+	}
+	if opts.Database != "" {
+		m.Runtime.Database = opts.Database
 	}
 	return m
 }

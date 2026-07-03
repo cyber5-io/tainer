@@ -37,6 +37,7 @@ import (
 
 	"github.com/cyber5-io/tainer/pkg/tainer/doctor"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
+	"github.com/cyber5-io/tainer/pkg/tainer/gitsetup"
 	"github.com/cyber5-io/tainer/pkg/tainer/initcmd"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 	"github.com/cyber5-io/tainer/pkg/tainer/networkcmd"
@@ -45,6 +46,7 @@ import (
 	"github.com/cyber5-io/tainer/pkg/tainer/runtime"
 	"github.com/cyber5-io/tainer/pkg/tainer/tui"
 	tuilist "github.com/cyber5-io/tainer/pkg/tainer/tui/list"
+	tuiwizard "github.com/cyber5-io/tainer/pkg/tainer/tui/wizard"
 )
 
 // version is stamped at link time; see Makefile.
@@ -1000,10 +1002,15 @@ func cmdInit(args []string) {
 	rest = positional
 
 	if len(rest) < 1 {
-		// Wizard mode — TODO: hand off to pkg/tainer/tui/wizard. For
-		// now print a usage hint so users know there are positional
-		// forms available.
-		fmt.Fprintln(os.Stderr, "tainer init: interactive wizard not yet wired up in 0.9.x — pass <type> [name] positionally:")
+		// Wizard mode: bare `tainer init` on a real terminal launches
+		// the full-screen TUI. Piped/scripted invocations get the
+		// positional usage hint instead — a fullscreen program in a
+		// pipe helps nobody.
+		if mode == tui.ModeStyled && tui.IsTTY(os.Stdin.Fd()) && tui.IsTTY(os.Stdout.Fd()) {
+			runInitWizard()
+			return
+		}
+		fmt.Fprintln(os.Stderr, "tainer init: pass <type> [name] positionally (or run `tainer init` in a terminal for the wizard):")
 		fmt.Fprintln(os.Stderr, "  tainer init wordpress [myproject]")
 		fmt.Fprintln(os.Stderr, "  shortcuts: wp, php, node, next, nuxt, nest, react, kompozi")
 		os.Exit(2)
@@ -1034,6 +1041,57 @@ func cmdInit(args []string) {
 // (the single source of truth for per-type knowledge).
 func canonicalProjectType(s string) (manifest.ProjectType, bool) {
 	return manifest.CanonicalType(s)
+}
+
+// runInitWizard drives the full-screen init wizard and feeds its
+// answers through the same initcmd path the positional form uses —
+// the wizard is a fancy way to fill in initcmd.Options, nothing more.
+// Scaffolding, registry, .env, and gitignore behaviour stay identical
+// between the two flows by construction.
+func runInitWizard() {
+	cwd, err := os.Getwd()
+	must(err)
+
+	res, err := tuiwizard.Run(cwd, filepath.Base(cwd))
+	must(err)
+	if res.Cancelled {
+		fmt.Println(tui.MarkInfo() + "init cancelled — nothing written")
+		return
+	}
+
+	opts := initcmd.Options{
+		Type:     res.Type,
+		Name:     res.Name,
+		Database: res.Database,
+	}
+	if res.Subdomain != "" && res.Subdomain != res.Name {
+		opts.Domain = res.Subdomain + ".tainer.me"
+	}
+	if spec, ok := manifest.SpecFor(res.Type); ok && res.Version != "" {
+		if spec.Family == manifest.FamilyPHP {
+			opts.PHP = res.Version
+		} else {
+			opts.Node = res.Version
+		}
+	}
+
+	runInitStyled(opts)
+
+	// Post-init extras the wizard offered. Git first: init a fresh repo
+	// when the user asked and none exists (initcmd already handled the
+	// .gitignore either way).
+	if res.InitGit && !res.HasGitRepo {
+		if err := gitsetup.InitRepo(cwd); err != nil {
+			fmt.Println("  " + tui.MarkWarn() + "git init failed: " + err.Error())
+		} else {
+			fmt.Println("  " + tui.MarkSuccess() + "git repository initialised")
+		}
+	}
+
+	if res.StartPod {
+		fmt.Println()
+		cmdStart(nil)
+	}
 }
 
 func runInitStyled(opts initcmd.Options) {
