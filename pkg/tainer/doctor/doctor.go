@@ -146,6 +146,10 @@ type run struct {
 	// skip when they didn't (they would all fail with the same
 	// connection-refused, drowning the actual root cause).
 	edgeUp bool
+	// fixedInfra records that --fix started the daemon or restarted
+	// the router THIS run — downstream checks give freshly-booted
+	// plumbing a grace window instead of failing a race.
+	fixedInfra bool
 }
 
 func (d *run) add(r Result) {
@@ -182,6 +186,7 @@ func (d *run) checkDaemon(ctx context.Context) *engine.Client {
 				Hint:   "check `cyberstackd` is installed at /opt/tainer/bin or on $PATH"})
 			return nil
 		}
+		d.fixedInfra = true
 		d.add(Result{Name: "daemon", Status: StatusOK, Detail: "was down — started", Fixed: true})
 		return eng
 	} else {
@@ -279,6 +284,7 @@ func (d *run) checkRouter(ctx context.Context, eng *engine.Client) {
 				Detail: strings.Join(remaining, ", ") + " still down after ensure"})
 			return
 		}
+		d.fixedInfra = true
 		d.add(Result{Name: "router", Status: StatusOK,
 			Detail: strings.Join(down, ", ") + " was down — restarted", Fixed: true})
 		return
@@ -309,14 +315,29 @@ func routersDown(ctx context.Context, eng *engine.Client) []string {
 // restarting a pod won't bring the port back; restarting the stack
 // (or waiting for the daemon's watchdog to respawn the child) will.
 func (d *run) checkEdge() {
-	var dead []string
-	for _, port := range []string{"443", "80"} {
-		conn, err := net.DialTimeout("tcp", "127.0.0.1:"+port, 2*time.Second)
-		if err != nil {
-			dead = append(dead, port)
-			continue
+	d.start("edge")
+	probe := func() []string {
+		var dead []string
+		for _, port := range []string{"443", "80"} {
+			conn, err := net.DialTimeout("tcp", "127.0.0.1:"+port, 2*time.Second)
+			if err != nil {
+				dead = append(dead, port)
+				continue
+			}
+			conn.Close()
 		}
-		conn.Close()
+		return dead
+	}
+	dead := probe()
+	// When --fix just started the daemon or restarted the router, the
+	// port forwarders spawn during the post-boot reconcile — a few
+	// seconds behind us. Poll briefly instead of failing the race.
+	if len(dead) > 0 && d.fixedInfra {
+		deadline := time.Now().Add(12 * time.Second)
+		for len(dead) > 0 && time.Now().Before(deadline) {
+			time.Sleep(time.Second)
+			dead = probe()
+		}
 	}
 	if len(dead) == 0 {
 		d.edgeUp = true
