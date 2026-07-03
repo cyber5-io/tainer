@@ -82,7 +82,7 @@ var typeSpecs = []TypeSpec{
 		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseMariaDB},
 		HasAppRole:     true,
 		ExecUser:       "1000:1000", // node in the official-node-derived images
-		ExecWorkdir:    "/app",
+		ExecWorkdir:    "/var/www/html",
 		Tools:          nodeTools,
 	},
 	{
@@ -92,7 +92,7 @@ var typeSpecs = []TypeSpec{
 		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseMariaDB},
 		HasAppRole:     true,
 		ExecUser:       "1000:1000",
-		ExecWorkdir:    "/app",
+		ExecWorkdir:    "/var/www/html",
 		Tools:          nodeTools,
 	},
 	{
@@ -102,7 +102,7 @@ var typeSpecs = []TypeSpec{
 		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseMariaDB},
 		HasAppRole:     true,
 		ExecUser:       "1000:1000",
-		ExecWorkdir:    "/app",
+		ExecWorkdir:    "/var/www/html",
 		Tools:          nodeTools,
 	},
 	{
@@ -112,7 +112,7 @@ var typeSpecs = []TypeSpec{
 		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseMariaDB},
 		HasAppRole:     true,
 		ExecUser:       "1000:1000",
-		ExecWorkdir:    "/app",
+		ExecWorkdir:    "/var/www/html",
 		Tools:          nodeTools,
 	},
 	{
@@ -128,7 +128,7 @@ var typeSpecs = []TypeSpec{
 		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabasePostgres},
 		HasAppRole:     true,
 		ExecUser:       "1000:1000",
-		ExecWorkdir:    "/app",
+		ExecWorkdir:    "/var/www/html",
 		Tools:          nodeTools,
 	},
 }
