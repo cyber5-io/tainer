@@ -1166,6 +1166,12 @@ func cmdStart(args []string) {
 // spinner while pod.Start runs, result laid out with [i] marks, closing
 // bookend with the elapsed time. Falls back to a styled error block on
 // failure.
+// startWarmupTimeout bounds the post-start readiness probe. First-ever
+// starts (db bootstrap + WordPress install) can take a while; warm
+// restarts typically answer in 2-8s. Timing out is NOT a failure —
+// the pod is up, the site is just still warming.
+const startWarmupTimeout = 60 * time.Second
+
 func runStartStyled(ctx context.Context, manifestPath, projectDir, projectName string) {
 	started := time.Now()
 	tui.Bookend(projectName, "start")
@@ -1176,6 +1182,19 @@ func runStartStyled(ctx context.Context, manifestPath, projectDir, projectName s
 		fmt.Println()
 		tui.BookendCloseError(time.Since(started), "Failed", err.Error())
 		os.Exit(1)
+	}
+
+	// Phase 2: don't say Ready until the site actually answers. The
+	// containers being up isn't what the user cares about — the URL
+	// working is. Probing the real router path also covers caddy's
+	// config reload lag.
+	siteReady := true
+	if res.Domain != "" {
+		_ = tui.RunSpinner("wiring up https://"+res.Domain, func() error {
+			_, ok := pod.WaitHTTPReady(ctx, res.Domain, startWarmupTimeout)
+			siteReady = ok
+			return nil // timeout is a warning, not a failure
+		})
 	}
 
 	fmt.Println()
@@ -1189,6 +1208,9 @@ func runStartStyled(ctx context.Context, manifestPath, projectDir, projectName s
 		fmt.Println("  " + tui.MarkInfo() + t.Host + " " + role)
 	}
 	fmt.Println("  " + tui.MarkInfo() + "ssh " + res.Pod + "@ssh.tainer.me")
+	if !siteReady {
+		fmt.Println("  " + tui.MarkWarn() + "site is still warming up — give it a few more seconds")
+	}
 
 	tui.BookendClose(time.Since(started), "Ready", "https://"+res.Domain)
 }
@@ -1210,6 +1232,14 @@ func runStartPlain(ctx context.Context, manifestPath, projectDir, projectName st
 	must(err)
 
 	fmt.Printf("%s started   (pod %d, %.1fs)\n", res.Pod, res.PodID, time.Since(started).Seconds())
+	if res.Domain != "" {
+		fmt.Printf("waiting for https://%s...\n", res.Domain)
+		if _, ok := pod.WaitHTTPReady(ctx, res.Domain, startWarmupTimeout); ok {
+			fmt.Printf("site answering (%.1fs total)\n", time.Since(started).Seconds())
+		} else {
+			fmt.Printf("site still warming up after %s — give it a few more seconds\n", startWarmupTimeout)
+		}
+	}
 	fmt.Printf("  https://%s\n", res.Domain)
 	for _, h := range res.HTTPServices {
 		fmt.Printf("  %s   # %s\n", h.URL, h.Role)
@@ -1332,6 +1362,14 @@ func cmdRestart(args []string) {
 			tui.BookendCloseError(time.Since(started), "Failed", err.Error())
 			os.Exit(1)
 		}
+		siteReady := true
+		if res.Domain != "" {
+			_ = tui.RunSpinner("wiring up https://"+res.Domain, func() error {
+				_, ok := pod.WaitHTTPReady(ctx, res.Domain, startWarmupTimeout)
+				siteReady = ok
+				return nil
+			})
+		}
 		fmt.Println()
 		muted := lipgloss.NewStyle().Foreground(tui.Colors().Muted)
 		for _, h := range res.HTTPServices {
@@ -1341,6 +1379,9 @@ func cmdRestart(args []string) {
 			fmt.Println("  " + tui.MarkInfo() + t.Host + " " + muted.Render("("+t.Role+")"))
 		}
 		fmt.Println("  " + tui.MarkInfo() + "ssh " + res.Pod + "@ssh.tainer.me")
+		if !siteReady {
+			fmt.Println("  " + tui.MarkWarn() + "site is still warming up — give it a few more seconds")
+		}
 		tui.BookendClose(time.Since(started), "Ready", "https://"+res.Domain)
 	}
 }
