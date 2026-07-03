@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>tainer</title>
+    <background file="background.png" mime-type="image/png"
+                alignment="bottomleft" scaling="none"/>
+    <background-darkAqua file="background-dark.png" mime-type="image/png"
+                alignment="bottomleft" scaling="none"/>
+    <welcome file="welcome.html" mime-type="text/html"/>
+    <conclusion file="conclusion.html" mime-type="text/html"/>
+    <options customize="never" require-scripts="false" hostArchitectures="arm64"/>
+    <domains enable_localSystem="true"/>
+    <choices-outline>
+        <line choice="default">
+            <line choice="io.cyber5.tainer"/>
+        </line>
+    </choices-outline>
+    <choice id="default"/>
+    <choice id="io.cyber5.tainer" visible="false" title="tainer">
+        <pkg-ref id="io.cyber5.tainer"/>
+    </choice>
+    <!-- component pkg filename is stamped by the Makefile at wrap time -->
+    <pkg-ref id="io.cyber5.tainer" version="@VERSION@" onConclusion="none">@COMPONENT_PKG@</pkg-ref>
+</installer-gui-script>

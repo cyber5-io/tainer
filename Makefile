@@ -97,6 +97,58 @@ pkg-only-notarised: pkg-only-signed
 		--keychain-profile "$(NOTARY_PROFILE)" --wait
 	xcrun stapler staple $(PKG_ONLY_OUT)
 
+# ---------------------------------------------------------------------------
+# Distribution wrapper — the brandable installer.
+#
+# pkgbuild output is a bare component package: Installer.app shows the
+# generic grey flow for it, no branding hooks at all. productbuild
+# wraps a component in a distribution archive whose Distribution XML
+# carries the brand surface: background image (light + dark),
+# welcome/conclusion HTML panes, window title. Assets live in
+# packaging/installer/resources; the XML template has @VERSION@ and
+# @COMPONENT_PKG@ stamped at wrap time.
+#
+# pkg-dist wraps the FULL starter pack (tainer.pkg). Preview without
+# signing: `make pkg-dist` then open dist/tainer-dist-$(VERSION).pkg.
+# ---------------------------------------------------------------------------
+PKG_DIST_NAME := tainer-dist-$(VERSION).pkg
+PKG_DIST_OUT  := $(DIST_DIR)/$(PKG_DIST_NAME)
+
+pkg-dist: pkg-full
+	sed -e 's/@VERSION@/$(VERSION)/' -e 's/@COMPONENT_PKG@/$(PKG_FULL_NAME)/' \
+		packaging/installer/distribution.xml > $(DIST_DIR)/distribution.xml
+	productbuild \
+		--distribution $(DIST_DIR)/distribution.xml \
+		--resources packaging/installer/resources \
+		--package-path $(DIST_DIR) \
+		$(PKG_DIST_OUT)
+	@echo "Built $(PKG_DIST_OUT) (unsigned distribution pkg)"
+
+pkg-dist-only: pkg-only
+	sed -e 's/@VERSION@/$(VERSION)/' -e 's/@COMPONENT_PKG@/$(PKG_ONLY_NAME)/' \
+		-e 's/io.cyber5.tainer"/io.cyber5.tainer.only"/g' \
+		-e 's/id="io.cyber5.tainer"/id="io.cyber5.tainer.only"/g' \
+		packaging/installer/distribution.xml > $(DIST_DIR)/distribution-only.xml
+	productbuild \
+		--distribution $(DIST_DIR)/distribution-only.xml \
+		--resources packaging/installer/resources \
+		--package-path $(DIST_DIR) \
+		$(DIST_DIR)/tainer-only-dist-$(VERSION).pkg
+	@echo "Built $(DIST_DIR)/tainer-only-dist-$(VERSION).pkg (unsigned distribution pkg)"
+
+pkg-dist-signed: pkg-dist
+	@if [ -z "$(INSTALLER_SIGN_IDENTITY)" ]; then \
+		echo "set TAINER_SIGNING_INSTALLER_IDENTITY" >&2; exit 1; \
+	fi
+	productsign --sign "$(INSTALLER_SIGN_IDENTITY)" \
+		$(PKG_DIST_OUT) $(PKG_DIST_OUT).signed
+	mv $(PKG_DIST_OUT).signed $(PKG_DIST_OUT)
+
+pkg-dist-notarised: pkg-dist-signed
+	xcrun notarytool submit $(PKG_DIST_OUT) \
+		--keychain-profile "$(NOTARY_PROFILE)" --wait
+	xcrun stapler staple $(PKG_DIST_OUT)
+
 verify-pkg-only:
 	@pkgutil --check-signature $(PKG_ONLY_OUT) || true
 	@echo
