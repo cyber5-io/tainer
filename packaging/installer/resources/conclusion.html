@@ -3,22 +3,49 @@
 <head>
 <meta charset="utf-8">
 <style>
-  body { font-family: -apple-system, "Helvetica Neue", sans-serif;
-         color: #1a2233; margin: 16px 20px; font-size: 13px; line-height: 1.5; }
-  @media (prefers-color-scheme: dark) { body { color: #dce6f8; } }
-  h1 { font-size: 20px; margin: 0 0 10px; }
-  .mk-blue { color: #4E9EF4; } .mk-teal { color: #00D4AA; } .mk-orange { color: #FF6B35; }
-  code { background: rgba(127,127,127,.15); padding: 1px 5px; border-radius: 4px; }
-  a { color: #2563EB; }
+  :root { color-scheme: light dark; }
+  html, body { margin: 0; padding: 0; background: #F5F7FA; }
+  @media (prefers-color-scheme: dark) { html, body { background: #11151F; } }
+  body {
+    font-family: -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
+    color: #1A1F2D; font-size: 13px; line-height: 1.55;
+    padding: 18px 22px;
+  }
+  @media (prefers-color-scheme: dark) { body { color: #DCE6F8; } }
+  h1 {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 19px; margin: 0 0 12px; letter-spacing: -0.5px;
+  }
+  .ok { color: #009E80; }
+  @media (prefers-color-scheme: dark) { .ok { color: #00D4AA; } }
+  code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    background: rgba(127,127,127,.14); padding: 1px 6px; border-radius: 4px;
+  }
+  a { color: #2563EB; text-decoration: none; }
   @media (prefers-color-scheme: dark) { a { color: #4E9EF4; } }
-  .foot { margin-top: 18px; color: #7a8aaa; font-size: 11px; }
+
+  .foot {
+    margin-top: 26px; padding-top: 12px; font-size: 11px;
+    color: #5A6478;
+  }
+  @media (prefers-color-scheme: dark) { .foot { color: #8A93A6; } }
+  .ribbon {
+    height: 4px; border-radius: 2px; margin-bottom: 10px;
+    background: linear-gradient(90deg,
+      #FFDD00, #FAA61A, #EC008C, #8F53A1, #39BB9D, #00B9F2, #72BF44, #D7DF23);
+  }
 </style>
 </head>
 <body>
-  <h1><b class="mk-teal">[✓]</b> Ready when you are</h1>
+  <h1><span class="ok">[✓]</span> Ready when you are</h1>
   <p>tainer is installed. Open a terminal and type <code>tainer</code> —
-     the welcome screen will take it from there.</p>
+     the welcome screen takes it from there.</p>
   <p>Quickstart, guides and troubleshooting: <a href="https://tainer.dev">tainer.dev</a></p>
-  <p class="foot">tainer is a <a href="https://cyber5.io">Cyber5</a> product.</p>
+
+  <div class="foot">
+    <div class="ribbon"></div>
+    tainer is a <a href="https://cyber5.io">Cyber5</a> product.
+  </div>
 </body>
 </html>

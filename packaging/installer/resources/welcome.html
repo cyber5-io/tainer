@@ -3,29 +3,72 @@
 <head>
 <meta charset="utf-8">
 <style>
-  body { font-family: -apple-system, "Helvetica Neue", sans-serif;
-         color: #1a2233; margin: 16px 20px; font-size: 13px; line-height: 1.5; }
-  @media (prefers-color-scheme: dark) { body { color: #dce6f8; } }
-  h1 { font-size: 20px; margin: 0 0 2px; }
-  .mark b { font-weight: 700; }
-  .mk-blue { color: #4E9EF4; } .mk-teal { color: #00D4AA; } .mk-orange { color: #FF6B35; }
-  .tag { color: #7a8aaa; margin: 0 0 14px; }
-  ul { padding-left: 18px; margin: 8px 0; }
-  li { margin: 3px 0; }
-  a { color: #2563EB; }
+  :root { color-scheme: light dark; }
+  html, body {
+    margin: 0; padding: 0;
+    background: #F5F7FA;                 /* site --bg-light */
+  }
+  @media (prefers-color-scheme: dark) {
+    html, body { background: #11151F; }  /* site --bg-surface */
+  }
+  body {
+    font-family: -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
+    color: #1A1F2D; font-size: 13px; line-height: 1.55;
+    padding: 18px 22px;
+  }
+  @media (prefers-color-scheme: dark) { body { color: #DCE6F8; } }
+
+  /* --- brand header: official mark + wordmark --- */
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .brand svg { width: 44px; height: 35px; flex: none; }
+  .word {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-weight: 700; font-size: 22px; letter-spacing: -0.8px;
+    color: #1A1F2D;
+  }
+  @media (prefers-color-scheme: dark) { .word { color: #DCE6F8; } }
+  .word .dev { color: #009E80; font-weight: 700; }
+  @media (prefers-color-scheme: dark) { .word .dev { color: #00D4AA; } }
+
+  .tag { color: #5A6478; margin: 0 0 16px; }
+  @media (prefers-color-scheme: dark) { .tag { color: #8A93A6; } }
+
+  /* --- terminal-style quickstart --- */
+  .term {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px; line-height: 1.7;
+    background: #0A0E1A; color: #DCE6F8;
+    border-radius: 8px; padding: 12px 14px; margin: 10px 0 14px;
+  }
+  .term .p { color: #00D4AA; }        /* prompt */
+  .term .c { color: #8A93A6; }        /* comment */
+  a { color: #2563EB; text-decoration: none; }
   @media (prefers-color-scheme: dark) { a { color: #4E9EF4; } }
 </style>
 </head>
 <body>
-  <h1><span class="mark"><b class="mk-blue">[</b><b class="mk-teal">=</b><b class="mk-orange">]</b></span> tainer</h1>
+  <div class="brand">
+    <svg viewBox="0 0 100 80" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect x="4" y="6" width="32" height="68" rx="5" fill="rgba(78,158,244,0.14)"/>
+      <rect x="64" y="6" width="32" height="68" rx="5" fill="rgba(255,107,53,0.14)"/>
+      <path d="M30,6 L8,6 L8,74 L30,74" fill="none" stroke="#4E9EF4" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M70,6 L92,6 L92,74 L70,74" fill="none" stroke="#FF6B35" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="32" y1="30" x2="68" y2="30" stroke="#00D4AA" stroke-width="7" stroke-linecap="round"/>
+      <line x1="32" y1="50" x2="68" y2="50" stroke="#00D4AA" stroke-width="7" stroke-linecap="round"/>
+    </svg>
+    <span class="word">tainer<span class="dev">.dev/</span></span>
+  </div>
   <p class="tag">Instant local dev sites — real HTTPS domains, zero config.</p>
-  <p>This installer sets up the tainer CLI and its engine. After it finishes,
-     creating your first site is three commands:</p>
-  <ul>
-    <li><code>tainer init wp mysite</code></li>
-    <li><code>tainer start</code></li>
-    <li>open <code>https://mysite.tainer.me</code> — that's it.</li>
-  </ul>
+
+  <p>This installer sets up the tainer CLI and its engine.
+     Your first site is three commands away:</p>
+
+  <div class="term">
+    <div><span class="p">❯</span> tainer init wp mysite</div>
+    <div><span class="p">❯</span> tainer start</div>
+    <div><span class="c"># open https://mysite.tainer.me — that's it.</span></div>
+  </div>
+
   <p>Docs &amp; guides: <a href="https://tainer.dev">tainer.dev</a></p>
 </body>
 </html>
