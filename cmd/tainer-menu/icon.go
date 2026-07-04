@@ -328,24 +328,25 @@ func buildIconsStyle(style string) iconSet {
 		}
 	}
 	switch style {
+	case "halo":
+		colored(renderIcon)
 	case "plate":
 		colored(renderIconPlate)
-	case "template":
+	case "hybrid":
+		colored(renderIcon)
 		set.active = renderIconTemplate(1, 1, false)
 		set.idle = renderIconTemplate(0.45, 0.45, false)
+		set.activeTemplate, set.idleTemplate = true, true
+	default: // "" or "template" — monochrome template is the default:
+		// system-tinted like every other menu-bar extra, crisp (no halo)
+		set.active = renderIconTemplate(1, 1, false)
+		set.idle = renderIconTemplate(0.4, 0.4, false)
 		set.failed = renderIconTemplate(0, 0, true)
 		for _, st := range spinnerSteps {
 			set.recover_ = append(set.recover_, renderIconTemplate(st.top, st.bot, false))
 		}
 		set.activeTemplate, set.idleTemplate = true, true
 		set.failedTemplate, set.spinnerTemplate = true, true
-	case "hybrid":
-		colored(renderIcon)
-		set.active = renderIconTemplate(1, 1, false)
-		set.idle = renderIconTemplate(0.45, 0.45, false)
-		set.activeTemplate, set.idleTemplate = true, true
-	default: // halo
-		colored(renderIcon)
 	}
 	return set
 }

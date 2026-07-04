@@ -336,7 +336,7 @@ NSMenuItem *find_menu_item(NSMenu *ourMenu, NSNumber *menuId) {
     return;
   }
   CGFloat h = [logoH doubleValue];
-  BrandRowView *v = [[BrandRowView alloc] initWithFrame:NSMakeRect(0, 0, 260, h + 16)];
+  BrandRowView *v = [[BrandRowView alloc] initWithFrame:NSMakeRect(0, 0, 260, h + 20)];
   v.logo = image;
   v.logoHeight = h;
   v.url = url;
