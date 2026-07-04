@@ -120,7 +120,7 @@ func onReady() {
 	// brand header: a full-width branded row (white bg, no highlight),
 	// click opens tainer.dev
 	a.brand = systray.AddMenuItem("", "Open tainer.dev")
-	a.brand.SetBrandView(tainerLogo, tainerURL, 22, 0.55)
+	a.brand.SetBrandView(tainerLogo, tainerURL, 22, 0.0)
 
 	// status line: coloured dot + summary
 	a.status = systray.AddMenuItem("checking…", "")
@@ -147,7 +147,7 @@ func onReady() {
 
 	systray.AddSeparator()
 	a.maker = systray.AddMenuItem("", "tainer is a Cyber5 product — cyber5.io")
-	a.maker.SetBrandView(cyber5Logo, cyber5URL, 22, 0.55)
+	a.maker.SetBrandView(cyber5Logo, cyber5URL, 22, 0.0)
 
 	// brand/footer clicks are handled inside their custom views.
 	go func() {
