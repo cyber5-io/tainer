@@ -31,4 +31,22 @@ install -d -m 0755 -o root -g wheel /usr/local/bin
 ln -sf /opt/tainer/bin/tainer /usr/local/bin/tainer
 echo "postinstall-full: tainer CLI linked at /usr/local/bin/tainer"
 
+# 4. Tainer Menu — load the login agent for the current GUI user so the
+#    menu-bar app appears immediately (and at every login after). The
+#    installer runs as root; we target the logged-in console user's GUI
+#    domain. RunAtLoad in the plist starts it on bootstrap.
+CONSOLE_USER=$(stat -f%Su /dev/console 2>/dev/null || true)
+AGENT=/Library/LaunchAgents/io.cyber5.tainer.menu.plist
+if [[ -n "$CONSOLE_USER" && "$CONSOLE_USER" != "root" && -f "$AGENT" ]]; then
+    CONSOLE_UID=$(id -u "$CONSOLE_USER" 2>/dev/null || true)
+    if [[ -n "$CONSOLE_UID" ]]; then
+        # Replace any previous instance (upgrade), then start fresh.
+        launchctl bootout "gui/${CONSOLE_UID}/io.cyber5.tainer.menu" 2>/dev/null || true
+        launchctl bootstrap "gui/${CONSOLE_UID}" "$AGENT" 2>/dev/null \
+            || launchctl asuser "$CONSOLE_UID" launchctl load -w "$AGENT" 2>/dev/null \
+            || true
+        echo "postinstall-full: Tainer Menu login agent loaded for $CONSOLE_USER"
+    fi
+fi
+
 exit 0

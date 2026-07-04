@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>io.cyber5.tainer.menu</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Applications/Tainer Menu.app/Contents/MacOS/tainer-menu</string>
+	</array>
+	<!-- Start at login. Deliberately NO KeepAlive: if the user picks
+	     "Quit" from the menu, it stays quit until the next login rather
+	     than being relaunched from under them. -->
+	<key>RunAtLoad</key>
+	<true/>
+	<!-- GUI session only — it draws in the menu bar. -->
+	<key>LimitLoadToSessionType</key>
+	<string>Aqua</string>
+	<key>ProcessType</key>
+	<string>Interactive</string>
+</dict>
+</plist>

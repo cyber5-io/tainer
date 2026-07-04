@@ -1,4 +1,4 @@
-.PHONY: build sign verify-signatures test clean \
+.PHONY: build sign menu-app verify-signatures test clean \
         pkg-only-root pkg-only pkg-only-signed pkg-only-notarised \
         pkg-full-root pkg-full pkg-full-signed pkg-full-notarised \
         verify-pkg-only verify-pkg-full
@@ -175,9 +175,33 @@ PKG_FULL_NAME    := tainer-$(VERSION).pkg
 PKG_FULL_OUT     := $(DIST_DIR)/$(PKG_FULL_NAME)
 PKG_FULL_IDENTIFIER := io.cyber5.tainer
 
+# ---------------------------------------------------------------------------
+# Tainer Menu — the menu-bar app bundle (LSUIElement agent). Built into
+# an .app so the installer can drop it in /Applications and a LaunchAgent
+# can start it at login. Signed with the same identity/hardened-runtime
+# as the CLI so it rides the one notarisation chain.
+# ---------------------------------------------------------------------------
+MENU_APP_NAME := Tainer Menu.app
+MENU_APP      := $(DIST_DIR)/$(MENU_APP_NAME)
+MENU_BIN      := $(BIN_DIR)/tainer-menu
+
+menu-app:
+	@mkdir -p $(BIN_DIR) $(DIST_DIR)
+	go build -ldflags '$(LDFLAGS)' -o $(MENU_BIN) ./cmd/tainer-menu
+	rm -rf "$(MENU_APP)"
+	mkdir -p "$(MENU_APP)/Contents/MacOS" "$(MENU_APP)/Contents/Resources"
+	install -m 0755 $(MENU_BIN) "$(MENU_APP)/Contents/MacOS/tainer-menu"
+	install -m 0644 packaging/menu/tainer-menu.icns "$(MENU_APP)/Contents/Resources/tainer-menu.icns"
+	sed 's/@VERSION@/$(VERSION)/g' packaging/menu/Info.plist > "$(MENU_APP)/Contents/Info.plist"
+	@if [ "$(SIGN_IDENTITY)" = "-" ]; then \
+		echo "warning: TAINER_SIGNING_IDENTITY unset, ad-hoc signing menu app (NOT notarisable)"; \
+	fi
+	codesign $(SIGN_FLAGS_BASE) --sign "$(SIGN_IDENTITY)" "$(MENU_APP)"
+	@echo "Built $(MENU_APP)"
+
 # Builds cyberstack's pkg-root via its own Makefile, then copies the
 # tree into our staging area + drops the tainer CLI on top.
-pkg-full-root: sign
+pkg-full-root: sign menu-app
 	@if [ ! -d "$(CYBERSTACK_REPO)" ]; then \
 		echo "pkg-full-root: CYBERSTACK_REPO=$(CYBERSTACK_REPO) is not a directory" >&2; \
 		echo "  set CS_REPO=/abs/path/to/cyber-stack or 'ln -s' a sibling checkout" >&2; \
@@ -192,6 +216,12 @@ pkg-full-root: sign
 	cp -R $(CYBERSTACK_REPO)/dist/pkg-root/. $(PKG_FULL_ROOT)/
 	# Layer the tainer CLI on top.
 	install -m 0755 $(BIN_DIR)/tainer $(PKG_FULL_ROOT)/opt/tainer/bin/
+	# Menu-bar app in /Applications + a login agent to start it.
+	mkdir -p "$(PKG_FULL_ROOT)/Applications"
+	cp -R "$(MENU_APP)" "$(PKG_FULL_ROOT)/Applications/"
+	mkdir -p $(PKG_FULL_ROOT)/Library/LaunchAgents
+	install -m 0644 packaging/menu/io.cyber5.tainer.menu.plist \
+		$(PKG_FULL_ROOT)/Library/LaunchAgents/io.cyber5.tainer.menu.plist
 	# Combined postinstall — does cyberstack's setup PLUS the symlink.
 	install -m 0755 packaging/scripts/postinstall-full $(PKG_FULL_SCRIPTS)/postinstall
 	@echo "pkg-full-root assembled at $(PKG_FULL_ROOT)"
