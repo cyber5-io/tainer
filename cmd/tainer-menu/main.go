@@ -117,9 +117,10 @@ func onReady() {
 	a.setBarIcon(a.icons.idle, a.icons.idleTemplate)
 	systray.SetTooltip("tainer")
 
-	// brand header: the full logo as the row image, click opens the site
+	// brand header: a full-width branded row (white bg, no highlight),
+	// click opens tainer.dev
 	a.brand = systray.AddMenuItem("", "Open tainer.dev")
-	a.brand.SetIcon(tainerLogo)
+	a.brand.SetBrandView(tainerLogo, tainerURL, 22, 1.0)
 
 	// status line: coloured dot + summary
 	a.status = systray.AddMenuItem("checking…", "")
@@ -146,18 +147,9 @@ func onReady() {
 
 	systray.AddSeparator()
 	a.maker = systray.AddMenuItem("", "tainer is a Cyber5 product — cyber5.io")
-	a.maker.SetIcon(cyber5Logo)
+	a.maker.SetBrandView(cyber5Logo, cyber5URL, 22, 1.0)
 
-	go func() {
-		for range a.brand.ClickedCh {
-			openURL(tainerURL)
-		}
-	}()
-	go func() {
-		for range a.maker.ClickedCh {
-			openURL(cyber5URL)
-		}
-	}()
+	// brand/footer clicks are handled inside their custom views.
 	go func() {
 		for range a.doctor.ClickedCh {
 			a.runDoctorFix()

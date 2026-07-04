@@ -35,6 +35,20 @@ func (item *MenuItem) SetIcon(iconBytes []byte) {
 	C.setMenuItemIcon(cstr, (C.int)(len(iconBytes)), C.int(item.id), false)
 }
 
+// SetBrandView renders this menu item as a full-width branded row: a
+// custom NSView that paints a solid/translucent white background (so
+// there is NO hover highlight) and draws the logo left-aligned,
+// opening url on click. logoHeightPt is the drawn logo height in
+// points; the row sits a little taller. bgAlpha 1.0 is solid white.
+// macOS only; no-op elsewhere.
+func (item *MenuItem) SetBrandView(iconBytes []byte, url string, logoHeightPt float64, bgAlpha float64) {
+	if len(iconBytes) == 0 {
+		return
+	}
+	cstr := (*C.char)(unsafe.Pointer(&iconBytes[0]))
+	C.setMenuItemBrandView(cstr, (C.int)(len(iconBytes)), C.int(item.id), C.double(logoHeightPt), C.CString(url), C.double(bgAlpha))
+}
+
 // SetIconFromFilePath sets the icon of a menu item from a file path.
 // iconFilePath should be the path to a .ico for windows and .ico/.jpg/.png for other platforms.
 func (item *MenuItem) SetIconFromFilePath(iconFilePath string) error {

@@ -13,6 +13,7 @@ void nativeStart(void);
 
 void setIcon(const char* iconBytes, int length, bool template);
 void setMenuItemIcon(const char* iconBytes, int length, int menuId, bool template);
+void setMenuItemBrandView(const char* iconBytes, int length, int menuId, double logoHeight, const char* url, double bgAlpha);
 void setTitle(char* title);
 void setTooltip(char* tooltip);
 void setRemovalAllowed(bool allowed);

@@ -71,6 +71,44 @@ withParentMenuId: (int)theParentMenuId
 @end
 
 
+// BrandRowView is a full-width custom menu-row view: it paints its own
+// (white) background and draws a logo, so branded header/footer rows
+// get an entire-row background and — because custom views bypass the
+// default menu-item drawing — NO blue hover highlight. Click opens url.
+@interface BrandRowView : NSView
+@property (strong) NSImage *logo;
+@property (assign) CGFloat logoHeight;
+@property (assign) CGFloat bgAlpha;
+@property (strong) NSString *url;
+@end
+
+@implementation BrandRowView
+- (void)drawRect:(NSRect)dirtyRect {
+  [[NSColor colorWithWhite:1.0 alpha:self.bgAlpha] setFill];
+  NSRectFillUsingOperation(self.bounds, NSCompositingOperationSourceOver);
+  if (self.logo) {
+    CGFloat h = self.logoHeight;
+    CGFloat aspect = self.logo.size.height > 0 ? self.logo.size.width / self.logo.size.height : 1.0;
+    CGFloat w = h * aspect;
+    CGFloat x = 20;
+    CGFloat y = (self.bounds.size.height - h) / 2.0;
+    [self.logo drawInRect:NSMakeRect(x, y, w, h)
+                 fromRect:NSZeroRect
+                operation:NSCompositingOperationSourceOver
+                 fraction:1.0];
+  }
+}
+- (void)mouseUp:(NSEvent *)event {
+  if (self.url && self.url.length > 0) {
+    [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:self.url]];
+  }
+  NSMenuItem *item = [self enclosingMenuItem];
+  if (item != nil) {
+    [item.menu cancelTracking];
+  }
+}
+@end
+
 @interface SystrayAppDelegate: NSObject <NSApplicationDelegate, NSMenuDelegate>
   - (void) add_or_update_menu_item:(MenuItem*) item;
   - (IBAction)menuHandler:(id)sender;
@@ -287,6 +325,26 @@ NSMenuItem *find_menu_item(NSMenu *ourMenu, NSNumber *menuId) {
   menuItem.image = image;
 }
 
+- (void) setMenuItemBrandView:(NSArray*)args {
+  NSImage* image = [args objectAtIndex:0];
+  NSNumber* menuId = [args objectAtIndex:1];
+  NSNumber* logoH = [args objectAtIndex:2];
+  NSString* url = [args objectAtIndex:3];
+  NSNumber* bgAlpha = [args objectAtIndex:4];
+  NSMenuItem* menuItem = find_menu_item(menu, menuId);
+  if (menuItem == NULL) {
+    return;
+  }
+  CGFloat h = [logoH doubleValue];
+  BrandRowView *v = [[BrandRowView alloc] initWithFrame:NSMakeRect(0, 0, 260, h + 16)];
+  v.logo = image;
+  v.logoHeight = h;
+  v.url = url;
+  v.bgAlpha = [bgAlpha doubleValue];
+  v.autoresizingMask = NSViewWidthSizable;
+  [menuItem setView:v];
+}
+
 - (void)show_menu
 {
   // Attach the menu and synthesize a click so AppKit positions it natively,
@@ -419,6 +477,16 @@ void setMenuItemIcon(const char* iconBytes, int length, int menuId, bool templat
     image.template = template;
     NSNumber *mId = [NSNumber numberWithInt:menuId];
     runInMainThread(@selector(setMenuItemIcon:), @[image, (id)mId]);
+  }
+}
+
+void setMenuItemBrandView(const char* iconBytes, int length, int menuId, double logoHeight, const char* curl, double bgAlpha) {
+  NSData* buffer = [NSData dataWithBytes: iconBytes length:length];
+  @autoreleasepool {
+    NSImage *image = [[NSImage alloc] initWithData:buffer];
+    NSNumber *mId = [NSNumber numberWithInt:menuId];
+    NSString *url = curl ? [NSString stringWithUTF8String:curl] : @"";
+    runInMainThread(@selector(setMenuItemBrandView:), @[image, (id)mId, @(logoHeight), url, @(bgAlpha)]);
   }
 }
 
