@@ -15,11 +15,39 @@ package main
 
 import (
 	"bytes"
+	_ "embed"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/png"
 	"math"
 )
+
+// markPNG is the designer's menu-bar mark (mark-light-mono.svg rendered
+// to a crisp raster). Black-based with the equals-bars at ~65% opacity,
+// so template tinting yields bright brackets + grey bars. Source of
+// truth for the default bar icon; state variants are alpha-derived.
+//
+//go:embed icon-mark.png
+var markPNG []byte
+
+// scaleAlpha returns a copy of a PNG with every pixel's alpha multiplied
+// by f — used to dim the mark for the idle/failed/spinner states.
+func scaleAlpha(data []byte, f float64) []byte {
+	src, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		return data
+	}
+	b := src.Bounds()
+	im := image.NewNRGBA(b)
+	draw.Draw(im, b, src, b.Min, draw.Src)
+	for i := 3; i < len(im.Pix); i += 4 {
+		im.Pix[i] = uint8(float64(im.Pix[i]) * f)
+	}
+	var buf bytes.Buffer
+	_ = png.Encode(&buf, im)
+	return buf.Bytes()
+}
 
 // ---------------------------------------------------------------------------
 // tiny alpha-aware canvas with distance-field strokes
@@ -334,16 +362,17 @@ func buildIconsStyle(style string) iconSet {
 		colored(renderIconPlate)
 	case "hybrid":
 		colored(renderIcon)
-		set.active = renderIconTemplate(1.0, 0.55, 0.55, false)
-		set.idle = renderIconTemplate(0.5, 0.3, 0.3, false)
+		set.active = markPNG
+		set.idle = scaleAlpha(markPNG, 0.5)
 		set.activeTemplate, set.idleTemplate = true, true
-	default: // "" or "template" — monochrome template is the default:
-		// system-tinted like every other menu-bar extra, crisp (no halo)
-		set.active = renderIconTemplate(1.0, 0.55, 0.55, false) // bright brackets, grey bars
-		set.idle = renderIconTemplate(0.5, 0.3, 0.3, false)     // dim: healthy, nothing running
-		set.failed = renderIconTemplate(0.7, 0, 0, true)        // dim + X
-		for _, st := range spinnerSteps {
-			set.recover_ = append(set.recover_, renderIconTemplate(1.0, st.top, st.bot, false))
+	default: // "" or "template" — the designer's crisp mark, system-tinted
+		// like every other menu-bar extra; state shown via opacity.
+		set.active = markPNG                  // pods running: full
+		set.idle = scaleAlpha(markPNG, 0.5)   // healthy, nothing running: dim
+		set.failed = scaleAlpha(markPNG, 0.4) // self-healing failed: faint
+		pulses := []float64{1.0, 0.75, 0.5, 0.3, 0.5, 0.75}
+		for _, a := range pulses {
+			set.recover_ = append(set.recover_, scaleAlpha(markPNG, a)) // recovering: pulse
 		}
 		set.activeTemplate, set.idleTemplate = true, true
 		set.failedTemplate, set.spinnerTemplate = true, true
