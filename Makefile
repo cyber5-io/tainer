@@ -4,7 +4,7 @@
         verify-pkg-only verify-pkg-full
 
 # Single source of truth for the binary version.
-VERSION := 0.9.0-dev
+VERSION := 1.0.0
 LDFLAGS := -X main.version=$(VERSION)
 
 BIN_DIR := bin
