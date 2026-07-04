@@ -53,10 +53,21 @@ const (
 
 	tainerCLI = "/opt/tainer/bin/tainer"
 
-	// utm-tagged brand links so cyber5.io analytics can tell menu-app
-	// clicks from organic traffic
-	tainerURL = "https://tainer.dev/?utm_source=tainer-menu&utm_medium=app&utm_campaign=menubar"
-	cyber5URL = "https://cyber5.io/?utm_source=tainer-menu&utm_medium=app&utm_campaign=menubar"
+	// Brand links go through our own /go/ redirect endpoint rather than
+	// carrying UTM params in the URL. The binary knows only a short,
+	// permanent path; the server (a SvelteKit /go/[key] route on each
+	// site) looks up the key, credits the click, and 302s to the
+	// current destination — so traffic can be retargeted (e.g.
+	// /showcase -> /studio) without recompiling or redistributing
+	// tainer.
+	//
+	// PARKED (do not forget): server-side click tracking fires inside
+	// the /go/ handler, NOT here — PostHog first, then likely
+	// Mixpanel/others via additional tracker fns. Nothing to POST from
+	// the app for now; these are website links only. The richer data
+	// layer (actual product events) is handled elsewhere, not via /go/.
+	tainerURL = "https://tainer.dev/go/tainerapp"
+	cyber5URL = "https://cyber5.io/go/tainerapp"
 )
 
 type appState int
