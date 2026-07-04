@@ -259,10 +259,10 @@ func renderIconPlate(markAlpha, topBar, botBar float64, b1, b2, bar color.RGBA, 
 // template mode: pure black, alpha carries the shape; macOS tints it
 // to match the bar (black on light, white on dark) exactly like the
 // system menu extras.
-func renderIconTemplate(topBar, botBar float64, redX bool) []byte {
+func renderIconTemplate(markAlpha, topBar, botBar float64, redX bool) []byte {
 	black := color.RGBA{0, 0, 0, 255}
 	c := newIcanvas(iconW, iconH)
-	drawMark(c, 1.0, topBar, botBar, black, black, black)
+	drawMark(c, markAlpha, topBar, botBar, black, black, black)
 	if redX {
 		s := 0.4
 		ox, oy := 2.0, 2.0
@@ -334,16 +334,16 @@ func buildIconsStyle(style string) iconSet {
 		colored(renderIconPlate)
 	case "hybrid":
 		colored(renderIcon)
-		set.active = renderIconTemplate(1, 1, false)
-		set.idle = renderIconTemplate(0.45, 0.45, false)
+		set.active = renderIconTemplate(1.0, 0.55, 0.55, false)
+		set.idle = renderIconTemplate(0.5, 0.3, 0.3, false)
 		set.activeTemplate, set.idleTemplate = true, true
 	default: // "" or "template" — monochrome template is the default:
 		// system-tinted like every other menu-bar extra, crisp (no halo)
-		set.active = renderIconTemplate(1, 1, false)
-		set.idle = renderIconTemplate(0.4, 0.4, false)
-		set.failed = renderIconTemplate(0, 0, true)
+		set.active = renderIconTemplate(1.0, 0.55, 0.55, false) // bright brackets, grey bars
+		set.idle = renderIconTemplate(0.5, 0.3, 0.3, false)     // dim: healthy, nothing running
+		set.failed = renderIconTemplate(0.7, 0, 0, true)        // dim + X
 		for _, st := range spinnerSteps {
-			set.recover_ = append(set.recover_, renderIconTemplate(st.top, st.bot, false))
+			set.recover_ = append(set.recover_, renderIconTemplate(1.0, st.top, st.bot, false))
 		}
 		set.activeTemplate, set.idleTemplate = true, true
 		set.failedTemplate, set.spinnerTemplate = true, true

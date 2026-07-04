@@ -18,6 +18,10 @@ func init() {
 		writePreview(os.Args[2])
 		os.Exit(0)
 	}
+	if len(os.Args) == 3 && os.Args[1] == "-icon-raw" {
+		_ = os.WriteFile(os.Args[2], buildIconsStyle("").active, 0644)
+		os.Exit(0)
+	}
 }
 
 func writePreview(path string) {
@@ -28,7 +32,7 @@ func writePreview(path string) {
 		renderIconPlate(1.0, 1, 1, iconBlue, iconOrange, iconTeal, false),
 		renderIconPlate(0.45, 1, 1, iconBlue, iconOrange, iconTeal, false),
 		renderIconPlate(0.55, 0, 0, iconGrey, iconGrey, iconGrey, true),
-		renderIconTemplate(1, 1, false),
+		renderIconTemplate(1.0, 0.55, 0.55, false),
 	}
 
 	cell := 64
