@@ -357,17 +357,30 @@ func buildEnv(m *manifest.Manifest, role string, pctx *podCtx) []string {
 }
 
 func buildMounts(m *manifest.Manifest, projectDir, role string) []engine.Mount {
+	var out []engine.Mount
 	if role == RoleDB {
-		return []engine.Mount{
+		out = []engine.Mount{
 			{Source: projectDir + "/db", Target: dbDataPath(m)},
 		}
+	} else {
+		out = []engine.Mount{
+			{Source: projectDir + "/" + m.HostAppDir(), Target: m.ContainerAppPath()},
+			{Source: projectDir + "/data", Target: m.ContainerMountBase() + "/data"},
+		}
+		for _, name := range m.Mounts {
+			out = append(out, engine.Mount{Source: projectDir + "/" + name, Target: m.ContainerMountBase() + "/" + name})
+		}
 	}
-	out := []engine.Mount{
-		{Source: projectDir + "/" + m.HostAppDir(), Target: m.ContainerAppPath()},
-		{Source: projectDir + "/data", Target: m.ContainerMountBase() + "/data"},
-	}
-	for _, name := range m.Mounts {
-		out = append(out, engine.Mount{Source: projectDir + "/" + name, Target: m.ContainerMountBase() + "/" + name})
+	// Clone-then-start UX: a project cloned from git carries
+	// tainer.yaml but not the (gitignored, often empty) data/, db/ or
+	// even html/ dirs — init created them for the original author but
+	// git doesn't transport empty directories. crun hard-fails on a
+	// bind mount whose source is missing, so ensure every mount
+	// source exists before the container spec goes anywhere near it.
+	for _, mt := range out {
+		if _, err := os.Stat(mt.Source); os.IsNotExist(err) {
+			_ = os.MkdirAll(mt.Source, 0755)
+		}
 	}
 	return out
 }
