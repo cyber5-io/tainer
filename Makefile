@@ -1,6 +1,8 @@
 .PHONY: build sign menu-app verify-signatures test clean \
         pkg-only-root pkg-only pkg-only-signed pkg-only-notarised \
         pkg-full-root pkg-full pkg-full-signed pkg-full-notarised \
+        pkg-dist pkg-dist-signed pkg-dist-notarised \
+        pkg-dist-only pkg-dist-only-signed pkg-dist-only-notarised \
         verify-pkg-only verify-pkg-full
 
 # Single source of truth for the binary version.
@@ -113,6 +115,8 @@ pkg-only-notarised: pkg-only-signed
 # ---------------------------------------------------------------------------
 PKG_DIST_NAME := tainer-dist-$(VERSION).pkg
 PKG_DIST_OUT  := $(DIST_DIR)/$(PKG_DIST_NAME)
+PKG_DIST_ONLY_NAME := tainer-only-dist-$(VERSION).pkg
+PKG_DIST_ONLY_OUT  := $(DIST_DIR)/$(PKG_DIST_ONLY_NAME)
 
 pkg-dist: pkg-full
 	sed -e 's/@VERSION@/$(VERSION)/' -e 's/@COMPONENT_PKG@/$(PKG_FULL_NAME)/' \
@@ -133,8 +137,21 @@ pkg-dist-only: pkg-only
 		--distribution $(DIST_DIR)/distribution-only.xml \
 		--resources packaging/installer/resources \
 		--package-path $(DIST_DIR) \
-		$(DIST_DIR)/tainer-only-dist-$(VERSION).pkg
-	@echo "Built $(DIST_DIR)/tainer-only-dist-$(VERSION).pkg (unsigned distribution pkg)"
+		$(PKG_DIST_ONLY_OUT)
+	@echo "Built $(PKG_DIST_ONLY_OUT) (unsigned distribution pkg)"
+
+pkg-dist-only-signed: pkg-dist-only
+	@if [ -z "$(INSTALLER_SIGN_IDENTITY)" ]; then \
+		echo "set TAINER_SIGNING_INSTALLER_IDENTITY" >&2; exit 1; \
+	fi
+	productsign --sign "$(INSTALLER_SIGN_IDENTITY)" \
+		$(PKG_DIST_ONLY_OUT) $(PKG_DIST_ONLY_OUT).signed
+	mv $(PKG_DIST_ONLY_OUT).signed $(PKG_DIST_ONLY_OUT)
+
+pkg-dist-only-notarised: pkg-dist-only-signed
+	xcrun notarytool submit $(PKG_DIST_ONLY_OUT) \
+		--keychain-profile "$(NOTARY_PROFILE)" --wait
+	xcrun stapler staple $(PKG_DIST_ONLY_OUT)
 
 pkg-dist-signed: pkg-dist
 	@if [ -z "$(INSTALLER_SIGN_IDENTITY)" ]; then \
