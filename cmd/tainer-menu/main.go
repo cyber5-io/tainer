@@ -23,7 +23,6 @@ import (
 	"os"
 	"os/exec"
 	"sort"
-	"strings"
 	"time"
 
 	"fyne.io/systray"
@@ -34,22 +33,17 @@ import (
 	"github.com/cyber5-io/tainer/pkg/tainer/runtime"
 )
 
-// Full brand logos, rasterised from the official SVGs (real alpha,
-// via native NSImage rendering — see packaging notes). Two variants
-// each: menu dropdowns follow system appearance, and the wordmark
-// colours are tuned per background by the brand kit.
+// Full brand logos on a translucent white pill so they pop on any
+// menu background (light or dark). Rasterised from the official SVGs
+// with real alpha via native NSImage rendering, wordmark outlined to
+// paths (no font dependency), then auto-cropped and plated — see
+// packaging/brand.
 //
-//go:embed logo-tainer-light.png
-var tainerLogoLight []byte
+//go:embed logo-tainer.png
+var tainerLogo []byte
 
-//go:embed logo-tainer-dark.png
-var tainerLogoDark []byte
-
-//go:embed logo-cyber5-light.png
-var cyber5LogoLight []byte
-
-//go:embed logo-cyber5-dark.png
-var cyber5LogoDark []byte
+//go:embed logo-cyber5.png
+var cyber5Logo []byte
 
 const (
 	pollEvery    = 5 * time.Second
@@ -102,7 +96,6 @@ type app struct {
 	maker  *systray.MenuItem
 
 	state       appState
-	darkMode    bool
 	downSince   time.Time
 	pods        []podInfo
 	stopSpinner chan struct{}
@@ -126,6 +119,7 @@ func onReady() {
 
 	// brand header: the full logo as the row image, click opens the site
 	a.brand = systray.AddMenuItem("", "Open tainer.dev")
+	a.brand.SetIcon(tainerLogo)
 
 	// status line: coloured dot + summary
 	a.status = systray.AddMenuItem("checking…", "")
@@ -152,7 +146,7 @@ func onReady() {
 
 	systray.AddSeparator()
 	a.maker = systray.AddMenuItem("", "tainer is a Cyber5 product — cyber5.io")
-	a.applyAppearance(true)
+	a.maker.SetIcon(cyber5Logo)
 
 	go func() {
 		for range a.brand.ClickedCh {
@@ -227,29 +221,7 @@ func (a *app) pollLoop() {
 	t := time.NewTicker(pollEvery)
 	defer t.Stop()
 	for range t.C {
-		a.applyAppearance(false)
 		a.poll()
-	}
-}
-
-// applyAppearance swaps the brand logos to the variant matching the
-// current system appearance (dropdowns follow it, and each variant's
-// wordmark colour is tuned to its background by the brand kit).
-func (a *app) applyAppearance(force bool) {
-	// exit 0 + "Dark" only when dark mode is on; the key is absent in
-	// light mode
-	out, err := exec.Command("defaults", "read", "-g", "AppleInterfaceStyle").Output()
-	dark := err == nil && strings.Contains(string(out), "Dark")
-	if !force && dark == a.darkMode {
-		return
-	}
-	a.darkMode = dark
-	if dark {
-		a.brand.SetIcon(tainerLogoDark)
-		a.maker.SetIcon(cyber5LogoDark)
-	} else {
-		a.brand.SetIcon(tainerLogoLight)
-		a.maker.SetIcon(cyber5LogoLight)
 	}
 }
 
