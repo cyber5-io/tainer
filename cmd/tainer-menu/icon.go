@@ -206,18 +206,17 @@ func drawMark(c *icanvas, markAlpha, topBar, botBar float64, bracketCol1, bracke
 	panel := 0.10 * markAlpha
 	c.roundedRect(ox+4*s, oy+6*s, 32*s, 68*s, 5*s, bracketCol1, panel)
 	c.roundedRect(ox+64*s, oy+6*s, 32*s, 68*s, 5*s, bracketCol2, panel)
-	// brackets, stroke 6.5 → 2.6px at this scale; bump to 7.5 for
-	// legibility at 18pt
-	bw := 7.5 * s
-	c.stroke([][2]float64{{ox + 30*s, oy + 6*s}, {ox + 8*s, oy + 6*s}, {ox + 8*s, oy + 74*s}, {ox + 30*s, oy + 74*s}}, bw, bracketCol1, markAlpha)
-	c.stroke([][2]float64{{ox + 70*s, oy + 6*s}, {ox + 92*s, oy + 6*s}, {ox + 92*s, oy + 74*s}, {ox + 70*s, oy + 74*s}}, bw, bracketCol2, markAlpha)
-	// equals bars, stroke 7 → 8 for weight
-	ew := 8.0 * s
+	// Strokes MUCH heavier than the print mark (SVG uses 6.5/7):
+	// at 18pt in a busy menu bar thin coloured strokes disappear.
+	bw := 12.0 * s
+	c.stroke([][2]float64{{ox + 30*s, oy + 8*s}, {ox + 10*s, oy + 8*s}, {ox + 10*s, oy + 72*s}, {ox + 30*s, oy + 72*s}}, bw, bracketCol1, markAlpha)
+	c.stroke([][2]float64{{ox + 70*s, oy + 8*s}, {ox + 90*s, oy + 8*s}, {ox + 90*s, oy + 72*s}, {ox + 70*s, oy + 72*s}}, bw, bracketCol2, markAlpha)
+	ew := 13.0 * s
 	if topBar > 0 {
-		c.stroke([][2]float64{{ox + 32*s, oy + 30*s}, {ox + 68*s, oy + 30*s}}, ew, barCol, markAlpha*topBar)
+		c.stroke([][2]float64{{ox + 34*s, oy + 29*s}, {ox + 66*s, oy + 29*s}}, ew, barCol, markAlpha*topBar)
 	}
 	if botBar > 0 {
-		c.stroke([][2]float64{{ox + 32*s, oy + 50*s}, {ox + 68*s, oy + 50*s}}, ew, barCol, markAlpha*botBar)
+		c.stroke([][2]float64{{ox + 34*s, oy + 51*s}, {ox + 66*s, oy + 51*s}}, ew, barCol, markAlpha*botBar)
 	}
 }
 
@@ -231,29 +230,144 @@ func renderIcon(markAlpha, topBar, botBar float64, b1, b2, bar color.RGBA, redX 
 		c.stroke([][2]float64{{ox + 36*s, oy + 26*s}, {ox + 64*s, oy + 54*s}}, 8*s, iconRed, 1)
 		c.stroke([][2]float64{{ox + 64*s, oy + 26*s}, {ox + 36*s, oy + 54*s}}, 8*s, iconRed, 1)
 	}
+	// Contrast treatment: a soft white halo (reads on dark bars and
+	// colourful wallpaper-tinted bars) under a soft dark shadow
+	// (reads on light bars). Both subtle; together the mark pops on
+	// anything.
+	halo := haloOf(c, 1, 0.35)
+	sh := shadowOf(c, 1, 1, 0.4)
+	return c.under(halo.under(sh)).encodePNG()
+}
+
+// renderIconPlate is renderIcon on a translucent white rounded plate —
+// a visibility experiment for busy menu bars.
+func renderIconPlate(markAlpha, topBar, botBar float64, b1, b2, bar color.RGBA, redX bool) []byte {
+	c := newIcanvas(iconW, iconH)
+	c.roundedRect(0.5, 0.5, float64(iconW)-1, float64(iconH)-1, 8, color.RGBA{255, 255, 255, 255}, 0.72)
+	drawMark(c, markAlpha, topBar, botBar, b1, b2, bar)
+	if redX {
+		s := 0.4
+		ox, oy := 2.0, 2.0
+		c.stroke([][2]float64{{ox + 36*s, oy + 26*s}, {ox + 64*s, oy + 54*s}}, 8*s, iconRed, 1)
+		c.stroke([][2]float64{{ox + 64*s, oy + 26*s}, {ox + 36*s, oy + 54*s}}, 8*s, iconRed, 1)
+	}
 	sh := shadowOf(c, 1, 1, 0.35)
 	return c.under(sh).encodePNG()
 }
 
-// iconStates builds every state the menu app needs.
+// renderIconTemplate is the monochrome silhouette for NSImage
+// template mode: pure black, alpha carries the shape; macOS tints it
+// to match the bar (black on light, white on dark) exactly like the
+// system menu extras.
+func renderIconTemplate(topBar, botBar float64, redX bool) []byte {
+	black := color.RGBA{0, 0, 0, 255}
+	c := newIcanvas(iconW, iconH)
+	drawMark(c, 1.0, topBar, botBar, black, black, black)
+	if redX {
+		s := 0.4
+		ox, oy := 2.0, 2.0
+		c.stroke([][2]float64{{ox + 36*s, oy + 26*s}, {ox + 64*s, oy + 54*s}}, 8*s, black, 1)
+		c.stroke([][2]float64{{ox + 64*s, oy + 26*s}, {ox + 36*s, oy + 54*s}}, 8*s, black, 1)
+	}
+	return c.encodePNG()
+}
+
+// haloOf is shadowOf's light twin: a blurred white copy of the alpha.
+func haloOf(c *icanvas, blur int, strength float64) *icanvas {
+	h := newIcanvas(c.w, c.h)
+	for y := 0; y < c.h; y++ {
+		for x := 0; x < c.w; x++ {
+			a := c.pix[y*c.w+x][3]
+			if a > 0 {
+				h.pix[y*c.w+x] = [4]float64{255, 255, 255, a * strength}
+			}
+		}
+	}
+	for pass := 0; pass < 3; pass++ {
+		boxBlurAlpha(h, blur)
+	}
+	return h
+}
+
+// iconStates builds every state the menu app needs. template marks
+// icons that should go through SetTemplateIcon so macOS tints them
+// to match the bar.
 type iconSet struct {
 	active   []byte
 	idle     []byte
 	failed   []byte
 	recover_ [][]byte // spinner frames
+
+	activeTemplate  bool
+	idleTemplate    bool
+	failedTemplate  bool
+	spinnerTemplate bool
 }
 
-func buildIcons() iconSet {
+// spinner bar levels: top fades in as bottom fades out
+var spinnerSteps = []struct{ top, bot float64 }{
+	{1.0, 0.25}, {0.7, 0.55}, {0.4, 0.85}, {0.25, 1.0}, {0.55, 0.7}, {0.85, 0.4},
+}
+
+// buildIconsStyle renders the menu bar set in one of four styles,
+// switchable via $TAINER_MENU_ICON for live comparison:
+//
+//	halo     (default) coloured mark, white halo + shadow
+//	plate    coloured mark on a translucent white plate
+//	template monochrome silhouette, system-tinted like native extras
+//	hybrid   template while healthy, colour when something's wrong —
+//	         the macOS convention: colour = attention
+func buildIconsStyle(style string) iconSet {
 	var set iconSet
-	set.active = renderIcon(1.0, 1, 1, iconBlue, iconOrange, iconTeal, false)
-	set.idle = renderIcon(0.45, 1, 1, iconBlue, iconOrange, iconTeal, false)
-	set.failed = renderIcon(0.55, 0, 0, iconGrey, iconGrey, iconGrey, true)
-	// spinner: bars pulse alternately (top fades in as bottom fades out)
-	steps := []struct{ top, bot float64 }{
-		{1.0, 0.25}, {0.7, 0.55}, {0.4, 0.85}, {0.25, 1.0}, {0.55, 0.7}, {0.85, 0.4},
+	colored := func(f func(markAlpha, topBar, botBar float64, b1, b2, bar color.RGBA, redX bool) []byte) {
+		set.active = f(1.0, 1, 1, iconBlue, iconOrange, iconTeal, false)
+		set.idle = f(0.45, 1, 1, iconBlue, iconOrange, iconTeal, false)
+		set.failed = f(0.55, 0, 0, iconGrey, iconGrey, iconGrey, true)
+		for _, st := range spinnerSteps {
+			set.recover_ = append(set.recover_, f(0.6, st.top, st.bot, iconBlue, iconOrange, iconTeal, false))
+		}
 	}
-	for _, st := range steps {
-		set.recover_ = append(set.recover_, renderIcon(0.6, st.top, st.bot, iconBlue, iconOrange, iconTeal, false))
+	switch style {
+	case "plate":
+		colored(renderIconPlate)
+	case "template":
+		set.active = renderIconTemplate(1, 1, false)
+		set.idle = renderIconTemplate(0.45, 0.45, false)
+		set.failed = renderIconTemplate(0, 0, true)
+		for _, st := range spinnerSteps {
+			set.recover_ = append(set.recover_, renderIconTemplate(st.top, st.bot, false))
+		}
+		set.activeTemplate, set.idleTemplate = true, true
+		set.failedTemplate, set.spinnerTemplate = true, true
+	case "hybrid":
+		colored(renderIcon)
+		set.active = renderIconTemplate(1, 1, false)
+		set.idle = renderIconTemplate(0.45, 0.45, false)
+		set.activeTemplate, set.idleTemplate = true, true
+	default: // halo
+		colored(renderIcon)
 	}
 	return set
+}
+
+// ---------------------------------------------------------------------------
+// menu-row icons: status dots
+// ---------------------------------------------------------------------------
+
+var (
+	dotGreen = color.RGBA{0x30, 0xC4, 0x8D, 0xFF} // healthy / running
+	dotAmber = color.RGBA{0xFA, 0xA6, 0x1A, 0xFF} // recovering
+	dotRed   = color.RGBA{0xE5, 0x48, 0x4D, 0xFF} // failed
+	dotGrey  = color.RGBA{0x8A, 0x93, 0xA6, 0x99} // stopped
+)
+
+// renderDot draws a filled circle with a soft shadow — the row status
+// indicator for the dropdown (@2x, shown at half size).
+func renderDot(col color.RGBA) []byte {
+	const sz = 24
+	c := newIcanvas(sz, sz)
+	// a circle is a zero-length round-capped stroke
+	c.stroke([][2]float64{{sz / 2, sz / 2}, {sz / 2, sz / 2}}, 14, col, 1)
+	sh := shadowOf(c, 1, 1, 0.3)
+	return c.under(sh).encodePNG()
 }

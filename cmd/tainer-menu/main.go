@@ -8,16 +8,22 @@
 //	pulsing bars      stack unreachable — self-healing in progress
 //	red ✗             unreachable for over a minute: healing failed
 //
-// Clicking opens a dropdown listing running pods; clicking a pod
-// opens its https:// URL. Built on fyne.io/systray so the same code
-// carries to Windows/Linux later.
+// The dropdown: brand header, status line with a coloured dot, one
+// row per pod (status dot + domain — name) whose submenu carries the
+// actions (Open in browser / Start / Stop / Restart — native menus
+// allow one click target per row, so actions live a hover away),
+// doctor, quit, and a Cyber5 footer. Built on fyne.io/systray so the
+// same code carries to Windows/Linux later.
 package main
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
+	"os"
 	"os/exec"
 	"sort"
+	"strings"
 	"time"
 
 	"fyne.io/systray"
@@ -28,12 +34,35 @@ import (
 	"github.com/cyber5-io/tainer/pkg/tainer/runtime"
 )
 
+// Full brand logos, rasterised from the official SVGs (real alpha,
+// via native NSImage rendering — see packaging notes). Two variants
+// each: menu dropdowns follow system appearance, and the wordmark
+// colours are tuned per background by the brand kit.
+//
+//go:embed logo-tainer-light.png
+var tainerLogoLight []byte
+
+//go:embed logo-tainer-dark.png
+var tainerLogoDark []byte
+
+//go:embed logo-cyber5-light.png
+var cyber5LogoLight []byte
+
+//go:embed logo-cyber5-dark.png
+var cyber5LogoDark []byte
+
 const (
-	pollEvery     = 5 * time.Second
-	failedAfter   = 60 * time.Second // unreachable this long → red ✗
-	spinnerFrame  = 160 * time.Millisecond
-	maxPodSlots   = 16 // pre-created menu slots (systray can't remove items)
-	statusTooltip = "tainer"
+	pollEvery    = 5 * time.Second
+	failedAfter  = 60 * time.Second // unreachable this long → red ✗
+	spinnerFrame = 160 * time.Millisecond
+	maxPodSlots  = 16 // pre-created menu slots (systray can't remove items)
+
+	tainerCLI = "/opt/tainer/bin/tainer"
+
+	// utm-tagged brand links so cyber5.io analytics can tell menu-app
+	// clicks from organic traffic
+	tainerURL = "https://tainer.dev/?utm_source=tainer-menu&utm_medium=app&utm_campaign=menubar"
+	cyber5URL = "https://cyber5.io/?utm_source=tainer-menu&utm_medium=app&utm_campaign=menubar"
 )
 
 type appState int
@@ -46,20 +75,34 @@ const (
 )
 
 type podInfo struct {
-	Name   string
-	Domain string
-	State  string
+	Name    string
+	Domain  string
+	Running bool
+}
+
+// podSlot is one pre-created dropdown row plus its action submenu.
+type podSlot struct {
+	row     *systray.MenuItem
+	open    *systray.MenuItem
+	start   *systray.MenuItem
+	stop    *systray.MenuItem
+	restart *systray.MenuItem
 }
 
 type app struct {
 	icons iconSet
 
-	header *systray.MenuItem
-	slots  []*systray.MenuItem
+	dotGreen, dotAmber, dotRed, dotGrey []byte
+
+	brand  *systray.MenuItem
+	status *systray.MenuItem
+	slots  []*podSlot
 	doctor *systray.MenuItem
 	quit   *systray.MenuItem
+	maker  *systray.MenuItem
 
 	state       appState
+	darkMode    bool
 	downSince   time.Time
 	pods        []podInfo
 	stopSpinner chan struct{}
@@ -70,24 +113,57 @@ func main() {
 }
 
 func onReady() {
-	a := &app{icons: buildIcons()}
-
-	systray.SetIcon(a.icons.idle)
-	systray.SetTooltip(statusTooltip)
-
-	a.header = systray.AddMenuItem("tainer — checking…", "")
-	a.header.Disable()
-	systray.AddSeparator()
-	for i := 0; i < maxPodSlots; i++ {
-		it := systray.AddMenuItem("", "")
-		it.Hide()
-		a.slots = append(a.slots, it)
-		go a.slotClicks(i, it)
+	a := &app{
+		icons:    buildIconsStyle(os.Getenv("TAINER_MENU_ICON")),
+		dotGreen: renderDot(dotGreen),
+		dotAmber: renderDot(dotAmber),
+		dotRed:   renderDot(dotRed),
+		dotGrey:  renderDot(dotGrey),
 	}
+
+	a.setBarIcon(a.icons.idle, a.icons.idleTemplate)
+	systray.SetTooltip("tainer")
+
+	// brand header: the full logo as the row image, click opens the site
+	a.brand = systray.AddMenuItem("", "Open tainer.dev")
+
+	// status line: coloured dot + summary
+	a.status = systray.AddMenuItem("checking…", "")
+	a.status.SetIcon(a.dotGrey)
+	a.status.Disable()
+
 	systray.AddSeparator()
-	a.doctor = systray.AddMenuItem("Run doctor --fix", "Check and repair the stack")
+
+	for i := 0; i < maxPodSlots; i++ {
+		s := &podSlot{}
+		s.row = systray.AddMenuItem("", "")
+		s.open = s.row.AddSubMenuItem("Open in browser", "")
+		s.restart = s.row.AddSubMenuItem("Restart", "")
+		s.stop = s.row.AddSubMenuItem("Stop", "")
+		s.start = s.row.AddSubMenuItem("Start", "")
+		s.row.Hide()
+		a.slots = append(a.slots, s)
+		go a.slotClicks(i, s)
+	}
+
+	systray.AddSeparator()
+	a.doctor = systray.AddMenuItem("Run doctor (check & heal)", "Check and repair the stack")
 	a.quit = systray.AddMenuItem("Quit tainer menu", "")
 
+	systray.AddSeparator()
+	a.maker = systray.AddMenuItem("", "tainer is a Cyber5 product — cyber5.io")
+	a.applyAppearance(true)
+
+	go func() {
+		for range a.brand.ClickedCh {
+			openURL(tainerURL)
+		}
+	}()
+	go func() {
+		for range a.maker.ClickedCh {
+			openURL(cyber5URL)
+		}
+	}()
 	go func() {
 		for range a.doctor.ClickedCh {
 			a.runDoctorFix()
@@ -101,12 +177,49 @@ func onReady() {
 	go a.pollLoop()
 }
 
-func (a *app) slotClicks(i int, it *systray.MenuItem) {
-	for range it.ClickedCh {
-		if i < len(a.pods) && a.pods[i].Domain != "" {
-			_ = exec.Command("open", "https://"+a.pods[i].Domain).Start()
+// setBarIcon routes through SetTemplateIcon for monochrome styles so
+// macOS tints them to match the bar.
+func (a *app) setBarIcon(b []byte, template bool) {
+	if template {
+		systray.SetTemplateIcon(b, b)
+	} else {
+		systray.SetIcon(b)
+	}
+}
+
+func openURL(u string) {
+	_ = exec.Command("open", u).Start()
+}
+
+func (a *app) slotClicks(i int, s *podSlot) {
+	pod := func() *podInfo {
+		if i < len(a.pods) {
+			return &a.pods[i]
+		}
+		return nil
+	}
+	go func() {
+		for range s.open.ClickedCh {
+			if p := pod(); p != nil && p.Domain != "" {
+				openURL("https://" + p.Domain)
+			}
+		}
+	}()
+	action := func(ch chan struct{}, verb string) {
+		for range ch {
+			if p := pod(); p != nil {
+				a.status.SetTitle(verb + "ing " + p.Name + "…")
+				name := p.Name
+				go func() {
+					_ = exec.Command(tainerCLI, verb, name, "--plain").Run()
+					a.poll()
+				}()
+			}
 		}
 	}
+	go action(s.start.ClickedCh, "start")
+	go action(s.stop.ClickedCh, "stop")
+	go action(s.restart.ClickedCh, "restart")
 }
 
 func (a *app) pollLoop() {
@@ -114,7 +227,29 @@ func (a *app) pollLoop() {
 	t := time.NewTicker(pollEvery)
 	defer t.Stop()
 	for range t.C {
+		a.applyAppearance(false)
 		a.poll()
+	}
+}
+
+// applyAppearance swaps the brand logos to the variant matching the
+// current system appearance (dropdowns follow it, and each variant's
+// wordmark colour is tuned to its background by the brand kit).
+func (a *app) applyAppearance(force bool) {
+	// exit 0 + "Dark" only when dark mode is on; the key is absent in
+	// light mode
+	out, err := exec.Command("defaults", "read", "-g", "AppleInterfaceStyle").Output()
+	dark := err == nil && strings.Contains(string(out), "Dark")
+	if !force && dark == a.darkMode {
+		return
+	}
+	a.darkMode = dark
+	if dark {
+		a.brand.SetIcon(tainerLogoDark)
+		a.maker.SetIcon(cyber5LogoDark)
+	} else {
+		a.brand.SetIcon(tainerLogoLight)
+		a.maker.SetIcon(cyber5LogoLight)
 	}
 }
 
@@ -142,12 +277,13 @@ func (a *app) poll() {
 		return
 	}
 
-	var running []podInfo
+	var infos []podInfo
+	running := 0
 	for _, p := range pods {
-		if p.State() != pod.StateRunning {
-			continue
+		info := podInfo{Name: p.Name, Running: p.State() == pod.StateRunning}
+		if info.Running {
+			running++
 		}
-		info := podInfo{Name: p.Name, State: string(p.State())}
 		for _, c := range p.Containers {
 			if insp, ierr := eng.Inspect(ctx, c.Name); ierr == nil && insp.Config != nil {
 				if mp := insp.Config.Labels[pod.LabelManifestPath]; mp != "" {
@@ -158,20 +294,35 @@ func (a *app) poll() {
 				}
 			}
 		}
-		running = append(running, info)
+		infos = append(infos, info)
 	}
-	sort.Slice(running, func(i, j int) bool { return running[i].Name < running[j].Name })
+	// running pods first, then alphabetical
+	sort.Slice(infos, func(i, j int) bool {
+		if infos[i].Running != infos[j].Running {
+			return infos[i].Running
+		}
+		return infos[i].Name < infos[j].Name
+	})
 
 	a.downSince = time.Time{}
-	a.pods = running
-	if len(running) > 0 {
+	a.pods = infos
+	if running > 0 {
 		a.setState(stateActive)
-		a.header.SetTitle(fmt.Sprintf("tainer — healthy · %d running", len(running)))
+		a.status.SetIcon(a.dotGreen)
+		a.status.SetTitle(fmt.Sprintf("healthy — %d pod%s running", running, plural(running)))
 	} else {
 		a.setState(stateIdle)
-		a.header.SetTitle("tainer — healthy · no pods running")
+		a.status.SetIcon(a.dotGreen)
+		a.status.SetTitle("healthy — no pods running")
 	}
 	a.renderPodSlots()
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func (a *app) setUnreachable(why string) {
@@ -180,33 +331,47 @@ func (a *app) setUnreachable(why string) {
 	}
 	if time.Since(a.downSince) > failedAfter {
 		a.setState(stateFailed)
-		a.header.SetTitle("tainer — stack unreachable (self-healing failed)")
+		a.status.SetIcon(a.dotRed)
+		a.status.SetTitle("stack unreachable — healing failed")
 	} else {
 		a.setState(stateRecovering)
-		a.header.SetTitle("tainer — recovering… (" + why + ")")
+		a.status.SetIcon(a.dotAmber)
+		a.status.SetTitle("recovering — " + why)
 	}
 	a.renderPodSlots()
 }
 
 func (a *app) renderPodSlots() {
-	for i, it := range a.slots {
-		if i < len(a.pods) {
-			p := a.pods[i]
-			label := p.Name
-			if p.Domain != "" {
-				label = p.Name + "  →  " + p.Domain
-			}
-			it.SetTitle(label)
-			it.SetTooltip("Open https://" + p.Domain)
-			it.Show()
-		} else {
-			it.Hide()
+	for i, s := range a.slots {
+		if i >= len(a.pods) {
+			s.row.Hide()
+			continue
 		}
+		p := a.pods[i]
+		title := p.Name
+		if p.Domain != "" {
+			title = p.Domain + "  —  " + p.Name
+		}
+		s.row.SetTitle(title)
+		if p.Running {
+			s.row.SetIcon(a.dotGreen)
+			s.open.Show()
+			s.restart.Show()
+			s.stop.Show()
+			s.start.Hide()
+		} else {
+			s.row.SetIcon(a.dotGrey)
+			s.open.Hide()
+			s.restart.Hide()
+			s.stop.Hide()
+			s.start.Show()
+		}
+		s.row.Show()
 	}
 }
 
-// setState swaps the icon, managing the spinner goroutine for the
-// recovering state.
+// setState swaps the menu bar icon, managing the spinner goroutine
+// for the recovering state.
 func (a *app) setState(s appState) {
 	if s == a.state {
 		return
@@ -219,11 +384,11 @@ func (a *app) setState(s appState) {
 	a.state = s
 	switch s {
 	case stateIdle:
-		systray.SetIcon(a.icons.idle)
+		a.setBarIcon(a.icons.idle, a.icons.idleTemplate)
 	case stateActive:
-		systray.SetIcon(a.icons.active)
+		a.setBarIcon(a.icons.active, a.icons.activeTemplate)
 	case stateFailed:
-		systray.SetIcon(a.icons.failed)
+		a.setBarIcon(a.icons.failed, a.icons.failedTemplate)
 	case stateRecovering:
 		stop := make(chan struct{})
 		a.stopSpinner = stop
@@ -236,7 +401,7 @@ func (a *app) setState(s appState) {
 				case <-stop:
 					return
 				case <-t.C:
-					systray.SetIcon(a.icons.recover_[i%len(a.icons.recover_)])
+					a.setBarIcon(a.icons.recover_[i%len(a.icons.recover_)], a.icons.spinnerTemplate)
 					i++
 				}
 			}
@@ -247,9 +412,9 @@ func (a *app) setState(s appState) {
 // runDoctorFix shells out to the installed tainer binary so the menu
 // app never needs elevated logic of its own.
 func (a *app) runDoctorFix() {
-	a.header.SetTitle("tainer — running doctor --fix…")
+	a.status.SetTitle("running doctor --fix…")
 	go func() {
-		cmd := exec.Command("/opt/tainer/bin/tainer", "doctor", "--fix", "--plain")
+		cmd := exec.Command(tainerCLI, "doctor", "--fix", "--plain")
 		_ = cmd.Run()
 		a.poll()
 	}()

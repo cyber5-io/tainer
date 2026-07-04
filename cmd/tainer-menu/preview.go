@@ -21,9 +21,15 @@ func init() {
 }
 
 func writePreview(path string) {
-	set := buildIcons()
-	states := [][]byte{set.active, set.idle, set.failed}
-	states = append(states, set.recover_...)
+	set := buildIconsStyle("")
+	// row: current (halo), plate experiment, template silhouette
+	states := [][]byte{
+		set.active, set.idle, set.failed,
+		renderIconPlate(1.0, 1, 1, iconBlue, iconOrange, iconTeal, false),
+		renderIconPlate(0.45, 1, 1, iconBlue, iconOrange, iconTeal, false),
+		renderIconPlate(0.55, 0, 0, iconGrey, iconGrey, iconGrey, true),
+		renderIconTemplate(1, 1, false),
+	}
 
 	cell := 64
 	W := cell * len(states)
