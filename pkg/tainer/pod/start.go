@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 	"github.com/cyber5-io/tainer/pkg/tainer/router"
@@ -353,7 +354,31 @@ func buildEnv(m *manifest.Manifest, role string, pctx *podCtx) []string {
 		}
 	}
 
+	// Mark the pod's single SSH container (see isSSHContainer). Its
+	// start script runs sshd only when TAINER_SSHD=1, so app and web
+	// never collide on :22 in the shared netns.
+	if isSSHContainer(m, role) {
+		env = append(env, "TAINER_SSHD=1")
+	}
+
 	return env
+}
+
+// isSSHContainer reports whether this role owns the pod's single sshd
+// (:22 in the shared netns): the app (php-fpm/node) when the pod has
+// one, otherwise the web caddy (react/static).
+func isSSHContainer(m *manifest.Manifest, role string) bool {
+	hasApp := false
+	for _, r := range RolesForPod(m) {
+		if r == RoleApp {
+			hasApp = true
+			break
+		}
+	}
+	if hasApp {
+		return role == RoleApp
+	}
+	return role == RoleWeb
 }
 
 func buildMounts(m *manifest.Manifest, projectDir, role string) []engine.Mount {
@@ -380,6 +405,15 @@ func buildMounts(m *manifest.Manifest, projectDir, role string) []engine.Mount {
 	for _, mt := range out {
 		if _, err := os.Stat(mt.Source); os.IsNotExist(err) {
 			_ = os.MkdirAll(mt.Source, 0755)
+		}
+	}
+	// SSH: stage the tainer public key into the pod's SSH container so
+	// its sshd (AuthorizedKeysFile /etc/ssh/tainer_authorized_keys)
+	// accepts sshpiperd's tainer-key auth. Added after the auto-create
+	// pass — this source is a file, not a dir.
+	if isSSHContainer(m, role) {
+		if fi, err := os.Stat(config.PublicKey()); err == nil && !fi.IsDir() {
+			out = append(out, engine.Mount{Source: config.PublicKey(), Target: "/etc/ssh/tainer_authorized_keys", ReadOnly: true})
 		}
 	}
 	return out
