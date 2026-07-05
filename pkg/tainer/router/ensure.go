@@ -141,7 +141,15 @@ func ensureSSH(ctx context.Context, eng *engine.Client) error {
 		Ports:   []engine.PortMap{{Container: 2222, Host: 2222, Proto: "tcp"}},
 		Detach:  true,
 		Restart: "unless-stopped",
+		// sshpiperd v1.5 CLI is `sshpiperd [opts] <plugin> [plugin opts]`
+		// — the daemon serves SSH on :2222 and runs the plugin as its
+		// child for routing. Launching the plugin alone (as this did)
+		// means nothing listens on :2222 and every connection is closed
+		// before key exchange. Port 2222 and the server key
+		// (/etc/ssh/ssh_host_ed25519_key, mounted above) are sshpiperd's
+		// defaults, so no extra flags are needed.
 		Cmd: []string{
+			"/sshpiperd/sshpiperd",
 			"/sshpiperd/plugins/workingdir",
 			"--root", "/var/sshpiper",
 			"--no-check-perm",
