@@ -356,9 +356,13 @@ func buildEnv(m *manifest.Manifest, role string, pctx *podCtx) []string {
 
 	// Mark the pod's single SSH container (see isSSHContainer). Its
 	// start script runs sshd only when TAINER_SSHD=1, so app and web
-	// never collide on :22 in the shared netns.
+	// never collide on :22 in the shared netns. TAINER_SHELL=zsh tells
+	// tainer-entrypoint.sh to flip the tainer user's login shell to zsh
+	// (oh-my-zsh + af-magic), so an interactive ssh lands in a proper
+	// shell rather than busybox sh. Both only apply where an SSH session
+	// terminates — the app container.
 	if isSSHContainer(m, role) {
-		env = append(env, "TAINER_SSHD=1")
+		env = append(env, "TAINER_SSHD=1", "TAINER_SHELL=zsh")
 	}
 
 	return env
