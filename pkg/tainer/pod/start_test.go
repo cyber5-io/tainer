@@ -6,22 +6,44 @@ import (
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 )
 
-func TestBuildMountsUsesHTMLNotApp(t *testing.T) {
+func TestBuildMountsAppMountsWholeProject(t *testing.T) {
 	m := &manifest.Manifest{
 		Project: manifest.ProjectConfig{Type: manifest.TypeWordPress, Name: "demo"},
 	}
+	// The app container is the pod's dev shell (WordPress has an app
+	// role), so it mounts the whole project at /var/www — giving an ssh
+	// session the git repo, not just the docroot.
 	mounts := buildMounts(m, "/p/demo", RoleApp)
-	wantHTML := false
-	wantData := false
+	wantProject := false
 	for _, mt := range mounts {
-		if mt.Source == "/p/demo/html" && mt.Target == "/var/www/html" {
-			wantHTML = true
-		}
-		if mt.Source == "/p/demo/data" && mt.Target == "/var/www/data" {
-			wantData = true
+		if mt.Source == "/p/demo" && mt.Target == "/var/www" {
+			wantProject = true
 		}
 		if mt.Source == "/p/demo/app" {
 			t.Errorf("legacy /app source should not appear: %+v", mt)
+		}
+	}
+	if !wantProject {
+		t.Errorf("whole-project bind missing: %+v", mounts)
+	}
+}
+
+func TestBuildMountsWebEdgeIsIsolated(t *testing.T) {
+	m := &manifest.Manifest{
+		Project: manifest.ProjectConfig{Type: manifest.TypeWordPress, Name: "demo"},
+	}
+	// The web (caddy) container is the internet-facing edge — kept narrow
+	// to the docroot + data, and must never see the repo.
+	mounts := buildMounts(m, "/p/demo", RoleWeb)
+	wantHTML, wantData, sawRepo := false, false, false
+	for _, mt := range mounts {
+		switch {
+		case mt.Source == "/p/demo/html" && mt.Target == "/var/www/html":
+			wantHTML = true
+		case mt.Source == "/p/demo/data" && mt.Target == "/var/www/data":
+			wantData = true
+		case mt.Source == "/p/demo" && mt.Target == "/var/www":
+			sawRepo = true
 		}
 	}
 	if !wantHTML {
@@ -29,6 +51,9 @@ func TestBuildMountsUsesHTMLNotApp(t *testing.T) {
 	}
 	if !wantData {
 		t.Errorf("data bind missing: %+v", mounts)
+	}
+	if sawRepo {
+		t.Errorf("web edge must not mount the whole project: %+v", mounts)
 	}
 }
 
