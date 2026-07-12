@@ -3,7 +3,11 @@ package router
 import (
 	"context"
 	"fmt"
+	"os/exec"
+	"runtime"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
@@ -114,19 +118,84 @@ func isNotFoundErr(err error) bool {
 		strings.Contains(msg, "state.json: no such file")
 }
 
+var (
+	sshPortOnce sync.Once
+	sshPortVal  int
+)
+
+// SSHHostPort is the host TCP port the ssh router publishes. Normally 22,
+// so `ssh <pod>@ssh.tainer.me` connects with no -p flag — the whole point
+// of the router. On macOS with Remote Login enabled the system sshd
+// already owns :22, so we fall back to 2222 (`ssh -p 2222 …`). The choice
+// is stable for the process lifetime (Remote Login can't toggle mid-run).
+func SSHHostPort() int {
+	sshPortOnce.Do(func() {
+		sshPortVal = 22
+		if remoteLoginActive() {
+			sshPortVal = 2222
+		}
+	})
+	return sshPortVal
+}
+
+// remoteLoginActive reports whether macOS Remote Login (the system sshd)
+// is enabled, in which case :22 is taken and we must not fight it.
+// `launchctl print system/com.openssh.sshd` exits 0 only when the SSH
+// service is bootstrapped in the system domain.
+func remoteLoginActive() bool {
+	if runtime.GOOS != "darwin" {
+		return false
+	}
+	return exec.Command("launchctl", "print", "system/com.openssh.sshd").Run() == nil
+}
+
+// SSHHint returns the exact ssh command a user runs to reach a pod,
+// adapted to the host ssh port (see SSHHostPort).
+func SSHHint(name string) string {
+	if SSHHostPort() == 2222 {
+		return "ssh -p 2222 " + name + "@ssh.tainer.me"
+	}
+	return "ssh " + name + "@ssh.tainer.me"
+}
+
 func ensureSSH(ctx context.Context, eng *engine.Client) error {
+	sshPort := SSHHostPort()
 	insp, ierr := eng.Inspect(ctx, SSHContainerName)
-	if ierr == nil {
-		// Reuse existing container — start if stopped, no-op if running.
-		if insp.State == nil || !insp.State.Running {
-			if err := eng.Start(ctx, SSHContainerName); err != nil {
-				return fmt.Errorf("router ssh: start existing: %w", err)
+	exists := ierr == nil
+	if !exists && !isNotFoundErr(ierr) {
+		return ierr
+	}
+	if exists {
+		// Reuse the existing container only if it already publishes the
+		// port we want. cyberstackd's inspect may not surface HostConfig;
+		// when it doesn't we can't tell, so conservatively reuse (assume
+		// match) rather than recreate on every start.
+		match := true
+		if insp.HostConfig != nil && len(insp.HostConfig.PortBindings) > 0 {
+			match = false
+			want := strconv.Itoa(sshPort)
+			for _, binds := range insp.HostConfig.PortBindings {
+				for _, b := range binds {
+					if b.HostPort == want {
+						match = true
+					}
+				}
 			}
 		}
-		return nil
-	}
-	if !isNotFoundErr(ierr) {
-		return ierr
+		if match {
+			// Start if stopped, no-op if running.
+			if insp.State == nil || !insp.State.Running {
+				if err := eng.Start(ctx, SSHContainerName); err != nil {
+					return fmt.Errorf("router ssh: start existing: %w", err)
+				}
+			}
+			return nil
+		}
+		// Port changed (e.g. Remote Login toggled): recreate so the new
+		// binding takes effect.
+		if err := eng.Remove(ctx, SSHContainerName, true); err != nil {
+			return fmt.Errorf("router ssh: remove for recreate: %w", err)
+		}
 	}
 	if err := eng.Pull(ctx, sshpiperImage); err != nil {
 		return fmt.Errorf("router ssh: pull %s: %w", sshpiperImage, err)
@@ -138,18 +207,26 @@ func ensureSSH(ctx context.Context, eng *engine.Client) error {
 			{Source: config.SSHPiperDir(), Target: "/var/sshpiper"},
 			{Source: config.SSHPiperHostKey(), Target: "/etc/ssh/ssh_host_ed25519_key", ReadOnly: true},
 		},
-		Ports:   []engine.PortMap{{Container: 2222, Host: 2222, Proto: "tcp"}},
+		// The router listens on sshPort INSIDE the container and publishes
+		// the SAME host port. Host port must equal the container port: in
+		// compat mode cyberstackd forwards to the VM using the host port
+		// number, and the in-VM DNAT targets the container's published
+		// port — so a host≠container mapping dead-ends in the VM. Mirrors
+		// how the web router publishes 80/443 (host==container).
+		Ports:   []engine.PortMap{{Container: sshPort, Host: sshPort, Proto: "tcp"}},
 		Detach:  true,
 		Restart: "unless-stopped",
-		// sshpiperd v1.5 CLI is `sshpiperd [opts] <plugin> [plugin opts]`
-		// — the daemon serves SSH on :2222 and runs the plugin as its
-		// child for routing. Launching the plugin alone (as this did)
-		// means nothing listens on :2222 and every connection is closed
-		// before key exchange. Port 2222 and the server key
-		// (/etc/ssh/ssh_host_ed25519_key, mounted above) are sshpiperd's
-		// defaults, so no extra flags are needed.
+		// sshpiperd v1.5 CLI is `sshpiperd [global opts] <plugin> [plugin
+		// opts]` — the daemon serves SSH and runs the plugin as its child
+		// for routing. --port (a GLOBAL opt, before the plugin) sets the
+		// listen port; --root/--no-check-perm/--allow-baduser-name are
+		// workingdir-plugin opts. The server key
+		// (/etc/ssh/ssh_host_ed25519_key, mounted above) is sshpiperd's
+		// default. sshpiperd runs as root in this image, so it can bind a
+		// privileged port (22) inside the container.
 		Cmd: []string{
 			"/sshpiperd/sshpiperd",
+			"--port", strconv.Itoa(sshPort),
 			"/sshpiperd/plugins/workingdir",
 			"--root", "/var/sshpiper",
 			"--no-check-perm",

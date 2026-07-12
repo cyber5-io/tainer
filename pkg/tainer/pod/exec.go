@@ -8,6 +8,7 @@ import (
 
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
+	"github.com/cyber5-io/tainer/pkg/tainer/router"
 )
 
 // ResolveExecRole picks the role for `tainer exec` when no explicit
@@ -78,6 +79,6 @@ func FormatStatus(p Pod, domain string, ports []manifest.PortEntry) string {
 			out += fmt.Sprintf("  127.0.0.1:%d   # %s\n", host, port.Role)
 		}
 	}
-	out += fmt.Sprintf("  ssh %s@ssh.tainer.me\n", p.Name)
+	out += "  " + router.SSHHint(p.Name) + "\n"
 	return out
 }

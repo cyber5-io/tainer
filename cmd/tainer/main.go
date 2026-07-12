@@ -43,6 +43,7 @@ import (
 	"github.com/cyber5-io/tainer/pkg/tainer/networkcmd"
 	"github.com/cyber5-io/tainer/pkg/tainer/pod"
 	"github.com/cyber5-io/tainer/pkg/tainer/registry"
+	"github.com/cyber5-io/tainer/pkg/tainer/router"
 	"github.com/cyber5-io/tainer/pkg/tainer/runtime"
 	"github.com/cyber5-io/tainer/pkg/tainer/tui"
 	tuilist "github.com/cyber5-io/tainer/pkg/tainer/tui/list"
@@ -489,7 +490,7 @@ func runStatusProjectStyled(s projectStatusSnapshot) {
 				}
 			}
 		}
-		fmt.Println("    " + tui.MarkInfo() + "ssh " + s.Project + "@ssh.tainer.me")
+		fmt.Println("    " + tui.MarkInfo() + router.SSHHint(s.Project))
 	}
 
 	fmt.Println()
@@ -548,7 +549,7 @@ func runStatusProjectPlain(s projectStatusSnapshot) {
 				}
 			}
 		}
-		fmt.Printf("  ssh %s@ssh.tainer.me\n", s.Project)
+		fmt.Println("  " + router.SSHHint(s.Project))
 	}
 }
 
@@ -712,7 +713,7 @@ func renderPodStatusStyled(p podStatus, muted lipgloss.Style) {
 				fmt.Printf("      "+tui.MarkInfo()+"127.0.0.1:%d %s\n", host, muted.Render("("+port.Role+")"))
 			}
 		}
-		fmt.Println("      " + tui.MarkInfo() + "ssh " + p.Name + "@ssh.tainer.me")
+		fmt.Println("      " + tui.MarkInfo() + router.SSHHint(p.Name))
 	}
 }
 
@@ -1265,7 +1266,7 @@ func runStartStyled(ctx context.Context, manifestPath, projectDir, projectName s
 		role := muted.Render("(" + t.Role + ")")
 		fmt.Println("  " + tui.MarkInfo() + t.Host + " " + role)
 	}
-	fmt.Println("  " + tui.MarkInfo() + "ssh " + res.Pod + "@ssh.tainer.me")
+	fmt.Println("  " + tui.MarkInfo() + router.SSHHint(res.Pod))
 	if !siteReady {
 		fmt.Println("  " + tui.MarkWarn() + "site is still warming up — give it a few more seconds")
 	}
@@ -1313,7 +1314,7 @@ func runStartPlain(ctx context.Context, manifestPath, projectDir, projectName st
 	for _, t := range res.TCPServices {
 		fmt.Printf("  %s   # %s\n", t.Host, t.Role)
 	}
-	fmt.Printf("  ssh %s@ssh.tainer.me\n", res.Pod)
+	fmt.Println("  " + router.SSHHint(res.Pod))
 }
 
 // runStartJSON emits the StartResult as JSON. Useful for scripts; the
@@ -1444,7 +1445,7 @@ func cmdRestart(args []string) {
 		for _, t := range res.TCPServices {
 			fmt.Println("  " + tui.MarkInfo() + t.Host + " " + muted.Render("("+t.Role+")"))
 		}
-		fmt.Println("  " + tui.MarkInfo() + "ssh " + res.Pod + "@ssh.tainer.me")
+		fmt.Println("  " + tui.MarkInfo() + router.SSHHint(res.Pod))
 		if !siteReady {
 			fmt.Println("  " + tui.MarkWarn() + "site is still warming up — give it a few more seconds")
 		}
