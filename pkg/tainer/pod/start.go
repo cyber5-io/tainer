@@ -37,6 +37,10 @@ type StartResult struct {
 	Domain       string
 	HTTPServices []HTTPSvcResult
 	TCPServices  []TCPSvcResult
+	// AlreadyRunning is true when every container in the pod was already
+	// up, so start created/started nothing. The CLI uses this to say
+	// "already running" instead of pretending it did a fresh start.
+	AlreadyRunning bool
 }
 
 type HTTPSvcResult struct {
@@ -117,6 +121,7 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 	if len(roles) == 0 || roles[0] != RoleWeb {
 		return nil, fmt.Errorf("pod start: leader must be %q, got roles=%v", RoleWeb, roles)
 	}
+	anyWork := false
 	for i, role := range roles {
 		var bindings []engine.PortMap
 		var netMode string
@@ -125,9 +130,11 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 		} else {
 			netMode = "container:" + leader
 		}
-		if err := startContainer(ctx, eng, m, opts, pctx, role, podID, mhash, split[role], bindings, netMode); err != nil {
+		started, err := startContainer(ctx, eng, m, opts, pctx, role, podID, mhash, split[role], bindings, netMode)
+		if err != nil {
 			return nil, err
 		}
+		anyWork = anyWork || started
 	}
 
 	allPods, err := List(ctx, eng)
@@ -146,7 +153,9 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 		return nil, err
 	}
 
-	return makeStartResult(m, podID), nil
+	res := makeStartResult(m, podID)
+	res.AlreadyRunning = !anyWork
+	return res, nil
 }
 
 // buildLeaderPortBindings collects every TCP port binding for the pod
@@ -183,7 +192,7 @@ func startContainer(
 	m *manifest.Manifest, opts StartOptions,
 	pctx *podCtx, role string, podID int, mhash string, lim Limits,
 	bindings []engine.PortMap, netMode string,
-) error {
+) (started bool, err error) {
 	memBytes, _ := units.RAMInBytes(lim.Memory)
 	envs := buildEnv(m, role, pctx)
 	mounts := buildMounts(m, opts.ProjectDir, role)
@@ -245,15 +254,15 @@ func startContainer(
 	insp, ierr := eng.Inspect(ctx, spec.Name)
 	if ierr == nil {
 		if insp.State != nil && insp.State.Running {
-			return nil // already up — nothing to do
+			return false, nil // already up — nothing to do
 		}
 		// Container exists but is stopped — start it in place.
-		return eng.Start(ctx, spec.Name)
+		return true, eng.Start(ctx, spec.Name)
 	} else if !isNotFound(ierr) {
-		return ierr
+		return false, ierr
 	}
-	_, err := eng.Run(ctx, spec)
-	return err
+	_, err = eng.Run(ctx, spec)
+	return true, err
 }
 
 // isNotFound reports whether err is the engine's "container doesn't
