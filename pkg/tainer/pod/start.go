@@ -387,11 +387,28 @@ func isSSHContainer(m *manifest.Manifest, role string) bool {
 
 func buildMounts(m *manifest.Manifest, projectDir, role string) []engine.Mount {
 	var out []engine.Mount
-	if role == RoleDB {
+	switch {
+	case role == RoleDB:
 		out = []engine.Mount{
 			{Source: projectDir + "/db", Target: dbDataPath(m)},
 		}
-	} else {
+	case isSSHContainer(m, role):
+		// The pod's dev shell (the app container, or web on app-less
+		// types). Mount the WHOLE project at /var/www so an interactive
+		// ssh lands in the real git repo — .git, tainer.yaml and tooling
+		// are all present and af-magic's git prompt works. html/ and
+		// data/ come along as subdirs, so this replaces the narrow
+		// mounts below. The docroot stays /var/www/html, so nothing above
+		// it (.git, .env, tainer.yaml) is ever web-served. Safe for local
+		// dev — the repo is already on the developer's host; production
+		// deploys will need the isolated mount shape instead.
+		out = []engine.Mount{
+			{Source: projectDir, Target: m.ContainerMountBase()},
+		}
+	default:
+		// Internet-facing edge (caddy web on app-having types) — kept
+		// narrow: only the docroot + data, never the repo, secrets, or
+		// db files.
 		out = []engine.Mount{
 			{Source: projectDir + "/" + m.HostAppDir(), Target: m.ContainerAppPath()},
 			{Source: projectDir + "/data", Target: m.ContainerMountBase() + "/data"},
@@ -406,9 +423,18 @@ func buildMounts(m *manifest.Manifest, projectDir, role string) []engine.Mount {
 	// git doesn't transport empty directories. crun hard-fails on a
 	// bind mount whose source is missing, so ensure every mount
 	// source exists before the container spec goes anywhere near it.
+	// The whole-project mount only lists the parent, so also ensure the
+	// html/ and data/ subdirs the runtime expects.
+	sources := make([]string, 0, len(out)+2)
 	for _, mt := range out {
-		if _, err := os.Stat(mt.Source); os.IsNotExist(err) {
-			_ = os.MkdirAll(mt.Source, 0755)
+		sources = append(sources, mt.Source)
+	}
+	if isSSHContainer(m, role) && role != RoleDB {
+		sources = append(sources, projectDir+"/"+m.HostAppDir(), projectDir+"/data")
+	}
+	for _, s := range sources {
+		if _, err := os.Stat(s); os.IsNotExist(err) {
+			_ = os.MkdirAll(s, 0755)
 		}
 	}
 	// SSH: stage the tainer public key into the pod's SSH container so
