@@ -1248,7 +1248,8 @@ func runStartStyled(ctx context.Context, manifestPath, projectDir, projectName s
 	// working is. Probing the real router path also covers caddy's
 	// config reload lag.
 	siteReady := true
-	if !res.AlreadyRunning && res.Domain != "" {
+	noApp := nodeAppMissing(manifestPath, projectDir)
+	if !res.AlreadyRunning && res.Domain != "" && !noApp {
 		_ = tui.RunSpinner("wiring up https://"+res.Domain, func() error {
 			_, ok := pod.WaitHTTPReady(ctx, res.Domain, startWarmupTimeout)
 			siteReady = ok
@@ -1267,7 +1268,9 @@ func runStartStyled(ctx context.Context, manifestPath, projectDir, projectName s
 		fmt.Println("  " + tui.MarkInfo() + t.Host + " " + role)
 	}
 	fmt.Println("  " + tui.MarkInfo() + router.SSHHint(res.Pod))
-	if !siteReady {
+	if noApp {
+		fmt.Println("  " + tui.MarkWarn() + noAppHint)
+	} else if !siteReady {
 		fmt.Println("  " + tui.MarkWarn() + "site is still warming up — give it a few more seconds")
 	}
 
@@ -1299,11 +1302,15 @@ func runStartPlain(ctx context.Context, manifestPath, projectDir, projectName st
 	} else {
 		fmt.Printf("%s started   (pod %d, %.1fs)\n", res.Pod, res.PodID, time.Since(started).Seconds())
 		if res.Domain != "" {
-			fmt.Printf("waiting for https://%s...\n", res.Domain)
-			if _, ok := pod.WaitHTTPReady(ctx, res.Domain, startWarmupTimeout); ok {
-				fmt.Printf("site answering (%.1fs total)\n", time.Since(started).Seconds())
+			if nodeAppMissing(manifestPath, projectDir) {
+				fmt.Println(noAppHint)
 			} else {
-				fmt.Printf("site still warming up after %s — give it a few more seconds\n", startWarmupTimeout)
+				fmt.Printf("waiting for https://%s...\n", res.Domain)
+				if _, ok := pod.WaitHTTPReady(ctx, res.Domain, startWarmupTimeout); ok {
+					fmt.Printf("site answering (%.1fs total)\n", time.Since(started).Seconds())
+				} else {
+					fmt.Printf("site still warming up after %s — give it a few more seconds\n", startWarmupTimeout)
+				}
 			}
 		}
 	}
@@ -1345,6 +1352,23 @@ func runStartJSON(ctx context.Context, manifestPath, projectDir string) {
 // runStartWork captures pod.Start's result into the closure variable
 // `res` and returns the error. Wrapped this way so it can be passed to
 // tui.RunSpinner which only takes a func() error.
+// nodeAppMissing reports whether this is a node-family project whose
+// html/ has no package.json yet. In that state the app container idles
+// ("scaffold your app") and the site can never answer, so start/restart
+// should say that instead of waiting 60s and hinting "still warming up".
+func nodeAppMissing(manifestPath, projectDir string) bool {
+	m, err := manifest.Load(manifestPath)
+	if err != nil || !m.IsNode() {
+		return false
+	}
+	_, serr := os.Stat(filepath.Join(projectDir, m.HostAppDir(), "package.json"))
+	return os.IsNotExist(serr)
+}
+
+// noAppHint is printed in place of the warming-up hint when
+// nodeAppMissing is true.
+const noAppHint = "no app in html/ yet — scaffold one (e.g. `tainer npm create vite@latest .`), then `tainer restart`"
+
 func runStartWork(ctx context.Context, manifestPath, projectDir string, res **pod.StartResult) func() error {
 	return func() error {
 		eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
@@ -1430,7 +1454,8 @@ func cmdRestart(args []string) {
 			os.Exit(1)
 		}
 		siteReady := true
-		if res.Domain != "" {
+		noApp := nodeAppMissing(manifestPath, projectDir)
+		if res.Domain != "" && !noApp {
 			_ = tui.RunSpinner("wiring up https://"+res.Domain, func() error {
 				_, ok := pod.WaitHTTPReady(ctx, res.Domain, startWarmupTimeout)
 				siteReady = ok
@@ -1446,7 +1471,9 @@ func cmdRestart(args []string) {
 			fmt.Println("  " + tui.MarkInfo() + t.Host + " " + muted.Render("("+t.Role+")"))
 		}
 		fmt.Println("  " + tui.MarkInfo() + router.SSHHint(res.Pod))
-		if !siteReady {
+		if noApp {
+			fmt.Println("  " + tui.MarkWarn() + noAppHint)
+		} else if !siteReady {
 			fmt.Println("  " + tui.MarkWarn() + "site is still warming up — give it a few more seconds")
 		}
 		tui.BookendClose(time.Since(started), "Ready", "https://"+res.Domain)
