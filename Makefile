@@ -12,6 +12,25 @@ LDFLAGS := -X main.version=$(VERSION)
 BIN_DIR := bin
 DIST_DIR := dist
 
+# Source of the *.tainer.me wildcard cert bundled into the installers. The
+# first run copies it into ~/.config/tainer/certs so Caddy can serve
+# browser-trusted HTTPS with no prompt. Override with TAINER_CERT_DIR=/abs/path.
+TAINER_CERT_DIR ?= $(HOME)/.config/tainer/certs
+
+# bundle-certs,<pkg-root> — drop the wildcard cert+key into a pkg staging
+# root at opt/tainer/share/tainer/certs. The key ships in the pkg (mode 0644
+# so the unprivileged first-run copy can read it); acceptable because
+# *.tainer.me only ever resolves to loopback for local dev.
+define bundle-certs
+	@if [ ! -f "$(TAINER_CERT_DIR)/tainer.me.crt" ] || [ ! -f "$(TAINER_CERT_DIR)/tainer.me.key" ]; then \
+		echo "pkg: missing tainer.me cert/key in $(TAINER_CERT_DIR) (set TAINER_CERT_DIR=/abs/path)" >&2; \
+		exit 1; \
+	fi
+	mkdir -p $(1)/opt/tainer/share/tainer/certs
+	install -m 0644 $(TAINER_CERT_DIR)/tainer.me.crt $(1)/opt/tainer/share/tainer/certs/
+	install -m 0644 $(TAINER_CERT_DIR)/tainer.me.key $(1)/opt/tainer/share/tainer/certs/
+endef
+
 # Default target — builds the host CLI.
 build: $(BIN_DIR)/tainer
 
@@ -72,6 +91,7 @@ pkg-only-root: sign
 	mkdir -p $(PKG_ONLY_ROOT)/opt/tainer/bin
 	mkdir -p $(PKG_ONLY_SCRIPTS)
 	install -m 0755 $(BIN_DIR)/tainer $(PKG_ONLY_ROOT)/opt/tainer/bin/
+	$(call bundle-certs,$(PKG_ONLY_ROOT))
 	install -m 0755 packaging/scripts/postinstall-only $(PKG_ONLY_SCRIPTS)/postinstall
 	@echo "pkg-only-root assembled at $(PKG_ONLY_ROOT)"
 
@@ -239,6 +259,8 @@ pkg-full-root: sign menu-app
 	cp -R $(CYBERSTACK_REPO)/dist/pkg-root/. $(PKG_FULL_ROOT)/
 	# Layer the tainer CLI on top.
 	install -m 0755 $(BIN_DIR)/tainer $(PKG_FULL_ROOT)/opt/tainer/bin/
+	# Bundle the *.tainer.me wildcard cert (first run provisions HTTPS).
+	$(call bundle-certs,$(PKG_FULL_ROOT))
 	# Menu-bar app in /Applications + a login agent to start it.
 	mkdir -p "$(PKG_FULL_ROOT)/Applications"
 	cp -R "$(MENU_APP)" "$(PKG_FULL_ROOT)/Applications/"

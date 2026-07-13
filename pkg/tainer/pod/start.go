@@ -3,7 +3,9 @@ package pod
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -73,7 +75,67 @@ func ensureHostSetup() error {
 	if err := ssh.EnsureHostKey(config.SSHPiperHostKey()); err != nil {
 		return fmt.Errorf("pod start: sshpiper host key: %w", err)
 	}
+	if err := ensureCerts(); err != nil {
+		return fmt.Errorf("pod start: tls certs: %w", err)
+	}
 	return nil
+}
+
+// ensureCerts provisions the *.tainer.me TLS cert+key into CertsDir on first
+// run by copying them from the bundle shipped in the installer
+// (<prefix>/share/tainer/certs, resolved relative to the tainer binary). Caddy
+// bind-mounts these to serve browser-trusted HTTPS on the loopback-resolved
+// project subdomains. No-op if the certs already exist, or if no bundle is
+// present (a dev build outside the installer layout — the dev machine already
+// has them under ~/.config/tainer/certs).
+func ensureCerts() error {
+	crt, key := config.CertFile(), config.KeyFile()
+	if fileExists(crt) && fileExists(key) {
+		return nil
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return nil
+	}
+	if resolved, e := filepath.EvalSymlinks(exe); e == nil {
+		exe = resolved // /usr/local/bin/tainer -> /opt/tainer/bin/tainer
+	}
+	share := filepath.Join(filepath.Dir(filepath.Dir(exe)), "share", "tainer", "certs")
+	srcCrt, srcKey := filepath.Join(share, "tainer.me.crt"), filepath.Join(share, "tainer.me.key")
+	if !fileExists(srcCrt) || !fileExists(srcKey) {
+		return nil // not bundled; leave it (doctor surfaces the missing cert)
+	}
+	if err := copyFileMode(srcCrt, crt, 0o644); err != nil {
+		return err
+	}
+	return copyFileMode(srcKey, key, 0o600)
+}
+
+func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
+
+// copyFileMode copies src to dst with the given mode, atomically (temp +
+// rename) so an interrupted copy can't leave a truncated cert/key behind.
+func copyFileMode(src, dst string, mode os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	tmp := dst + ".partial"
+	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, dst)
 }
 
 func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartResult, error) {
