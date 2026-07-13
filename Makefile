@@ -15,9 +15,15 @@ DIST_DIR := dist
 # Default target — builds the host CLI.
 build: $(BIN_DIR)/tainer
 
-$(BIN_DIR)/tainer:
+# FORCE prerequisite so this always re-runs. Without it, make treats an
+# existing bin/tainer as up-to-date (the target has no source prereqs) and
+# skips go build — which silently ships a stale binary through sign/pkg.
+# Go's build cache makes a no-op recompile near-instant.
+$(BIN_DIR)/tainer: FORCE
 	@mkdir -p $(BIN_DIR)
 	go build -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/tainer ./cmd/tainer
+
+FORCE:
 
 test:
 	go test ./...
