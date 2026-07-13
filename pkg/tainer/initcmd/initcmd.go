@@ -156,6 +156,17 @@ func RunIn(opts Options, dir string) (*RunResult, error) {
 		return res, err
 	}
 
+	// Plain nodejs projects have no framework image that ships an app, so
+	// a fresh init would 502 until the user scaffolds something. Drop a
+	// minimal starter (package.json + server.js) into an empty html/ so
+	// the pod serves a landing page from the first start. Users replace it
+	// by scaffolding over it (e.g. `tainer npm create vite@latest .`).
+	if m.Project.Type == manifest.TypeNodeJS {
+		if err := writeNodeStarter(dir, m.HostAppDir(), name, res); err != nil {
+			return res, err
+		}
+	}
+
 	// Create data/.
 	if err := ensureDir(dir, "data", res); err != nil {
 		return res, err
@@ -302,4 +313,70 @@ func ensureGitignoreReport(dir string) (added bool, err error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// writeNodeStarter drops a minimal runnable app (package.json + server.js)
+// into an empty html/ for plain nodejs projects. The container's
+// start-node-app.sh finds the `start` script and serves port 3000, so the
+// pod answers with a landing page instead of a 502 on first start. If
+// html/ already has any entries (cloned repo, prior scaffold) it is left
+// untouched and the step is reported as adopted.
+func writeNodeStarter(dir, appDir, name string, res *RunResult) error {
+	full := filepath.Join(dir, appDir)
+	entries, err := os.ReadDir(full)
+	if err != nil {
+		return err
+	}
+	if len(entries) > 0 {
+		res.Steps = append(res.Steps, Step{Action: StepAdopted, Kind: KindFile, Path: filepath.ToSlash(filepath.Join(appDir, "package.json"))})
+		return nil
+	}
+
+	pkg := fmt.Sprintf(`{
+  "name": %q,
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  }
+}
+`, name)
+
+	server := fmt.Sprintf(`// Minimal tainer starter — replace me by scaffolding your app, e.g.:
+//   tainer npm create vite@latest .
+//   tainer restart
+const http = require("http");
+const port = process.env.PORT || 3000;
+
+const page = `+"`"+`<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>%s · tainer</title></head>
+  <body style="font-family: system-ui, sans-serif; display: grid; place-items: center; min-height: 100vh; margin: 0;">
+    <main style="text-align: center;">
+      <h1>%s is running</h1>
+      <p>This is tainer's starter page. Scaffold your app over it:</p>
+      <pre style="text-align: left; display: inline-block;">tainer npm create vite@latest .
+tainer restart</pre>
+    </main>
+  </body>
+</html>
+`+"`"+`;
+
+http
+  .createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(page);
+  })
+  .listen(port, () => console.log("starter app listening on " + port));
+`, name, name)
+
+	for _, f := range []struct{ base, body string }{
+		{"package.json", pkg},
+		{"server.js", server},
+	} {
+		if err := os.WriteFile(filepath.Join(full, f.base), []byte(f.body), 0644); err != nil {
+			return err
+		}
+		res.Steps = append(res.Steps, Step{Action: StepCreated, Kind: KindFile, Path: filepath.ToSlash(filepath.Join(appDir, f.base))})
+	}
+	return nil
 }
