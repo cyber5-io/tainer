@@ -9,9 +9,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -162,6 +164,13 @@ func startDaemon(opts Options, socket string) error {
 		return err
 	}
 
+	// First run (or after a --purge) the runtime dir doesn't exist yet and
+	// the boot disk hasn't been provisioned into it — cyberstackd would then
+	// fail to open its log and to boot the VM. Do both before spawning.
+	if err := provisionRuntimeDir(bin, socket); err != nil {
+		return err
+	}
+
 	mode := opts.NetworkMode
 	if mode == "" {
 		m, err := network.ReadMode(network.DefaultModeFile())
@@ -195,6 +204,62 @@ func startDaemon(opts Options, socket string) error {
 		return fmt.Errorf("release cyberstackd: %w", err)
 	}
 	return nil
+}
+
+// provisionRuntimeDir makes sure the cyberstackd runtime dir (the socket's
+// parent, ~/.cyberstack) exists and holds the boot disk. The installer ships
+// the boot disk at <prefix>/share/cyberstack/cyberstack-<arch>.img (next to
+// the binary), while cyberstackd looks for <runtime-dir>/boot-<arch>.img (its
+// -boot-disk default). On a fresh or --purge'd install neither the dir nor
+// the disk exists; on a dev checkout the disk is a symlink into the cyberstack
+// repo, so we only copy when nothing is there.
+func provisionRuntimeDir(bin, socket string) error {
+	dir := filepath.Dir(socket)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create runtime dir %s: %w", dir, err)
+	}
+	boot := filepath.Join(dir, "boot-"+goruntime.GOARCH+".img")
+	if _, err := os.Stat(boot); err == nil {
+		return nil // already there (real file or dev symlink)
+	}
+	// Bundled disk sits at <prefix>/share/cyberstack, i.e. ../share/cyberstack
+	// relative to <prefix>/bin/cyberstackd.
+	src := filepath.Join(filepath.Dir(filepath.Dir(bin)),
+		"share", "cyberstack", "cyberstack-boot-"+goruntime.GOARCH+".img")
+	if _, err := os.Stat(src); err != nil {
+		// No bundled disk (e.g. a dev build outside the installer layout).
+		// Leave it: cyberstackd surfaces a clear boot-disk error itself.
+		return nil
+	}
+	if err := copyFile(src, boot); err != nil {
+		return fmt.Errorf("provision boot disk: %w", err)
+	}
+	return nil
+}
+
+// copyFile copies src to dst atomically (via a .partial temp + rename) so an
+// interrupted copy can't leave a half-written boot disk in place.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	tmp := dst + ".partial"
+	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, dst)
 }
 
 // rotateLog caps cyberstackd.log growth at daemon spawn: past the

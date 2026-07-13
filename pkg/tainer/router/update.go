@@ -10,27 +10,41 @@ import (
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 )
 
-// UpdateConfig regenerates the Caddyfile + sshpiper upstream files
-// from pods, writes them to host paths the router containers mount,
-// and reloads caddy via container exec (`caddy reload`). sshpiper's
-// workingdir plugin re-reads upstream files on every new SSH
-// connection — no reload needed.
-//
-// We use `caddy reload` over exec rather than caddy's admin HTTP API
-// because the admin port is host-unreachable in vmnet-helper mode:
-// DNAT to a 127.0.0.1-bound listener inside the container rewrites
-// the destination to the container's veth IP, which the listener
-// rejects. Exec-based reload sidesteps that entirely.
-func UpdateConfig(ctx context.Context, eng *engine.Client, pods []PodEndpoint) error {
+// WriteConfig regenerates the Caddyfile + sshpiper upstream files from pods
+// and writes them to the host paths the router containers bind-mount. It does
+// NOT reload caddy, so it can safely run BEFORE router.Ensure creates those
+// containers — which is required on a fresh install, since a bind mount whose
+// source file doesn't exist fails container start (crun can't stat it).
+func WriteConfig(pods []PodEndpoint) error {
+	if err := os.MkdirAll(config.RouterDir(), 0755); err != nil {
+		return fmt.Errorf("router: mkdir %s: %w", config.RouterDir(), err)
+	}
 	caddyContent := GenerateCaddyfileV2(pods, "/certs/tainer.me.crt", "/certs/tainer.me.key")
 	if err := os.WriteFile(config.CaddyfilePath(), []byte(caddyContent), 0644); err != nil {
 		return fmt.Errorf("router: write Caddyfile: %w", err)
 	}
-	if err := reloadCaddy(ctx, eng); err != nil {
-		return fmt.Errorf("router: reload caddy: %w", err)
-	}
 	if err := writeSSHPiperUpstreams(pods); err != nil {
 		return fmt.Errorf("router: sshpiper: %w", err)
+	}
+	return nil
+}
+
+// UpdateConfig writes the router config (see WriteConfig) then reloads caddy
+// via container exec (`caddy reload`) to apply changes on a running router.
+// sshpiper's workingdir plugin re-reads upstream files on every new SSH
+// connection, so it needs no reload.
+//
+// We use `caddy reload` over exec rather than caddy's admin HTTP API because
+// the admin port is host-unreachable in vmnet-helper mode: DNAT to a
+// 127.0.0.1-bound listener inside the container rewrites the destination to
+// the container's veth IP, which the listener rejects. Exec-based reload
+// sidesteps that entirely.
+func UpdateConfig(ctx context.Context, eng *engine.Client, pods []PodEndpoint) error {
+	if err := WriteConfig(pods); err != nil {
+		return err
+	}
+	if err := reloadCaddy(ctx, eng); err != nil {
+		return fmt.Errorf("router: reload caddy: %w", err)
 	}
 	return nil
 }

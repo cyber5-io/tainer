@@ -11,6 +11,7 @@ import (
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 	"github.com/cyber5-io/tainer/pkg/tainer/router"
+	"github.com/cyber5-io/tainer/pkg/tainer/ssh"
 	"github.com/docker/docker/api/types/container"
 	units "github.com/docker/go-units"
 )
@@ -56,7 +57,30 @@ type TCPSvcResult struct {
 // Start brings up a pod from the resolved manifest at opts.ManifestPath.
 // Idempotent: re-running on a partially-up pod recreates only what's
 // missing.
+// ensureHostSetup provisions the host-side files tainer needs before it can
+// bring a pod up. On a fresh (or --purge'd) install the ~/.config/tainer tree
+// and the SSH key material don't exist yet: the router containers bind-mount
+// the sshpiper host key + pod key, and router.UpdateConfig hard-fails without
+// tainer_rsa. These helpers all existed but were never wired into start — the
+// dev machine just always had the files. All are idempotent (no-op if present).
+func ensureHostSetup() error {
+	if err := config.EnsureDirs(); err != nil {
+		return fmt.Errorf("pod start: create config dirs: %w", err)
+	}
+	if err := ssh.EnsureKeyPair(config.PrivateKey(), config.PublicKey()); err != nil {
+		return fmt.Errorf("pod start: ssh key pair: %w", err)
+	}
+	if err := ssh.EnsureHostKey(config.SSHPiperHostKey()); err != nil {
+		return fmt.Errorf("pod start: sshpiper host key: %w", err)
+	}
+	return nil
+}
+
 func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartResult, error) {
+	if err := ensureHostSetup(); err != nil {
+		return nil, err
+	}
+
 	m, err := manifest.Load(opts.ManifestPath)
 	if err != nil {
 		return nil, err
@@ -146,6 +170,12 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 		return nil, err
 	}
 
+	// Seed the router config files (Caddyfile + sshpiper upstreams) BEFORE
+	// creating the router containers, which bind-mount them — a bind mount
+	// whose source doesn't exist fails container start on a fresh install.
+	if err := router.WriteConfig(endpoints); err != nil {
+		return nil, err
+	}
 	if err := router.Ensure(ctx, eng, router.ExtraHTTPPorts(endpoints)); err != nil {
 		return nil, err
 	}
