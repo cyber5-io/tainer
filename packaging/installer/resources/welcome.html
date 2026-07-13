@@ -33,15 +33,26 @@
   .tag { color: #5A6478; margin: 0 0 16px; }
   @media (prefers-color-scheme: dark) { .tag { color: #8A93A6; } }
 
-  /* --- terminal-style quickstart --- */
+  /* --- quickstart block. macOS Installer's welcome WebView forces the
+     system label colour on text (dark in light mode) while still painting
+     author backgrounds, so a dark box in light mode renders black-on-black
+     (invisible until selected). Keep the box background tied to the colour
+     scheme — light box in light mode, dark box in dark mode — so contrast
+     holds whether or not the author text colour is honoured. --- */
   .term {
     font-family: ui-monospace, "SF Mono", Menlo, monospace;
     font-size: 12px; line-height: 1.7;
-    background: #0A0E1A; color: #DCE6F8;
+    background: #EDEFF3; color: #1A1F2D;
+    border: 1px solid #D8DEE9;
     border-radius: 8px; padding: 12px 14px; margin: 10px 0 14px;
   }
-  .term .p { color: #00D4AA; }        /* prompt */
-  .term .c { color: #8A93A6; }        /* comment */
+  @media (prefers-color-scheme: dark) {
+    .term { background: #0A0E1A; color: #DCE6F8; border-color: #232A3A; }
+  }
+  .term .p { color: #009E80; font-weight: 600; }   /* prompt */
+  @media (prefers-color-scheme: dark) { .term .p { color: #00D4AA; } }
+  .term .c { color: #5A6478; }                      /* comment */
+  @media (prefers-color-scheme: dark) { .term .c { color: #8A93A6; } }
   a { color: #2563EB; text-decoration: none; }
   @media (prefers-color-scheme: dark) { a { color: #4E9EF4; } }
 </style>
