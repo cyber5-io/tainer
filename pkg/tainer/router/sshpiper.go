@@ -23,24 +23,15 @@ func AddSSHPiperEntry(baseDir, projectName, projectIP, privateKeyPath string) er
 		return fmt.Errorf("writing private key to sshpiper dir: %w", err)
 	}
 
-	// Create authorized_keys from user's SSH public keys
-	homeDir, _ := os.UserHomeDir()
-	sshDir := filepath.Join(homeDir, ".ssh")
-	var authorizedKeys []byte
-	pubKeyFiles := []string{"id_rsa.pub", "id_ecdsa.pub", "id_ed25519.pub"}
-	for _, f := range pubKeyFiles {
-		data, err := os.ReadFile(filepath.Join(sshDir, f))
-		if err == nil {
-			authorizedKeys = append(authorizedKeys, data...)
-			if len(data) > 0 && data[len(data)-1] != '\n' {
-				authorizedKeys = append(authorizedKeys, '\n')
-			}
-		}
+	// Create authorized_keys from the tainer public key (per-install key).
+	// Reconciled on every start via router.WriteConfig, so a regenerated key
+	// re-stamps every pod.
+	pubData, err := os.ReadFile(privateKeyPath + ".pub")
+	if err != nil {
+		return fmt.Errorf("reading tainer public key: %w", err)
 	}
-	if len(authorizedKeys) > 0 {
-		if err := os.WriteFile(filepath.Join(projectDir, "authorized_keys"), authorizedKeys, 0644); err != nil {
-			return fmt.Errorf("writing authorized_keys: %w", err)
-		}
+	if err := os.WriteFile(filepath.Join(projectDir, "authorized_keys"), pubData, 0644); err != nil {
+		return fmt.Errorf("writing authorized_keys: %w", err)
 	}
 
 	// sshpiper_upstream: plain text file with format [user@]host[:port]
