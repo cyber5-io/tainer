@@ -32,4 +32,11 @@ func TestWriteDropIn(t *testing.T) {
 	if !strings.Contains(string(b), "Host ssh.tainer.me") {
 		t.Errorf("drop-in content wrong:\n%s", b)
 	}
+	info, err := os.Stat(p)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if info.Mode().Perm() != 0644 {
+		t.Errorf("drop-in mode = %o, want 0644", info.Mode().Perm())
+	}
 }

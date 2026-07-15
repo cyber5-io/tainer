@@ -21,5 +21,10 @@ func ClientConfigContent(identityPath string) string {
 // WriteDropIn writes the client config stanza to path (0644, world-readable so
 // any user's ssh can read the system drop-in).
 func WriteDropIn(path, identityPath string) error {
-	return os.WriteFile(path, []byte(ClientConfigContent(identityPath)), 0644)
+	if err := os.WriteFile(path, []byte(ClientConfigContent(identityPath)), 0644); err != nil {
+		return err
+	}
+	// os.WriteFile only applies the mode on creation; enforce 0644 on
+	// pre-existing files too so the system drop-in stays world-readable.
+	return os.Chmod(path, 0644)
 }
