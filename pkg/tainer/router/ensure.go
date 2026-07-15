@@ -149,12 +149,12 @@ func remoteLoginActive() bool {
 	return exec.Command("launchctl", "print", "system/com.openssh.sshd").Run() == nil
 }
 
-// SSHHint returns the exact ssh command a user runs to reach a pod,
-// adapted to the host ssh port (see SSHHostPort).
+// SSHHint returns the exact command a user runs to reach a pod. The
+// `tainer ssh` wrapper selects the host ssh port itself (see sshArgs /
+// SSHHostPort), so the hint never carries a -p flag — emitting one here
+// would be both redundant and unparseable by cmdSSH (which treats the
+// first arg as the pod name).
 func SSHHint(name string) string {
-	if SSHHostPort() == 2222 {
-		return "tainer ssh -p 2222 " + name
-	}
 	return "tainer ssh " + name
 }
 
