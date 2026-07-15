@@ -153,9 +153,9 @@ func remoteLoginActive() bool {
 // adapted to the host ssh port (see SSHHostPort).
 func SSHHint(name string) string {
 	if SSHHostPort() == 2222 {
-		return "ssh -p 2222 " + name + "@ssh.tainer.me"
+		return "tainer ssh -p 2222 " + name
 	}
-	return "ssh " + name + "@ssh.tainer.me"
+	return "tainer ssh " + name
 }
 
 func ensureSSH(ctx context.Context, eng *engine.Client) error {

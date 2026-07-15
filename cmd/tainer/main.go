@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"sort"
@@ -35,6 +36,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"golang.org/x/term"
 
+	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/doctor"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/gitsetup"
@@ -91,6 +93,8 @@ func main() {
 		cmdDestroy(os.Args[2:])
 	case "exec":
 		cmdExec(os.Args[2:])
+	case "ssh":
+		cmdSSH(os.Args[2:])
 	case "list", "ls":
 		cmdList(os.Args[2:])
 	case "db":
@@ -2005,6 +2009,42 @@ func installTerminalRestoreOnSignal(restore func()) {
 		signal.Reset(syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 		os.Exit(130) // 128 + SIGINT (2) — matches shell convention
 	}()
+}
+
+// sshArgs builds the argv (excluding "ssh" itself) for the guaranteed
+// client path: -F /dev/null + -o IdentitiesOnly=yes + -i <identity>
+// makes the connection immune to whatever the user's own ~/.ssh/config
+// says, so it always reaches the pod through tainer's per-install key.
+// Port 2222 (macOS Remote Login conflict — see SSHHostPort) gets a
+// leading -p 2222.
+func sshArgs(pod, identityPath string, port int, extra []string) []string {
+	var a []string
+	if port == 2222 {
+		a = append(a, "-p", "2222")
+	}
+	a = append(a, "-F", "/dev/null", "-o", "IdentitiesOnly=yes", "-i", identityPath, pod+"@ssh.tainer.me")
+	return append(a, extra...)
+}
+
+// cmdSSH implements `tainer ssh <pod> [command...]` — a thin wrapper
+// around the system ssh binary using sshArgs, so it inherits real
+// terminal semantics (raw mode, window resize, signal forwarding) for
+// free instead of reimplementing them.
+func cmdSSH(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: tainer ssh <pod> [command...]")
+		os.Exit(2)
+	}
+	pod, extra := args[0], args[1:]
+	c := exec.Command("ssh", sshArgs(pod, config.PrivateKey(), router.SSHHostPort(), extra)...)
+	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := c.Run(); err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			os.Exit(ee.ExitCode())
+		}
+		fmt.Fprintf(os.Stderr, "tainer ssh: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 // cmdExecWrapper implements the typed shortcuts: `tainer wp plugin
