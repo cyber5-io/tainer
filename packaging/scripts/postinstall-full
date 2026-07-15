@@ -31,6 +31,19 @@ install -d -m 0755 -o root -g wheel /usr/local/bin
 ln -sf /opt/tainer/bin/tainer /usr/local/bin/tainer
 echo "postinstall-full: tainer CLI linked at /usr/local/bin/tainer"
 
+# 3b. tainer SSH client config: system-wide drop-in so bare
+#     `ssh <pod>@ssh.tainer.me` resolves to the tainer key for every user
+#     (including those with no ~/.ssh/config). `~` expands per connecting
+#     user; the per-user Include is managed by `tainer start`.
+install -d -m 0755 /etc/ssh/ssh_config.d
+cat > /etc/ssh/ssh_config.d/0-tainer.conf <<'EOF'
+Host ssh.tainer.me
+  IdentityFile ~/.config/tainer/keys/tainer_rsa
+  IdentitiesOnly yes
+EOF
+chmod 0644 /etc/ssh/ssh_config.d/0-tainer.conf
+echo "postinstall-full: tainer ssh_config.d drop-in installed"
+
 # 4. Tainer Menu — load the login agent for the current GUI user so the
 #    menu-bar app appears immediately (and at every login after). The
 #    installer runs as root; we target the logged-in console user's GUI

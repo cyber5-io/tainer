@@ -86,11 +86,11 @@ func ensureHostSetup() (bool, error) {
 
 // ensureClientSSHConfig points the user's ssh at the tainer key for
 // ssh.tainer.me. Best-effort and fail-soft: it must never abort a start.
-//   - per-user drop-in at ~/.cyberstack/0-tainer.conf + Include as line 1 of
-//     ~/.ssh/config (when that file exists)
-//   - system drop-in at /etc/ssh/ssh_config.d/0-tainer.conf (succeeds only with
-//     write access — e.g. installer/daemon context; the per-user path covers
-//     the rest)
+// It manages the per-user side only: the drop-in at
+// ~/.cyberstack/0-tainer.conf and the Include as line 1 of ~/.ssh/config
+// (when that file exists). The system-wide drop-in at
+// /etc/ssh/ssh_config.d/0-tainer.conf is installed by the package's
+// postinstall (root) — tainer start runs unprivileged and must not touch it.
 func ensureClientSSHConfig() {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -104,10 +104,6 @@ func ensureClientSSHConfig() {
 	sshCfg := filepath.Join(home, ".ssh", "config")
 	if err := ssh.EnsureUserConfigInclude(sshCfg, ssh.UserConfigIncludeLine); err != nil {
 		log.Printf("ssh client config: include in %s: %v", sshCfg, err)
-	}
-	sysDrop := filepath.Join("/etc/ssh/ssh_config.d", ssh.DropInName)
-	if err := ssh.WriteDropIn(sysDrop, ssh.ClientIdentityTilde); err != nil {
-		log.Printf("ssh client config: system drop-in skipped (%s): %v", sysDrop, err)
 	}
 }
 
