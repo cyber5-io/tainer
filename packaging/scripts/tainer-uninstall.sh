@@ -65,6 +65,16 @@ for p in io.cyber5.tainer io.cyber5.tainer.only io.cyber5.tainer.full io.cyber5.
     pkgutil --forget "$p" >/dev/null 2>&1 || true
 done
 
+echo "==> removing tainer SSH client config"
+# Remove tainer SSH client config (both drop-ins + the ~/.ssh/config include).
+rm -f /etc/ssh/ssh_config.d/0-tainer.conf
+rm -f "$CONSOLE_HOME/.cyberstack/0-tainer.conf"
+SSH_CFG="$CONSOLE_HOME/.ssh/config"
+if [ -f "$SSH_CFG" ]; then
+    grep -vF 'Include ~/.cyberstack/0-tainer.conf' "$SSH_CFG" > "$SSH_CFG.tainer-tmp" 2>/dev/null \
+        && mv "$SSH_CFG.tainer-tmp" "$SSH_CFG"
+fi
+
 if [ "$PURGE" -eq 1 ]; then
     echo "==> purging user state under $CONSOLE_HOME"
     rm -rf "$CONSOLE_HOME/.cyberstack" "$CONSOLE_HOME/.config/tainer"
