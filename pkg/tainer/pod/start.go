@@ -66,21 +66,22 @@ type TCPSvcResult struct {
 // the sshpiper host key + pod key, and router.UpdateConfig hard-fails without
 // tainer_rsa. These helpers all existed but were never wired into start — the
 // dev machine just always had the files. All are idempotent (no-op if present).
-func ensureHostSetup() error {
+func ensureHostSetup() (bool, error) {
 	if err := config.EnsureDirs(); err != nil {
-		return fmt.Errorf("pod start: create config dirs: %w", err)
+		return false, fmt.Errorf("pod start: create config dirs: %w", err)
 	}
-	if err := ssh.EnsureKeyPair(config.PrivateKey(), config.PublicKey()); err != nil {
-		return fmt.Errorf("pod start: ssh key pair: %w", err)
+	keyGenerated, err := ssh.EnsureKeyPair(config.PrivateKey(), config.PublicKey())
+	if err != nil {
+		return false, fmt.Errorf("pod start: ssh key pair: %w", err)
 	}
 	if err := ssh.EnsureHostKey(config.SSHPiperHostKey()); err != nil {
-		return fmt.Errorf("pod start: sshpiper host key: %w", err)
+		return false, fmt.Errorf("pod start: sshpiper host key: %w", err)
 	}
 	if err := ensureCerts(); err != nil {
-		return fmt.Errorf("pod start: tls certs: %w", err)
+		return false, fmt.Errorf("pod start: tls certs: %w", err)
 	}
 	ensureClientSSHConfig()
-	return nil
+	return keyGenerated, nil
 }
 
 // ensureClientSSHConfig points the user's ssh at the tainer key for
@@ -168,7 +169,8 @@ func copyFileMode(src, dst string, mode os.FileMode) error {
 }
 
 func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartResult, error) {
-	if err := ensureHostSetup(); err != nil {
+	keyGenerated, err := ensureHostSetup()
+	if err != nil {
 		return nil, err
 	}
 
@@ -236,6 +238,22 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 	if len(roles) == 0 || roles[0] != RoleWeb {
 		return nil, fmt.Errorf("pod start: leader must be %q, got roles=%v", RoleWeb, roles)
 	}
+
+	// If the tainer key was just (re)generated, existing pod containers still
+	// bind-mount the OLD pubkey at /etc/ssh/tainer_authorized_keys (mounts are
+	// fixed at create time; startContainer reuses a stopped container in place,
+	// so a stop/start would keep the stale mount). Remove them so the loop
+	// below recreates them fresh with the new key. Leader is recreated first,
+	// followers rejoin its netns — the existing create order handles that.
+	if keyGenerated {
+		for _, role := range roles {
+			name := ContainerName(m.Project.Name, role)
+			if err := eng.Remove(ctx, name, true); err != nil {
+				log.Printf("key rotation: remove %s: %v", name, err)
+			}
+		}
+	}
+
 	anyWork := false
 	for i, role := range roles {
 		var bindings []engine.PortMap

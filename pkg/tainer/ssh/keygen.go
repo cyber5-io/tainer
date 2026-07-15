@@ -11,36 +11,37 @@ import (
 )
 
 // EnsureKeyPair generates an Ed25519 SSH keypair if it doesn't exist.
-func EnsureKeyPair(privPath, pubPath string) error {
+// It returns true if a new key pair was generated, false if one already existed.
+func EnsureKeyPair(privPath, pubPath string) (bool, error) {
 	if _, err := os.Stat(privPath); err == nil {
-		return nil // already exists
+		return false, nil // already exists
 	}
 
 	pubKey, privKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		return fmt.Errorf("generating SSH key: %w", err)
+		return false, fmt.Errorf("generating SSH key: %w", err)
 	}
 
 	// Marshal private key to PEM
 	privBytes, err := ssh.MarshalPrivateKey(privKey, "")
 	if err != nil {
-		return fmt.Errorf("marshaling private key: %w", err)
+		return false, fmt.Errorf("marshaling private key: %w", err)
 	}
 	if err := os.WriteFile(privPath, pem.EncodeToMemory(privBytes), 0600); err != nil {
-		return fmt.Errorf("writing private key: %w", err)
+		return false, fmt.Errorf("writing private key: %w", err)
 	}
 
 	// Marshal public key to authorized_keys format
 	sshPub, err := ssh.NewPublicKey(pubKey)
 	if err != nil {
-		return fmt.Errorf("converting public key: %w", err)
+		return false, fmt.Errorf("converting public key: %w", err)
 	}
 	pubData := ssh.MarshalAuthorizedKey(sshPub)
 	if err := os.WriteFile(pubPath, pubData, 0644); err != nil {
-		return fmt.Errorf("writing public key: %w", err)
+		return false, fmt.Errorf("writing public key: %w", err)
 	}
 
-	return nil
+	return true, nil
 }
 
 // EnsureHostKey generates an Ed25519 host key if it doesn't exist.

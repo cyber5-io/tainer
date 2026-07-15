@@ -12,7 +12,7 @@ func TestEnsureKeyPair(t *testing.T) {
 	privPath := filepath.Join(dir, "tainer_rsa")
 	pubPath := filepath.Join(dir, "tainer_rsa.pub")
 
-	err := EnsureKeyPair(privPath, pubPath)
+	_, err := EnsureKeyPair(privPath, pubPath)
 	if err != nil {
 		t.Fatalf("EnsureKeyPair() error: %v", err)
 	}
@@ -51,5 +51,26 @@ func TestEnsureKeyPair_Idempotent(t *testing.T) {
 
 	if string(data1) != string(data2) {
 		t.Error("EnsureKeyPair() should not regenerate existing keys")
+	}
+}
+
+func TestEnsureKeyPairReportsGenerated(t *testing.T) {
+	dir := t.TempDir()
+	priv := filepath.Join(dir, "tainer_rsa")
+	pub := priv + ".pub"
+
+	gen, err := EnsureKeyPair(priv, pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gen {
+		t.Error("first call must report generated=true")
+	}
+	gen, err = EnsureKeyPair(priv, pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gen {
+		t.Error("second call must report generated=false (key already exists)")
 	}
 }
