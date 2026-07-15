@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -78,7 +79,35 @@ func ensureHostSetup() error {
 	if err := ensureCerts(); err != nil {
 		return fmt.Errorf("pod start: tls certs: %w", err)
 	}
+	ensureClientSSHConfig()
 	return nil
+}
+
+// ensureClientSSHConfig points the user's ssh at the tainer key for
+// ssh.tainer.me. Best-effort and fail-soft: it must never abort a start.
+//   - per-user drop-in at ~/.cyberstack/0-tainer.conf + Include as line 1 of
+//     ~/.ssh/config (when that file exists)
+//   - system drop-in at /etc/ssh/ssh_config.d/0-tainer.conf (succeeds only with
+//     write access — e.g. installer/daemon context; the per-user path covers
+//     the rest)
+func ensureClientSSHConfig() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Printf("ssh client config: home dir: %v", err)
+		return
+	}
+	userDrop := filepath.Join(home, ".cyberstack", ssh.DropInName)
+	if err := ssh.WriteDropIn(userDrop, ssh.ClientIdentityTilde); err != nil {
+		log.Printf("ssh client config: write %s: %v", userDrop, err)
+	}
+	sshCfg := filepath.Join(home, ".ssh", "config")
+	if err := ssh.EnsureUserConfigInclude(sshCfg, ssh.UserConfigIncludeLine); err != nil {
+		log.Printf("ssh client config: include in %s: %v", sshCfg, err)
+	}
+	sysDrop := filepath.Join("/etc/ssh/ssh_config.d", ssh.DropInName)
+	if err := ssh.WriteDropIn(sysDrop, ssh.ClientIdentityTilde); err != nil {
+		log.Printf("ssh client config: system drop-in skipped (%s): %v", sysDrop, err)
+	}
 }
 
 // ensureCerts provisions the *.tainer.me TLS cert+key into CertsDir on first
