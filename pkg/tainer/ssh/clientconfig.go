@@ -32,7 +32,8 @@ func WriteDropIn(path, identityPath string) error {
 
 // EnsureUserConfigInclude guarantees includeLine is the first non-empty line of
 // the ssh config at sshConfigPath, exactly once. If the file does not exist it
-// is a no-op (the system drop-in covers that case). Preserves the file's mode.
+// is a no-op (the system drop-in covers that case). Preserves the file's mode
+// and its newline style (LF or CRLF).
 func EnsureUserConfigInclude(sshConfigPath, includeLine string) error {
 	data, err := os.ReadFile(sshConfigPath)
 	if os.IsNotExist(err) {
@@ -42,19 +43,25 @@ func EnsureUserConfigInclude(sshConfigPath, includeLine string) error {
 		return fmt.Errorf("reading %s: %w", sshConfigPath, err)
 	}
 
+	content := string(data)
+	newline := "\n"
+	if strings.Contains(content, "\r\n") {
+		newline = "\r\n"
+	}
 	var kept []string
-	for _, ln := range strings.Split(string(data), "\n") {
+	for _, ln := range strings.Split(content, "\n") {
+		ln = strings.TrimRight(ln, "\r")
 		if strings.TrimSpace(ln) != includeLine {
 			kept = append(kept, ln)
 		}
 	}
-	// Drop a leading empty line so the include lands on line 1 cleanly.
+	// Drop leading empty lines so the include lands on line 1 cleanly.
 	for len(kept) > 0 && strings.TrimSpace(kept[0]) == "" {
 		kept = kept[1:]
 	}
-	rebuilt := includeLine + "\n" + strings.Join(kept, "\n")
+	rebuilt := includeLine + newline + strings.Join(kept, newline)
 
-	if string(data) == rebuilt {
+	if content == rebuilt {
 		return nil
 	}
 	mode := os.FileMode(0600)

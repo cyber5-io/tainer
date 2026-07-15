@@ -94,3 +94,37 @@ func TestEnsureUserConfigIncludeMovesToFirst(t *testing.T) {
 		t.Errorf("include must appear exactly once, got:\n%s", b)
 	}
 }
+
+func TestEnsureUserConfigIncludePreservesMode(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config")
+	os.WriteFile(p, []byte("Host *\n"), 0640)
+	if err := EnsureUserConfigInclude(p, UserConfigIncludeLine); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0640 {
+		t.Errorf("mode = %o, want 0640", info.Mode().Perm())
+	}
+}
+
+func TestEnsureUserConfigIncludeCRLFIdempotent(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config")
+	os.WriteFile(p, []byte("Host *\r\n  UseKeychain yes\r\n"), 0600)
+	if err := EnsureUserConfigInclude(p, UserConfigIncludeLine); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := os.ReadFile(p)
+	if err := EnsureUserConfigInclude(p, UserConfigIncludeLine); err != nil {
+		t.Fatal(err)
+	}
+	second, _ := os.ReadFile(p)
+	if string(first) != string(second) {
+		t.Errorf("not idempotent on CRLF:\nfirst=%q\nsecond=%q", first, second)
+	}
+	if !strings.HasPrefix(string(first), UserConfigIncludeLine) {
+		t.Errorf("include not first line: %q", first)
+	}
+}
