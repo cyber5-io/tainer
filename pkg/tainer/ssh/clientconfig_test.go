@@ -40,3 +40,57 @@ func TestWriteDropIn(t *testing.T) {
 		t.Errorf("drop-in mode = %o, want 0644", info.Mode().Perm())
 	}
 }
+
+func TestEnsureUserConfigIncludeMissingFileIsNoop(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config")
+	if err := EnsureUserConfigInclude(p, UserConfigIncludeLine); err != nil {
+		t.Fatalf("want nil for missing file, got %v", err)
+	}
+	if _, err := os.Stat(p); !os.IsNotExist(err) {
+		t.Error("missing config must stay missing (system drop-in covers it)")
+	}
+}
+
+func TestEnsureUserConfigIncludePrependsWhenAbsent(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config")
+	os.WriteFile(p, []byte("Host *\n  UseKeychain yes\n"), 0600)
+	if err := EnsureUserConfigInclude(p, UserConfigIncludeLine); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(p)
+	lines := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	if lines[0] != UserConfigIncludeLine {
+		t.Errorf("first line = %q, want include", lines[0])
+	}
+	if !strings.Contains(string(b), "UseKeychain yes") {
+		t.Error("original content must be preserved")
+	}
+}
+
+func TestEnsureUserConfigIncludeIdempotent(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config")
+	os.WriteFile(p, []byte(UserConfigIncludeLine+"\nHost *\n"), 0600)
+	if err := EnsureUserConfigInclude(p, UserConfigIncludeLine); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(p)
+	if strings.Count(string(b), UserConfigIncludeLine) != 1 {
+		t.Errorf("include must appear exactly once, got:\n%s", b)
+	}
+}
+
+func TestEnsureUserConfigIncludeMovesToFirst(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config")
+	os.WriteFile(p, []byte("Host *\n  IdentityFile ~/.ssh/x\n"+UserConfigIncludeLine+"\n"), 0600)
+	if err := EnsureUserConfigInclude(p, UserConfigIncludeLine); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(p)
+	lines := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	if lines[0] != UserConfigIncludeLine {
+		t.Errorf("include must be moved to first line, got first = %q", lines[0])
+	}
+	if strings.Count(string(b), UserConfigIncludeLine) != 1 {
+		t.Errorf("include must appear exactly once, got:\n%s", b)
+	}
+}

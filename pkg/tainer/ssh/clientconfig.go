@@ -3,6 +3,7 @@ package ssh
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 const (
@@ -27,4 +28,41 @@ func WriteDropIn(path, identityPath string) error {
 	// os.WriteFile only applies the mode on creation; enforce 0644 on
 	// pre-existing files too so the system drop-in stays world-readable.
 	return os.Chmod(path, 0644)
+}
+
+// EnsureUserConfigInclude guarantees includeLine is the first non-empty line of
+// the ssh config at sshConfigPath, exactly once. If the file does not exist it
+// is a no-op (the system drop-in covers that case). Preserves the file's mode.
+func EnsureUserConfigInclude(sshConfigPath, includeLine string) error {
+	data, err := os.ReadFile(sshConfigPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", sshConfigPath, err)
+	}
+
+	var kept []string
+	for _, ln := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(ln) != includeLine {
+			kept = append(kept, ln)
+		}
+	}
+	// Drop a leading empty line so the include lands on line 1 cleanly.
+	for len(kept) > 0 && strings.TrimSpace(kept[0]) == "" {
+		kept = kept[1:]
+	}
+	rebuilt := includeLine + "\n" + strings.Join(kept, "\n")
+
+	if string(data) == rebuilt {
+		return nil
+	}
+	mode := os.FileMode(0600)
+	if fi, statErr := os.Stat(sshConfigPath); statErr == nil {
+		mode = fi.Mode().Perm()
+	}
+	if err := os.WriteFile(sshConfigPath, []byte(rebuilt), mode); err != nil {
+		return fmt.Errorf("writing %s: %w", sshConfigPath, err)
+	}
+	return nil
 }
