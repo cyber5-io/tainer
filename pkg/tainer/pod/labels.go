@@ -29,6 +29,11 @@ const (
 	LabelPublishPrefix = "tainer.published."
 )
 
+// PodCgroup is the shared cgroup path for a project's pod. Every container
+// in the pod runs as a leaf under it; the parent carries the pod's aggregate
+// memory/CPU budget (smart pods).
+func PodCgroup(project string) string { return "tainer-" + project }
+
 // Role values.
 const (
 	RoleWeb     = "web"

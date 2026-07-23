@@ -85,3 +85,27 @@ func TestBuildMountsDBPostgres(t *testing.T) {
 		t.Errorf("postgres db mount: got %+v, want target /var/lib/postgresql/data", mounts)
 	}
 }
+
+func TestPodCgroupSettings(t *testing.T) {
+	m := mkPod(manifest.PodSizeSmall) // helper from split_test.go (same package)
+	memBytes, cpu, err := PodBudget(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := PodCgroup("demo")
+	for _, role := range []string{RoleWeb, RoleApp, RoleDB} {
+		parent, oom, res := podCgroupSettings("demo", role, memBytes, cpu)
+		if parent != want {
+			t.Errorf("%s CgroupParent = %q, want %q", role, parent, want)
+		}
+		if res.Memory != memBytes || res.NanoCPUs != int64(cpu*1e9) {
+			t.Errorf("%s resources = %d/%d, want %d/%d (pod budget)", role, res.Memory, res.NanoCPUs, memBytes, int64(cpu*1e9))
+		}
+		if role == RoleDB && oom >= 0 {
+			t.Errorf("db oomScoreAdj = %d, want negative (protect db)", oom)
+		}
+		if role != RoleDB && oom != 0 {
+			t.Errorf("%s oomScoreAdj = %d, want 0", role, oom)
+		}
+	}
+}

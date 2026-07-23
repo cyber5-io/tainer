@@ -48,6 +48,11 @@ type RunSpec struct {
 	Restart     string
 	Resources   container.Resources // memory + NanoCPUs
 	Labels      map[string]string
+	// Smart pods: all of a pod's containers share one cgroup parent that
+	// carries the pod's aggregate budget (Resources above conveys it; the
+	// engine applies it to the parent, not this container).
+	CgroupParent string
+	OomScoreAdj  int64 // OOM victim bias within the shared budget (db negative)
 }
 
 // Run creates a container per spec and (if Detach) starts it.
@@ -61,6 +66,10 @@ func (c *Client) Run(ctx context.Context, spec RunSpec) (string, error) {
 	cfg.Labels = spec.Labels
 	hostCfg := &container.HostConfig{}
 	hostCfg.Resources = spec.Resources
+	if spec.CgroupParent != "" {
+		hostCfg.CgroupParent = spec.CgroupParent
+		hostCfg.OomScoreAdj = int(spec.OomScoreAdj)
+	}
 	if spec.Restart != "" {
 		hostCfg.RestartPolicy = container.RestartPolicy{Name: container.RestartPolicyMode(spec.Restart)}
 	}

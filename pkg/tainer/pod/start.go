@@ -16,7 +16,6 @@ import (
 	"github.com/cyber5-io/tainer/pkg/tainer/router"
 	"github.com/cyber5-io/tainer/pkg/tainer/ssh"
 	"github.com/docker/docker/api/types/container"
-	units "github.com/docker/go-units"
 )
 
 // podCtx holds per-pod state that buildEnv / buildMounts / etc. need
@@ -191,7 +190,10 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 		}
 	}
 
-	split, err := Split(m)
+	// Smart pods: one absolute budget for the whole pod, enforced on a
+	// shared pod-level cgroup. Containers burst within it — no per-role
+	// splitting.
+	budgetMem, budgetCPU, err := PodBudget(m)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +261,7 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 		} else {
 			netMode = "container:" + leader
 		}
-		started, err := startContainer(ctx, eng, m, opts, pctx, role, podID, mhash, split[role], bindings, netMode)
+		started, err := startContainer(ctx, eng, m, opts, pctx, role, podID, mhash, budgetMem, budgetCPU, bindings, netMode)
 		if err != nil {
 			return nil, err
 		}
@@ -319,16 +321,32 @@ func buildLeaderPortBindings(m *manifest.Manifest, podID int) []engine.PortMap {
 	return out
 }
 
+// podCgroupSettings returns the shared-pod-cgroup values for a container:
+// the parent cgroup path, an OOM bias (db protected so a runaway app dies
+// first), and the pod-aggregate Resources — identical on every container.
+// The engine applies the budget to the parent cgroup, not the leaf, so the
+// pod's containers share and burst within one limit.
+func podCgroupSettings(project, role string, memBytes int64, cpuCores float64) (string, int64, container.Resources) {
+	var oom int64
+	if role == RoleDB {
+		oom = -500
+	}
+	return PodCgroup(project), oom, container.Resources{
+		Memory:   memBytes,
+		NanoCPUs: int64(cpuCores * 1e9),
+	}
+}
+
 // startContainer creates+starts one role's container. The leader gets
 // its own veth on cs0 (NetworkMode empty) and owns all PortBindings;
 // followers attach via NetworkMode=container:<leader>.
 func startContainer(
 	ctx context.Context, eng *engine.Client,
 	m *manifest.Manifest, opts StartOptions,
-	pctx *podCtx, role string, podID int, mhash string, lim Limits,
+	pctx *podCtx, role string, podID int, mhash string,
+	budgetMem int64, budgetCPU float64,
 	bindings []engine.PortMap, netMode string,
 ) (started bool, err error) {
-	memBytes, _ := units.RAMInBytes(lim.Memory)
 	envs := buildEnv(m, role, pctx)
 	mounts := buildMounts(m, opts.ProjectDir, role)
 
@@ -360,21 +378,21 @@ func startContainer(
 	if smokeImages() {
 		restartPolicy = "no"
 	}
+	parent, oom, res := podCgroupSettings(m.Project.Name, role, budgetMem, budgetCPU)
 	spec := engine.RunSpec{
-		Image:       ImageRef(m, role),
-		Name:        ContainerName(m.Project.Name, role),
-		NetworkMode: netMode,
-		Cmd:         smokeCmd(role),
-		Env:         envs,
-		Mounts:      mounts,
-		Ports:       bindings,
-		Detach:      true,
-		Restart:     restartPolicy,
-		Resources: container.Resources{
-			Memory:   memBytes,
-			NanoCPUs: int64(lim.CPU * 1e9),
-		},
-		Labels: labels,
+		Image:        ImageRef(m, role),
+		Name:         ContainerName(m.Project.Name, role),
+		NetworkMode:  netMode,
+		Cmd:          smokeCmd(role),
+		Env:          envs,
+		Mounts:       mounts,
+		Ports:        bindings,
+		Detach:       true,
+		Restart:      restartPolicy,
+		CgroupParent: parent,
+		OomScoreAdj:  oom,
+		Resources:    res,
+		Labels:       labels,
 	}
 
 	// Idempotent start: if a container with this name already exists
