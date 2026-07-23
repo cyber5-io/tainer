@@ -272,3 +272,18 @@ mounts:
 		t.Errorf("mounts not preserved across migration: %v", m.Mounts)
 	}
 }
+
+func TestPodCustomValidation(t *testing.T) {
+	ok := []byte("version: 2\nproject:\n  name: d\n  type: nodejs\n  domain: d.tainer.me\nruntime:\n  node: \"24\"\n  database: postgres\npod:\n  size: custom\n  memory: 3G\n  cpu: 4\n")
+	if _, err := ParseBytes(ok); err != nil {
+		t.Fatalf("valid custom rejected: %v", err)
+	}
+	missing := []byte("version: 2\nproject:\n  name: d\n  type: nodejs\n  domain: d.tainer.me\nruntime:\n  node: \"24\"\n  database: postgres\npod:\n  size: custom\n")
+	if _, err := ParseBytes(missing); err == nil {
+		t.Errorf("custom without memory/cpu should fail")
+	}
+	stray := []byte("version: 2\nproject:\n  name: d\n  type: nodejs\n  domain: d.tainer.me\nruntime:\n  node: \"24\"\n  database: postgres\npod:\n  size: medium\n  memory: 3G\n")
+	if _, err := ParseBytes(stray); err == nil {
+		t.Errorf("pod.memory on a preset size should fail")
+	}
+}

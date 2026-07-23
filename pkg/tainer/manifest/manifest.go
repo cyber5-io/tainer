@@ -128,7 +128,15 @@ type RuntimeConfig struct {
 }
 
 type PodConfig struct {
-	Size       PodSize                    `yaml:"size"`
+	Size PodSize `yaml:"size"`
+	// Smart pods: a size is one absolute budget shared by every container
+	// in the pod (enforced on a pod-level cgroup — containers burst within
+	// it). Memory/CPU are the pod totals for size: custom.
+	Memory string  `yaml:"memory,omitempty"` // custom: pod-total memory, e.g. "3G"
+	CPU    float64 `yaml:"cpu,omitempty"`    // custom: pod-total CPU cores
+	// Containers is the legacy per-container custom shape. Retained only so
+	// old manifests still parse; ParseBytes folds it into Memory/CPU and
+	// clears it. New writes never populate this.
 	Containers map[string]ContainerLimits `yaml:"containers,omitempty"`
 }
 
@@ -361,6 +369,14 @@ func (m *Manifest) validate() error {
 			case PodSizeNano, PodSizeSmall, PodSizeMedium, PodSizeLarge, PodSizeXLarge, PodSizeXXL, PodSizeCustom:
 			default:
 				return fmt.Errorf("invalid pod size: %q", m.Pod.Size)
+			}
+			// Smart pods: custom is a single pod-total budget.
+			if m.Pod.Size == PodSizeCustom {
+				if m.Pod.Memory == "" || m.Pod.CPU <= 0 {
+					return fmt.Errorf("pod.size=custom requires pod.memory and pod.cpu")
+				}
+			} else if m.Pod.Memory != "" || m.Pod.CPU != 0 {
+				return fmt.Errorf("pod.memory/pod.cpu only valid with size: custom")
 			}
 		}
 
