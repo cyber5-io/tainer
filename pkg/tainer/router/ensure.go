@@ -158,6 +158,16 @@ func SSHHint(name string) string {
 	return "tainer ssh " + name
 }
 
+// SSHBareHint returns the raw ssh command (no wrapper) to reach a pod, for
+// users who prefer plain ssh. Unlike the wrapper, bare ssh can't self-select
+// the host port, so -p is included when the host binds :2222.
+func SSHBareHint(name string) string {
+	if SSHHostPort() == 2222 {
+		return "ssh -p 2222 " + name + "@ssh.tainer.me"
+	}
+	return "ssh " + name + "@ssh.tainer.me"
+}
+
 func ensureSSH(ctx context.Context, eng *engine.Client) error {
 	sshPort := SSHHostPort()
 	insp, ierr := eng.Inspect(ctx, SSHContainerName)

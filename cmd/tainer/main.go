@@ -495,6 +495,7 @@ func runStatusProjectStyled(s projectStatusSnapshot) {
 			}
 		}
 		fmt.Println("    " + tui.MarkInfo() + router.SSHHint(s.Project))
+		fmt.Println("    " + tui.MarkInfo() + router.SSHBareHint(s.Project))
 	}
 
 	fmt.Println()
@@ -554,6 +555,7 @@ func runStatusProjectPlain(s projectStatusSnapshot) {
 			}
 		}
 		fmt.Println("  " + router.SSHHint(s.Project))
+		fmt.Println("  " + router.SSHBareHint(s.Project))
 	}
 }
 
@@ -718,6 +720,7 @@ func renderPodStatusStyled(p podStatus, muted lipgloss.Style) {
 			}
 		}
 		fmt.Println("      " + tui.MarkInfo() + router.SSHHint(p.Name))
+		fmt.Println("      " + tui.MarkInfo() + router.SSHBareHint(p.Name))
 	}
 }
 
@@ -1272,6 +1275,7 @@ func runStartStyled(ctx context.Context, manifestPath, projectDir, projectName s
 		fmt.Println("  " + tui.MarkInfo() + t.Host + " " + role)
 	}
 	fmt.Println("  " + tui.MarkInfo() + router.SSHHint(res.Pod))
+	fmt.Println("  " + tui.MarkInfo() + router.SSHBareHint(res.Pod))
 	if noApp {
 		fmt.Println("  " + tui.MarkWarn() + noAppHint)
 	} else if !siteReady {
@@ -1326,6 +1330,7 @@ func runStartPlain(ctx context.Context, manifestPath, projectDir, projectName st
 		fmt.Printf("  %s   # %s\n", t.Host, t.Role)
 	}
 	fmt.Println("  " + router.SSHHint(res.Pod))
+	fmt.Println("  " + router.SSHBareHint(res.Pod))
 }
 
 // runStartJSON emits the StartResult as JSON. Useful for scripts; the
@@ -1475,6 +1480,7 @@ func cmdRestart(args []string) {
 			fmt.Println("  " + tui.MarkInfo() + t.Host + " " + muted.Render("("+t.Role+")"))
 		}
 		fmt.Println("  " + tui.MarkInfo() + router.SSHHint(res.Pod))
+		fmt.Println("  " + tui.MarkInfo() + router.SSHBareHint(res.Pod))
 		if noApp {
 			fmt.Println("  " + tui.MarkWarn() + noAppHint)
 		} else if !siteReady {
