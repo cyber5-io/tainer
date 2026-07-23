@@ -38,12 +38,20 @@ func SecretsPath(project string) string {
 // LoadOrCreateSecrets returns the secrets for project, generating + persisting
 // them on first call. The DB name and user default to "tainer" — only the
 // passwords are randomised.
-func LoadOrCreateSecrets(project string) (*Secrets, error) {
-	return LoadOrCreateSecretsAt(SecretsPath(project), project)
+func LoadOrCreateSecrets(project, projectDir string) (*Secrets, error) {
+	return LoadOrCreateSecretsAt(SecretsPath(project), project, projectDir)
 }
 
 // LoadOrCreateSecretsAt is LoadOrCreateSecrets with an explicit path (for tests).
-func LoadOrCreateSecretsAt(path, project string) (*Secrets, error) {
+//
+// When no secret exists yet, it first tries to adopt DB credentials from the
+// project's .env (projectDir/.env). An old project (created before this
+// secrets store existed) already has its database initialized with the
+// passwords in its .env; minting fresh random ones here would never match that
+// on-disk DB and would lock the app out (auth failure the app reports as
+// "database not reachable"). Only a project with no adoptable .env creds — a
+// genuinely new one — gets freshly generated passwords.
+func LoadOrCreateSecretsAt(path, project, projectDir string) (*Secrets, error) {
 	s, err := loadSecrets(path)
 	if err == nil {
 		return s, nil
@@ -51,6 +59,19 @@ func LoadOrCreateSecretsAt(path, project string) (*Secrets, error) {
 	if !os.IsNotExist(err) {
 		return nil, err
 	}
+
+	// Adopt existing DB credentials from the project's .env if present and
+	// complete (loadSecrets requires both DB passwords). The .env uses the
+	// same KEY=value shape and key names as the secrets file.
+	if projectDir != "" {
+		if seeded, serr := loadSecrets(filepath.Join(projectDir, ".env")); serr == nil {
+			if err := writeSecrets(path, seeded); err != nil {
+				return nil, err
+			}
+			return seeded, nil
+		}
+	}
+
 	s = &Secrets{
 		DBName:         "tainer",
 		DBUser:         "tainer",

@@ -211,7 +211,7 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 	// don't read these env vars and writing the file pollutes ~).
 	var secrets *Secrets
 	if !smokeImages() {
-		secrets, err = LoadOrCreateSecrets(m.Project.Name)
+		secrets, err = LoadOrCreateSecrets(m.Project.Name, opts.ProjectDir)
 		if err != nil {
 			return nil, fmt.Errorf("pod start: load secrets: %w", err)
 		}

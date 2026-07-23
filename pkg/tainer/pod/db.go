@@ -14,7 +14,9 @@ import (
 // MariaDB pods and pg_dump for Postgres pods (Kompozi or any pod with
 // runtime.database=postgres).
 func DBExport(ctx context.Context, eng *engine.Client, podName string, m *manifest.Manifest, outPath string) error {
-	secrets, err := LoadOrCreateSecrets(podName)
+	// db export/import runs only after the pod has started, so the secret
+	// already exists — no project dir needed for adoption here.
+	secrets, err := LoadOrCreateSecrets(podName, "")
 	if err != nil {
 		return fmt.Errorf("load secrets for %s: %w", podName, err)
 	}
@@ -32,7 +34,9 @@ func DBExport(ctx context.Context, eng *engine.Client, podName string, m *manife
 // DBImport reads a dump from inPath and pipes it into the pod's
 // database container's restore command.
 func DBImport(ctx context.Context, eng *engine.Client, podName string, m *manifest.Manifest, inPath string) error {
-	secrets, err := LoadOrCreateSecrets(podName)
+	// db export/import runs only after the pod has started, so the secret
+	// already exists — no project dir needed for adoption here.
+	secrets, err := LoadOrCreateSecrets(podName, "")
 	if err != nil {
 		return fmt.Errorf("load secrets for %s: %w", podName, err)
 	}
