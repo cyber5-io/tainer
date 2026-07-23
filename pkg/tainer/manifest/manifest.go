@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	units "github.com/docker/go-units"
+
 	"github.com/cyber5-io/tainer/pkg/tainer/validate"
 	"gopkg.in/yaml.v3"
 )
@@ -272,6 +274,25 @@ func ParseBytes(data []byte) (*Manifest, error) {
 
 	// Apply defaults
 	m.defaults()
+
+	// Smart pods: fold the legacy per-container custom shape into the pod
+	// total. Defensive — no manifest in the wild uses it — but an old
+	// `size: custom` + `pod.containers` file must keep parsing.
+	if m.Pod != nil && m.Pod.Size == PodSizeCustom && m.Pod.Memory == "" && len(m.Pod.Containers) > 0 {
+		var totMem int64
+		var totCPU float64
+		for _, lim := range m.Pod.Containers {
+			b, err := units.RAMInBytes(lim.Memory)
+			if err != nil {
+				return nil, fmt.Errorf("pod.containers memory %q: %w", lim.Memory, err)
+			}
+			totMem += b
+			totCPU += lim.CPU
+		}
+		m.Pod.Memory = fmt.Sprintf("%dM", totMem/(1024*1024))
+		m.Pod.CPU = totCPU
+		m.Pod.Containers = nil
+	}
 
 	// Validate
 	if err := m.validate(); err != nil {

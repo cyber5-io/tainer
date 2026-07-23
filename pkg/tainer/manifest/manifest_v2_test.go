@@ -86,14 +86,16 @@ ports:
 	if m.Pod.Size != PodSizeCustom {
 		t.Errorf("expected pod size %q, got %q", PodSizeCustom, m.Pod.Size)
 	}
-	if len(m.Pod.Containers) != 3 {
-		t.Fatalf("expected 3 containers, got %d", len(m.Pod.Containers))
+	// Legacy per-container limits are folded into the pod total:
+	// 200M + 1G + 500M = 1724M, 0.3 + 1 + 0.5 = 1.8 cores.
+	if m.Pod.Memory != "1724M" {
+		t.Errorf("folded pod.memory = %q, want 1724M", m.Pod.Memory)
 	}
-	if m.Pod.Containers["app"].Memory != "1G" || m.Pod.Containers["app"].CPU != 1.0 {
-		t.Errorf("expected app {1G,1.0}, got %+v", m.Pod.Containers["app"])
+	if m.Pod.CPU != 1.8 {
+		t.Errorf("folded pod.cpu = %v, want 1.8", m.Pod.CPU)
 	}
-	if m.Pod.Containers["web"].CPU != 0.3 {
-		t.Errorf("expected web cpu 0.3, got %v", m.Pod.Containers["web"].CPU)
+	if m.Pod.Containers != nil {
+		t.Errorf("legacy containers should be cleared after fold, got %+v", m.Pod.Containers)
 	}
 }
 
