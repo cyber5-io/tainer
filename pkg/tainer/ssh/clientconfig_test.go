@@ -13,6 +13,7 @@ func TestClientConfigContent(t *testing.T) {
 		"Host ssh.tainer.me",
 		"IdentityFile ~/.config/tainer/keys/tainer_rsa",
 		"IdentitiesOnly yes",
+		"UpdateHostKeys no",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("content missing %q; got:\n%s", want, got)

@@ -10,6 +10,7 @@ func TestSSHArgsDefaultPort(t *testing.T) {
 	want := []string{
 		"-F", "/dev/null",
 		"-o", "IdentitiesOnly=yes",
+		"-o", "UpdateHostKeys=no",
 		"-i", "/keys/tainer_rsa",
 		"newnode@ssh.tainer.me",
 		"ls", "-la",

@@ -40,6 +40,7 @@ cat > /etc/ssh/ssh_config.d/0-tainer.conf <<'EOF'
 Host ssh.tainer.me
   IdentityFile ~/.config/tainer/keys/tainer_rsa
   IdentitiesOnly yes
+  UpdateHostKeys no
 EOF
 chmod 0644 /etc/ssh/ssh_config.d/0-tainer.conf
 echo "postinstall-full: tainer ssh_config.d drop-in installed"

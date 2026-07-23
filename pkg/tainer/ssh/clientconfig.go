@@ -15,8 +15,11 @@ const (
 // ClientConfigContent returns the ssh_config stanza that points ssh.tainer.me
 // at the tainer key only. IdentitiesOnly drops unrelated agent keys so a loaded
 // agent can't exhaust the server's MaxAuthTries before the tainer key is tried.
+// UpdateHostKeys no skips OpenSSH's host-key rotation proof, which sshpiperd
+// answers with a malformed signature — harmless to the connection but it prints
+// a spurious "bad signature for RSA key" warning on every login.
 func ClientConfigContent(identityPath string) string {
-	return fmt.Sprintf("Host ssh.tainer.me\n  IdentityFile %s\n  IdentitiesOnly yes\n", identityPath)
+	return fmt.Sprintf("Host ssh.tainer.me\n  IdentityFile %s\n  IdentitiesOnly yes\n  UpdateHostKeys no\n", identityPath)
 }
 
 // WriteDropIn writes the client config stanza to path (0644, world-readable so

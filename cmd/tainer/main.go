@@ -2058,7 +2058,9 @@ func sshArgs(pod, identityPath string, port int, extra []string) []string {
 	if port == 2222 {
 		a = append(a, "-p", "2222")
 	}
-	a = append(a, "-F", "/dev/null", "-o", "IdentitiesOnly=yes", "-i", identityPath, pod+"@ssh.tainer.me")
+	// UpdateHostKeys=no skips sshpiperd's malformed host-key-rotation proof
+	// (a harmless-but-noisy "bad signature for RSA key" warning otherwise).
+	a = append(a, "-F", "/dev/null", "-o", "IdentitiesOnly=yes", "-o", "UpdateHostKeys=no", "-i", identityPath, pod+"@ssh.tainer.me")
 	return append(a, extra...)
 }
 
