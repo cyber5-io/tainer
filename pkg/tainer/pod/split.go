@@ -3,79 +3,44 @@ package pod
 import (
 	"fmt"
 
+	units "github.com/docker/go-units"
+
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 )
 
-// Limits is the per-container resource budget produced by Split.
-// Memory is the human-shorthand string (Docker SDK accepts it via
-// units.RAMInBytes); CPU is fractional cores (Docker NanoCPUs / 1e9).
-type Limits struct {
-	Memory string
-	CPU    float64
+// podBudgetTable maps a size preset to its absolute pod total. Smart pods:
+// a size names ONE budget shared by every container in the pod — enforced
+// on a pod-level cgroup, so any container can burst into budget its
+// siblings aren't using. How many containers the pod runs is irrelevant.
+var podBudgetTable = map[manifest.PodSize]struct {
+	mem string
+	cpu float64
+}{
+	manifest.PodSizeNano:   {"512M", 1},
+	manifest.PodSizeSmall:  {"1G", 1},
+	manifest.PodSizeMedium: {"2G", 2},
+	manifest.PodSizeLarge:  {"4G", 4},
+	manifest.PodSizeXLarge: {"8G", 6},
+	manifest.PodSizeXXL:    {"16G", 8},
 }
 
-// Split returns a role -> Limits map computed from the manifest's
-// pod.size preset and project type. Custom sizes pass through the
-// user's per-container overrides verbatim.
-func Split(m *manifest.Manifest) (map[string]Limits, error) {
+// PodBudget returns the pod's aggregate memory (bytes) and CPU (cores).
+// Presets come from podBudgetTable; custom reads pod.memory / pod.cpu.
+func PodBudget(m *manifest.Manifest) (memBytes int64, cpuCores float64, err error) {
 	if m.Pod == nil {
-		return nil, fmt.Errorf("pod: Split: manifest has no pod config")
+		return 0, 0, fmt.Errorf("pod: PodBudget: manifest has no pod config")
 	}
-	// allRoles drives the preset table lookup (table keyed by full-type
-	// container count); activeRoles drops db when the manifest declares
-	// no database. Anything not in active is omitted from the output —
-	// for presets the slot's budget is simply unused, for custom sizes
-	// we don't demand the user declare limits we'll never apply.
-	allRoles := RolesForType(m.Project.Type)
-	activeRoles := RolesForPod(m)
-	active := map[string]bool{}
-	for _, r := range activeRoles {
-		active[r] = true
-	}
-
 	if m.Pod.Size == manifest.PodSizeCustom {
-		out := make(map[string]Limits, len(activeRoles))
-		for _, r := range activeRoles {
-			lim, ok := m.Pod.Containers[r]
-			if !ok {
-				return nil, fmt.Errorf("pod.size=custom but pod.containers.%s is missing", r)
-			}
-			out[r] = Limits{Memory: lim.Memory, CPU: lim.CPU}
+		b, perr := units.RAMInBytes(m.Pod.Memory)
+		if perr != nil {
+			return 0, 0, fmt.Errorf("pod.memory %q: %w", m.Pod.Memory, perr)
 		}
-		return out, nil
+		return b, m.Pod.CPU, nil
 	}
-
-	tbl, ok := splitTable[len(allRoles)][m.Pod.Size]
+	e, ok := podBudgetTable[m.Pod.Size]
 	if !ok {
-		return nil, fmt.Errorf("no split for %d-container type at size %q", len(allRoles), m.Pod.Size)
+		return 0, 0, fmt.Errorf("unknown pod size %q", m.Pod.Size)
 	}
-	out := make(map[string]Limits, len(activeRoles))
-	for i, r := range allRoles {
-		if !active[r] {
-			continue
-		}
-		out[r] = tbl[i]
-	}
-	return out, nil
-}
-
-// splitTable[role_count][size] = []Limits indexed in role order
-// (web, app, db) for 3-container types or (web, db) for 2-container.
-var splitTable = map[int]map[manifest.PodSize][]Limits{
-	3: {
-		manifest.PodSizeNano:   {{"64M", 0.1}, {"320M", 0.25}, {"128M", 0.15}},
-		manifest.PodSizeSmall:  {{"128M", 0.25}, {"640M", 0.5}, {"256M", 0.25}},
-		manifest.PodSizeMedium: {{"256M", 0.5}, {"1280M", 1.0}, {"512M", 0.5}},
-		manifest.PodSizeLarge:  {{"512M", 1.0}, {"2560M", 2.0}, {"1G", 1.0}},
-		manifest.PodSizeXLarge: {{"1G", 1.0}, {"5G", 2.0}, {"2G", 1.0}},
-		manifest.PodSizeXXL:    {{"2G", 1.0}, {"10G", 6.0}, {"4G", 1.0}},
-	},
-	2: {
-		manifest.PodSizeNano:   {{"384M", 0.35}, {"128M", 0.15}},
-		manifest.PodSizeSmall:  {{"768M", 0.75}, {"256M", 0.25}},
-		manifest.PodSizeMedium: {{"1536M", 1.5}, {"512M", 0.5}},
-		manifest.PodSizeLarge:  {{"3G", 3.0}, {"1G", 1.0}},
-		manifest.PodSizeXLarge: {{"6G", 3.0}, {"2G", 1.0}},
-		manifest.PodSizeXXL:    {{"12G", 7.0}, {"4G", 1.0}},
-	},
+	b, _ := units.RAMInBytes(e.mem)
+	return b, e.cpu, nil
 }

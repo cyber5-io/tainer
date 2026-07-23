@@ -6,191 +6,61 @@ import (
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 )
 
-// memBytes converts our human shorthand back into raw bytes for the
-// add-up assertion. Match the format produced by formatBytes.
-func memBytes(s string) int64 {
-	switch s {
-	case "64M":
-		return 64 << 20
-	case "128M":
-		return 128 << 20
-	case "256M":
-		return 256 << 20
-	case "320M":
-		return 320 << 20
-	case "384M":
-		return 384 << 20
-	case "512M":
-		return 512 << 20
-	case "640M":
-		return 640 << 20
-	case "768M":
-		return 768 << 20
-	case "1280M":
-		return 1280 << 20
-	case "1536M":
-		return 1536 << 20
-	case "1G":
-		return 1 << 30
-	case "2G":
-		return 2 << 30
-	case "2560M":
-		return 2560 << 20
-	case "3G":
-		return 3 << 30
-	case "4G":
-		return 4 << 30
-	case "5G":
-		return 5 << 30
-	case "6G":
-		return 6 << 30
-	case "10G":
-		return 10 << 30
-	case "12G":
-		return 12 << 30
-	case "16G":
-		return 16 << 30
+func mkPod(size manifest.PodSize) *manifest.Manifest {
+	return &manifest.Manifest{
+		Version: 2,
+		Project: manifest.ProjectConfig{Name: "demo", Type: manifest.TypeNodeJS},
+		Runtime: manifest.RuntimeConfig{Node: "24", Database: manifest.DatabasePostgres},
+		Pod:     &manifest.PodConfig{Size: size},
 	}
-	return 0
 }
 
-func TestSplitWordPressSmallSums(t *testing.T) {
-	m := &manifest.Manifest{
-		Project: manifest.ProjectConfig{Type: manifest.TypeWordPress},
-		Pod:     &manifest.PodConfig{Size: manifest.PodSizeSmall},
+func TestPodBudgetPresets(t *testing.T) {
+	const miB = 1024 * 1024
+	cases := []struct {
+		size    manifest.PodSize
+		wantMem int64
+		wantCPU float64
+	}{
+		{manifest.PodSizeNano, 512 * miB, 1},
+		{manifest.PodSizeSmall, 1024 * miB, 1},
+		{manifest.PodSizeMedium, 2048 * miB, 2},
+		{manifest.PodSizeLarge, 4096 * miB, 4},
+		{manifest.PodSizeXLarge, 8192 * miB, 6},
+		{manifest.PodSizeXXL, 16384 * miB, 8},
 	}
-	split, err := Split(m)
+	for _, c := range cases {
+		mem, cpu, err := PodBudget(mkPod(c.size))
+		if err != nil {
+			t.Fatalf("%s: %v", c.size, err)
+		}
+		if mem != c.wantMem || cpu != c.wantCPU {
+			t.Errorf("%s: got %d/%v, want %d/%v", c.size, mem, cpu, c.wantMem, c.wantCPU)
+		}
+	}
+}
+
+func TestPodBudgetCustom(t *testing.T) {
+	m := mkPod(manifest.PodSizeCustom)
+	m.Pod.Memory = "3G"
+	m.Pod.CPU = 4
+	mem, cpu, err := PodBudget(m)
 	if err != nil {
-		t.Fatalf("Split: %v", err)
+		t.Fatalf("custom: %v", err)
 	}
-	var totalMem int64
-	var totalCPU float64
-	for _, c := range split {
-		totalMem += memBytes(c.Memory)
-		totalCPU += c.CPU
-	}
-	if want := int64(1 << 30); totalMem != want {
-		t.Errorf("WordPress small: total mem %d, want %d", totalMem, want)
-	}
-	if totalCPU != 1.0 {
-		t.Errorf("WordPress small: total cpu %v, want 1.0", totalCPU)
+	if mem != 3*1024*1024*1024 || cpu != 4 {
+		t.Errorf("custom: got %d/%v, want %d/4", mem, cpu, int64(3*1024*1024*1024))
 	}
 }
 
-func TestSplitReactNanoSums(t *testing.T) {
-	m := &manifest.Manifest{
-		Project: manifest.ProjectConfig{Type: manifest.TypeReact},
-		Pod:     &manifest.PodConfig{Size: manifest.PodSizeNano},
+func TestPodBudgetErrors(t *testing.T) {
+	if _, _, err := PodBudget(&manifest.Manifest{}); err == nil {
+		t.Errorf("nil pod config should error")
 	}
-	split, err := Split(m)
-	if err != nil {
-		t.Fatalf("Split: %v", err)
-	}
-	if len(split) != 2 {
-		t.Fatalf("React: want 2 containers, got %d", len(split))
-	}
-	var totalMem int64
-	for _, c := range split {
-		totalMem += memBytes(c.Memory)
-	}
-	if want := int64(512 << 20); totalMem != want {
-		t.Errorf("React nano: total mem %d, want %d", totalMem, want)
-	}
-}
-
-func TestSplitCustom(t *testing.T) {
-	m := &manifest.Manifest{
-		Project: manifest.ProjectConfig{Type: manifest.TypeWordPress},
-		Pod: &manifest.PodConfig{
-			Size: manifest.PodSizeCustom,
-			Containers: map[string]manifest.ContainerLimits{
-				"web": {Memory: "200M", CPU: 0.3},
-				"app": {Memory: "700M", CPU: 0.6},
-				"db":  {Memory: "300M", CPU: 0.3},
-			},
-		},
-	}
-	split, err := Split(m)
-	if err != nil {
-		t.Fatalf("Split: %v", err)
-	}
-	if split["app"].Memory != "700M" || split["app"].CPU != 0.6 {
-		t.Errorf("custom app: got %+v", split["app"])
-	}
-}
-
-func TestSplitCustomMissingRole(t *testing.T) {
-	m := &manifest.Manifest{
-		Project: manifest.ProjectConfig{Type: manifest.TypeWordPress},
-		Pod: &manifest.PodConfig{
-			Size: manifest.PodSizeCustom,
-			Containers: map[string]manifest.ContainerLimits{
-				"web": {Memory: "200M", CPU: 0.3},
-				// missing "app" and "db"
-			},
-		},
-	}
-	_, err := Split(m)
-	if err == nil {
-		t.Fatal("want error for missing custom role, got nil")
-	}
-}
-
-func TestSplitNodeNoDatabase(t *testing.T) {
-	m := &manifest.Manifest{
-		Project: manifest.ProjectConfig{Type: manifest.TypeNodeJS},
-		Runtime: manifest.RuntimeConfig{Database: manifest.DatabaseNone},
-		Pod:     &manifest.PodConfig{Size: manifest.PodSizeSmall},
-	}
-	split, err := Split(m)
-	if err != nil {
-		t.Fatalf("Split: %v", err)
-	}
-	if _, hasDB := split["db"]; hasDB {
-		t.Error("db role should not be in split for database:none")
-	}
-	// web + app keep their preset budgets unchanged.
-	if split["web"].Memory != "128M" || split["app"].Memory != "640M" {
-		t.Errorf("expected web=128M app=640M, got %+v", split)
-	}
-}
-
-func TestSplitReactNoDatabaseDropsDB(t *testing.T) {
-	m := &manifest.Manifest{
-		Project: manifest.ProjectConfig{Type: manifest.TypeReact},
-		Runtime: manifest.RuntimeConfig{Database: manifest.DatabaseNone},
-		Pod:     &manifest.PodConfig{Size: manifest.PodSizeNano},
-	}
-	split, err := Split(m)
-	if err != nil {
-		t.Fatalf("Split: %v", err)
-	}
-	if len(split) != 1 {
-		t.Errorf("expected 1 entry (web only), got %d: %+v", len(split), split)
-	}
-	if split["web"].Memory != "384M" {
-		t.Errorf("expected web=384M (preset stays), got %+v", split["web"])
-	}
-}
-
-func TestSplitCustomNoDatabaseSkipsDBLimits(t *testing.T) {
-	m := &manifest.Manifest{
-		Project: manifest.ProjectConfig{Type: manifest.TypeNodeJS},
-		Runtime: manifest.RuntimeConfig{Database: manifest.DatabaseNone},
-		Pod: &manifest.PodConfig{
-			Size: manifest.PodSizeCustom,
-			Containers: map[string]manifest.ContainerLimits{
-				"web": {Memory: "200M", CPU: 0.3},
-				"app": {Memory: "700M", CPU: 0.6},
-				// no "db" entry — should not be required
-			},
-		},
-	}
-	split, err := Split(m)
-	if err != nil {
-		t.Fatalf("Split: %v", err)
-	}
-	if _, hasDB := split["db"]; hasDB {
-		t.Error("db role should not be in split for database:none + custom")
+	bad := mkPod(manifest.PodSizeCustom)
+	bad.Pod.Memory = "not-a-size"
+	bad.Pod.CPU = 1
+	if _, _, err := PodBudget(bad); err == nil {
+		t.Errorf("unparseable custom memory should error")
 	}
 }
