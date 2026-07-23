@@ -1203,6 +1203,44 @@ func runInitJSON(opts initcmd.Options) {
 
 // cmdStart locates the manifest (cwd or ~/projects/<name>), starts
 // cyberstackd if needed, and calls pod.Start.
+// resolveStartTarget locates a project's manifest (by cwd or name) and ensures
+// it is registered, returning the manifest path, project dir, and name. Shared
+// by `start` and `restart` so the registry backfill cannot drift between them:
+// restart is stop + start, and both must register a cwd-resolved project.
+func resolveStartTarget(args []string) (manifestPath, projectDir, projectName string) {
+	var err error
+	manifestPath, projectDir, err = locateManifest(args)
+	must(err)
+	m, err := manifest.Load(manifestPath)
+	must(err)
+	projectName = m.Project.Name
+
+	// Backfill the registry for cwd-resolved projects that reached start
+	// without an init here — a `git clone` + `tainer start`, or a project
+	// created before the registry existed. `tainer init` registers on
+	// scaffold, but start/restart must too, or `tainer list` and name
+	// lookups (`tainer start <name>`, exec, `status <name>`) never see the
+	// project. Re-ports the legacy TAIN-76 auto-init-on-start behaviour.
+	// Best effort: a name conflict with a different live project is non-fatal.
+	if _, ok := registry.Get(projectName); !ok {
+		if err := registry.Add(projectName, projectDir, string(m.Project.Type), m.Project.Domain); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: register %q: %v\n", projectName, err)
+		}
+	}
+
+	// Persist a legacy v1 manifest to its canonical v2 form on disk, once, so
+	// the in-memory migration stops re-running on every load. Best effort and
+	// stderr-only (never corrupts --json output); a failure must not block the
+	// start/restart. Only these mutating commands persist — read-only loads
+	// (status, list, the menu app) must leave the file untouched.
+	if migrated, err := manifest.PersistV2Migration(manifestPath); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: migrate %s to v2: %v\n", manifestPath, err)
+	} else if migrated {
+		fmt.Fprintf(os.Stderr, "migrated %s to manifest v2 (original saved to %s.v1.bak)\n", manifestPath, manifestPath)
+	}
+	return manifestPath, projectDir, projectName
+}
+
 func cmdStart(args []string) {
 	flags, rest := tui.ParseOutputFlags(args)
 	mode := flags.Resolve(false) // no TUI variant for start
@@ -1212,11 +1250,7 @@ func cmdStart(args []string) {
 	ctx, cancel := ctxWithTimeout(10 * time.Minute)
 	defer cancel()
 
-	manifestPath, projectDir, err := locateManifest(rest)
-	must(err)
-	m, err := manifest.Load(manifestPath)
-	must(err)
-	projectName := m.Project.Name
+	manifestPath, projectDir, projectName := resolveStartTarget(rest)
 
 	switch mode {
 	case tui.ModeJSON:
@@ -1416,11 +1450,7 @@ func cmdRestart(args []string) {
 	ctx, cancel := ctxWithTimeout(10 * time.Minute)
 	defer cancel()
 
-	manifestPath, projectDir, err := locateManifest(rest)
-	must(err)
-	m, err := manifest.Load(manifestPath)
-	must(err)
-	projectName := m.Project.Name
+	manifestPath, projectDir, projectName := resolveStartTarget(rest)
 
 	stop := func() error {
 		eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
