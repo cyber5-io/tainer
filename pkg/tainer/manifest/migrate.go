@@ -13,6 +13,10 @@ type v1Manifest struct {
 	Project ProjectConfig   `yaml:"project"`
 	Runtime v1RuntimeConfig `yaml:"runtime"`
 	Mounts  []string        `yaml:"mounts,omitempty"`
+	// Some version:1 manifests already carried a pod section (written by
+	// intermediate builds). Capture it so migration can preserve the size
+	// rather than discarding it.
+	Pod *PodConfig `yaml:"pod,omitempty"`
 }
 
 type v1RuntimeConfig struct {
@@ -48,8 +52,15 @@ func migrateV1Impl(m *Manifest, raw []byte) error {
 		BuildDir:  v1.Runtime.BuildDir,
 	}
 	m.Mounts = v1.Mounts
-	// Default pod size for migrated manifests: small.
-	m.Pod = &PodConfig{Size: PodSizeSmall}
+	// Preserve an existing pod size (some version:1 manifests already carried
+	// a pod section); hardcoding small here silently downsized those projects
+	// and OOM-killed memory-hungry apps. Only default to small when the
+	// manifest genuinely had no pod size.
+	if v1.Pod != nil && v1.Pod.Size != "" {
+		m.Pod = v1.Pod
+	} else {
+		m.Pod = &PodConfig{Size: PodSizeSmall}
+	}
 	// v1 had no ports section. Leave m.Ports nil.
 	return nil
 }
