@@ -10,7 +10,7 @@ This branch is the fresh-build tainer 1.0.0, replacing the podman fork. The old 
 - **Engine**: CyberStack (separate repo at `/Users/lenineto/dev/cyber5-io/cyber-stack`, private). Tainer talks to `cyberstackd`'s Docker-compatible Unix socket; users never see "VM" or "engine" in the UX.
 - **Hypervisor**: Apple Virtualization.framework on macOS (via vfkit), wrapped by cyberstackd. Linux runs containers natively (no VM). Windows TBD.
 - **Jira project**: TAIN
-- **Current version target**: 1.0.0 (shipping from `dev/v1`). Smart pods (aggregate cgroup limits per pod, depends on cyberstack 0.5) are deferred to a later release.
+- **Current version target**: 1.2.0 (shipping from `dev/v1`, with CyberStack 0.7.0). 1.0.0 and 1.1.0 shipped internally. **Smart pods landed in 1.2.0**: a pod size is one absolute budget (nano 512M/1cpu … small 1G/1 … xxl 16G/8) enforced on a shared pod-level cgroup (`tainer-<project>`); containers run as limitless leaves that burst within it. Spec: `docs/superpowers/specs/2026-07-23-smart-pods-design.md`.
 
 ## Architecture
 
@@ -30,7 +30,7 @@ Host:
 
 ## Reference plan
 
-The rebuild is governed by [`docs/superpowers/specs/2026-04-23-tainer-rebuild-cyberstack-design.md`](./docs/superpowers/specs/2026-04-23-tainer-rebuild-cyberstack-design.md). It was briefly retargeted to 0.9.0 mid-rebuild (Step 8 design) but now **ships as 1.0.0** — the rebuild milestone itself. Smart pods (aggregate cgroup enforcement, requires cyberstack 0.5) are deferred to a later release (they were the original reason 1.0.0 was held back). CyberStack steps 1-4 have shipped (`v0.1.0` through `v0.4.0` — see status notes in the spec). Steps 5-12 are the tainer rebuild, now landing as 1.0.0; the smart-pods capstone (cyberstack 0.5) follows in a future tainer release.
+The rebuild is governed by [`docs/superpowers/specs/2026-04-23-tainer-rebuild-cyberstack-design.md`](./docs/superpowers/specs/2026-04-23-tainer-rebuild-cyberstack-design.md). It was briefly retargeted to 0.9.0 mid-rebuild (Step 8 design) but shipped as **1.0.0** — the rebuild milestone itself. CyberStack steps 1-4 shipped as `v0.1.0`–`v0.4.0` (see status notes in the spec); steps 5-12 landed as tainer 1.0.0. The smart-pods capstone — originally deferred pending engine support — **shipped in tainer 1.2.0 / CyberStack 0.7.0** (see the 2026-07-23 smart-pods spec + plan).
 
 Each milestone gets a plan in `docs/superpowers/plans/` written via the `superpowers:writing-plans` skill, executed via `superpowers:subagent-driven-development` or `superpowers:executing-plans`.
 
