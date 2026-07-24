@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+	<!-- Tainer Menu must ALWAYS install to /Applications. Without this,
+	     pkgbuild marks app bundles relocatable and Installer hunts for an
+	     existing copy by bundle ID via Spotlight — on the build machine it
+	     found the STAGED copy under dist/pkg-full-root and installed the
+	     app there (as root) instead of /Applications. -->
+	<dict>
+		<key>RootRelativeBundlePath</key>
+		<string>Applications/Tainer Menu.app</string>
+		<key>BundleIsRelocatable</key>
+		<false/>
+		<key>BundleIsVersionChecked</key>
+		<false/>
+		<key>BundleOverwriteAction</key>
+		<string>upgrade</string>
+	</dict>
+</array>
+</plist>

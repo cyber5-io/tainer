@@ -280,6 +280,7 @@ pkg-full: pkg-full-root
 		--identifier $(PKG_FULL_IDENTIFIER) \
 		--version $(VERSION) \
 		--install-location / \
+		--component-plist packaging/installer/pkg-full-components.plist \
 		$(PKG_FULL_OUT)
 	@echo "Built $(PKG_FULL_OUT) (unsigned)"
 
