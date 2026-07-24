@@ -45,6 +45,24 @@ EOF
 chmod 0644 /etc/ssh/ssh_config.d/0-tainer.conf
 echo "postinstall-full: tainer ssh_config.d drop-in installed"
 
+# 3c. Upgrade handover: stop any RUNNING engine stack so the next tainer
+#     command autostarts the freshly-installed cyberstackd (which also
+#     refreshes the user's boot disk — see provisionRuntimeDir). Without
+#     this an old daemon keeps serving the old engine until reboot.
+#     Graceful TERM only — cyberstackd shuts the VM down cleanly in ~2s;
+#     a KILL here can leave the guest's container storage mid-write.
+if pgrep -x cyberstackd >/dev/null 2>&1; then
+    pkill -TERM -x cyberstackd || true
+    for _i in 1 2 3 4 5 6 7 8 9 10; do
+        pgrep -x cyberstackd >/dev/null 2>&1 || break
+        sleep 1
+    done
+    # vfkit/gvproxy exit with the daemon; sweep any stragglers.
+    pkill -TERM -x vfkit 2>/dev/null || true
+    pkill -TERM -x gvproxy 2>/dev/null || true
+    echo "postinstall-full: stopped running engine (restarts on next tainer command)"
+fi
+
 # 4. Tainer Menu — load the login agent for the current GUI user so the
 #    menu-bar app appears immediately (and at every login after). The
 #    installer runs as root; we target the logged-in console user's GUI

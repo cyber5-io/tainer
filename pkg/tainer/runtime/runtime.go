@@ -207,32 +207,52 @@ func startDaemon(opts Options, socket string) error {
 }
 
 // provisionRuntimeDir makes sure the cyberstackd runtime dir (the socket's
-// parent, ~/.cyberstack) exists and holds the boot disk. The installer ships
-// the boot disk at <prefix>/share/cyberstack/cyberstack-<arch>.img (next to
-// the binary), while cyberstackd looks for <runtime-dir>/boot-<arch>.img (its
-// -boot-disk default). On a fresh or --purge'd install neither the dir nor
-// the disk exists; on a dev checkout the disk is a symlink into the cyberstack
-// repo, so we only copy when nothing is there.
+// parent, ~/.cyberstack) exists and holds the CURRENT boot disk. The installer
+// ships the boot disk at <prefix>/share/cyberstack/cyberstack-<arch>.img (next
+// to the binary), while cyberstackd looks for <runtime-dir>/boot-<arch>.img
+// (its -boot-disk default).
+//
+// Copy rules — this runs only from startDaemon, i.e. the daemon is down, so
+// replacing the disk is safe:
+//   - missing            → provision from the bundled disk.
+//   - dev symlink        → never touched (a dev checkout owns it).
+//   - bundled disk newer → refresh. Upgrades MUST replace the user's copy or
+//     a new daemon runs against the previous release's in-VM agent (a stale
+//     boot disk silently broke smart pods in testing). "Newer" is tracked by
+//     a provenance sidecar recording the bundled file's mtime+size at copy
+//     time; a pkg install rewrites the bundled file, changing its provenance.
 func provisionRuntimeDir(bin, socket string) error {
 	dir := filepath.Dir(socket)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create runtime dir %s: %w", dir, err)
 	}
 	boot := filepath.Join(dir, "boot-"+goruntime.GOARCH+".img")
-	if _, err := os.Stat(boot); err == nil {
-		return nil // already there (real file or dev symlink)
+	if fi, err := os.Lstat(boot); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return nil // dev symlink into a checkout — dev owns it
 	}
 	// Bundled disk sits at <prefix>/share/cyberstack, i.e. ../share/cyberstack
 	// relative to <prefix>/bin/cyberstackd.
 	src := filepath.Join(filepath.Dir(filepath.Dir(bin)),
 		"share", "cyberstack", "cyberstack-boot-"+goruntime.GOARCH+".img")
-	if _, err := os.Stat(src); err != nil {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
 		// No bundled disk (e.g. a dev build outside the installer layout).
-		// Leave it: cyberstackd surfaces a clear boot-disk error itself.
+		// Leave whatever is there: cyberstackd surfaces a clear boot-disk
+		// error itself if the disk is missing too.
 		return nil
+	}
+	provenance := fmt.Sprintf("%d:%d", srcInfo.ModTime().UnixNano(), srcInfo.Size())
+	marker := boot + ".src"
+	if _, err := os.Stat(boot); err == nil {
+		if prev, rerr := os.ReadFile(marker); rerr == nil && string(prev) == provenance {
+			return nil // disk present and provisioned from this exact bundle
+		}
 	}
 	if err := copyFile(src, boot); err != nil {
 		return fmt.Errorf("provision boot disk: %w", err)
+	}
+	if err := os.WriteFile(marker, []byte(provenance), 0o644); err != nil {
+		return fmt.Errorf("record boot disk provenance: %w", err)
 	}
 	return nil
 }
