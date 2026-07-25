@@ -150,3 +150,65 @@ func TestGenerateWithCredsSkipsExisting(t *testing.T) {
 		t.Errorf("existing .env must never be overwritten, got:\n%s", got)
 	}
 }
+
+// The app-dir .env (html/.env for node apps) carries ONLY database
+// connection settings — no root password, no tainer metadata. The root
+// .env remains the full project env.
+func TestGenerateAppEnvConnectionOnly(t *testing.T) {
+	m := &manifest.Manifest{
+		Version: 2,
+		Project: manifest.ProjectConfig{Name: "ops", Type: manifest.TypeNodeJS, Domain: "ops.tainer.me"},
+		Runtime: manifest.RuntimeConfig{Node: "24", Database: manifest.DatabasePostgres},
+	}
+	path := filepath.Join(t.TempDir(), ".env")
+	creds := DBCreds{Name: "opsdb", User: "opsuser", Password: "sekret123", RootPassword: "rootsekret"}
+	if err := GenerateAppEnv(m, path, creds); err != nil {
+		t.Fatalf("GenerateAppEnv: %v", err)
+	}
+	got, _ := os.ReadFile(path)
+	s := string(got)
+	for _, want := range []string{
+		"DB_HOST=127.0.0.1",
+		"DB_NAME=opsdb",
+		"DB_USER=opsuser",
+		"DB_PASSWORD=sekret123",
+		"DATABASE_URL=postgresql://opsuser:sekret123@127.0.0.1:",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("app .env missing %q\n---\n%s", want, s)
+		}
+	}
+	for _, forbid := range []string{"DB_ROOT_PASSWORD", "TAINER_DOMAIN", "POSTGRES_", "WP_", "PAYLOAD_"} {
+		if strings.Contains(s, forbid) {
+			t.Errorf("app .env must not contain %q (connection-only)\n---\n%s", forbid, s)
+		}
+	}
+}
+
+func TestGenerateAppEnvSkipsExistingAndNoDB(t *testing.T) {
+	m := &manifest.Manifest{
+		Version: 2,
+		Project: manifest.ProjectConfig{Name: "ops", Type: manifest.TypeNodeJS, Domain: "ops.tainer.me"},
+		Runtime: manifest.RuntimeConfig{Node: "24", Database: manifest.DatabasePostgres},
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".env")
+	if err := os.WriteFile(path, []byte("USER_OWNED=yes\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateAppEnv(m, path, DBCreds{Name: "n", User: "u", Password: "p"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != "USER_OWNED=yes\n" {
+		t.Errorf("existing app .env overwritten: %s", got)
+	}
+	// database: none → nothing to write, no file created.
+	m.Runtime.Database = manifest.DatabaseNone
+	empty := filepath.Join(dir, "nodb.env")
+	if err := GenerateAppEnv(m, empty, DBCreds{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(empty); err == nil {
+		t.Errorf("no-database project must not get an app .env")
+	}
+}

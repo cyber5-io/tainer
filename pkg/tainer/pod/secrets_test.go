@@ -122,6 +122,13 @@ func TestEnsureProjectEnv(t *testing.T) {
 				t.Errorf("%s must carry the pod's secrets, got:\n%s", p, b)
 			}
 		}
+		// html/.env is connection-only: no root password, no tainer metadata.
+		app, _ := os.ReadFile(filepath.Join(dir, "html", ".env"))
+		for _, forbid := range []string{"DB_ROOT_PASSWORD", "TAINER_DOMAIN"} {
+			if strings.Contains(string(app), forbid) {
+				t.Errorf("html/.env must not contain %s:\n%s", forbid, app)
+			}
+		}
 	})
 
 	t.Run("wordpress gets root env only", func(t *testing.T) {

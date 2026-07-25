@@ -175,7 +175,7 @@ func ensureProjectEnv(m *manifest.Manifest, projectDir string, s *Secrets) error
 	}
 	if m.IsNode() {
 		appEnv := filepath.Join(projectDir, m.HostAppDir(), ".env")
-		if err := env.GenerateWithCreds(m, appEnv, creds); err != nil {
+		if err := env.GenerateAppEnv(m, appEnv, creds); err != nil {
 			return fmt.Errorf("generate %s/.env: %w", m.HostAppDir(), err)
 		}
 	}
