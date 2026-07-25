@@ -21,8 +21,36 @@ func randomPassword(length int) string {
 	return string(b)
 }
 
-// Generate creates a .env file for the project. If the file already exists, it is not overwritten.
+// DBCreds carries the database identity a generated .env must agree with.
+// At init time these are freshly minted; at start time they MUST be the
+// pod's existing secrets — the database is already initialized with them,
+// so writing anything else would hand the app credentials that don't work.
+type DBCreds struct {
+	Name         string
+	User         string
+	Password     string
+	RootPassword string
+}
+
+// Generate creates a .env file for the project with freshly minted
+// credentials. Init-time path: `tainer start` later adopts these same creds
+// into the secrets store (pod.LoadOrCreateSecrets), keeping .env and the
+// database in agreement. If the file already exists, it is not overwritten.
 func Generate(m *manifest.Manifest, path string) error {
+	return GenerateWithCreds(m, path, DBCreds{
+		Name:         "tainer",
+		User:         "tainer",
+		Password:     randomPassword(32),
+		RootPassword: randomPassword(32),
+	})
+}
+
+// GenerateWithCreds creates a .env file for the project using the given DB
+// credentials. Start-time path (clone-then-start): a fresh clone has no .env
+// (it's gitignored), so pod start regenerates it from the pod's effective
+// secrets — same values the database container is initialized with. If the
+// file already exists, it is never overwritten (the user owns it).
+func GenerateWithCreds(m *manifest.Manifest, path string, creds DBCreds) error {
 	if _, err := os.Stat(path); err == nil {
 		return nil // file exists, skip
 	}
@@ -35,16 +63,14 @@ func Generate(m *manifest.Manifest, path string) error {
 	)
 
 	if m.HasDatabase() {
-		dbPassword := randomPassword(32)
-		rootPassword := randomPassword(32)
 		lines = append(lines,
 			"# Database (generic)",
 			"DB_HOST=127.0.0.1",
 			fmt.Sprintf("DB_PORT=%s", m.DBPort()),
-			"DB_NAME=tainer",
-			"DB_USER=tainer",
-			fmt.Sprintf("DB_PASSWORD=%s", dbPassword),
-			fmt.Sprintf("DB_ROOT_PASSWORD=%s", rootPassword),
+			fmt.Sprintf("DB_NAME=%s", creds.Name),
+			fmt.Sprintf("DB_USER=%s", creds.User),
+			fmt.Sprintf("DB_PASSWORD=%s", creds.Password),
+			fmt.Sprintf("DB_ROOT_PASSWORD=%s", creds.RootPassword),
 		)
 
 		// Native env vars for DB container initialization
@@ -52,18 +78,18 @@ func Generate(m *manifest.Manifest, path string) error {
 			lines = append(lines,
 				"",
 				"# MariaDB native vars",
-				"MYSQL_DATABASE=tainer",
-				"MYSQL_USER=tainer",
-				fmt.Sprintf("MYSQL_PASSWORD=%s", dbPassword),
-				fmt.Sprintf("MYSQL_ROOT_PASSWORD=%s", rootPassword),
+				fmt.Sprintf("MYSQL_DATABASE=%s", creds.Name),
+				fmt.Sprintf("MYSQL_USER=%s", creds.User),
+				fmt.Sprintf("MYSQL_PASSWORD=%s", creds.Password),
+				fmt.Sprintf("MYSQL_ROOT_PASSWORD=%s", creds.RootPassword),
 			)
 		} else if m.Runtime.Database == manifest.DatabasePostgres {
 			lines = append(lines,
 				"",
 				"# PostgreSQL native vars",
-				"POSTGRES_DB=tainer",
-				"POSTGRES_USER=tainer",
-				fmt.Sprintf("POSTGRES_PASSWORD=%s", dbPassword),
+				fmt.Sprintf("POSTGRES_DB=%s", creds.Name),
+				fmt.Sprintf("POSTGRES_USER=%s", creds.User),
+				fmt.Sprintf("POSTGRES_PASSWORD=%s", creds.Password),
 			)
 		}
 
@@ -76,7 +102,8 @@ func Generate(m *manifest.Manifest, path string) error {
 			}
 			lines = append(lines,
 				"",
-				fmt.Sprintf("DATABASE_URL=%s://tainer:%s@127.0.0.1:%s/tainer", scheme, dbPassword, m.DBPort()),
+				fmt.Sprintf("DATABASE_URL=%s://%s:%s@127.0.0.1:%s/%s",
+					scheme, creds.User, creds.Password, m.DBPort(), creds.Name),
 			)
 		}
 	}
@@ -100,21 +127,12 @@ func Generate(m *manifest.Manifest, path string) error {
 			"KOMPOZI_ADMIN_EMAIL=tainer@tainer.me",
 			"KOMPOZI_ADMIN_PASSWORD=tainer",
 		)
-		// PayloadCMS reads DATABASE_URI — add as alias of DATABASE_URL
+		// PayloadCMS reads DATABASE_URI — alias of DATABASE_URL.
 		if m.HasDatabase() {
-			dbPassword := ""
-			// Re-extract password from existing lines
-			for _, l := range lines {
-				if strings.HasPrefix(l, "DB_PASSWORD=") {
-					dbPassword = strings.TrimPrefix(l, "DB_PASSWORD=")
-					break
-				}
-			}
-			if dbPassword != "" {
-				lines = append(lines,
-					fmt.Sprintf("DATABASE_URI=postgresql://tainer:%s@127.0.0.1:%s/tainer", dbPassword, m.DBPort()),
-				)
-			}
+			lines = append(lines,
+				fmt.Sprintf("DATABASE_URI=postgresql://%s:%s@127.0.0.1:%s/%s",
+					creds.User, creds.Password, m.DBPort(), creds.Name),
+			)
 		}
 	}
 

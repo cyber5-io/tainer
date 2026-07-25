@@ -8,6 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/cyber5-io/tainer/pkg/tainer/env"
+	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 )
 
 // Secrets holds per-project credentials shared between containers in a pod.
@@ -141,6 +144,42 @@ func writeSecrets(path string, s *Secrets) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// ensureProjectEnv regenerates the project's gitignored .env files from the
+// pod's effective secrets. Clone-then-start: a fresh clone carries neither
+// the root .env nor (node apps) html/.env, so the app would boot with no DB
+// credentials even though the database initializes fine from the secrets
+// store. Regeneration MUST use the existing secrets — fresh random creds
+// would diverge from a DB already initialized with the store's values.
+//
+//   - root .env: always (secrets adoption + apps pointing --env-file there).
+//   - <app-dir>/.env: node-family only — dotenv/--env-file read the app's
+//     own directory. Docroot types (php/wordpress) never get one: html/ is
+//     web-served, and WP reads the injected container env instead.
+//
+// Existing files are never overwritten (env.GenerateWithCreds skips them);
+// the user owns any .env they've edited.
+func ensureProjectEnv(m *manifest.Manifest, projectDir string, s *Secrets) error {
+	if projectDir == "" || s == nil {
+		return nil
+	}
+	creds := env.DBCreds{
+		Name:         s.DBName,
+		User:         s.DBUser,
+		Password:     s.DBPassword,
+		RootPassword: s.DBRootPassword,
+	}
+	if err := env.GenerateWithCreds(m, filepath.Join(projectDir, ".env"), creds); err != nil {
+		return fmt.Errorf("generate .env: %w", err)
+	}
+	if m.IsNode() {
+		appEnv := filepath.Join(projectDir, m.HostAppDir(), ".env")
+		if err := env.GenerateWithCreds(m, appEnv, creds); err != nil {
+			return fmt.Errorf("generate %s/.env: %w", m.HostAppDir(), err)
+		}
+	}
+	return nil
 }
 
 // mustRandPassword returns a 24-char URL-safe random string. Panics on

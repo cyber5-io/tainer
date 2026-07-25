@@ -97,3 +97,56 @@ func TestGenerate_SkipsExisting(t *testing.T) {
 		t.Error("Generate() should not overwrite existing .env")
 	}
 }
+
+// Clone-then-start: the project .env must be reconstructible at start time
+// from the pod's EXISTING secrets — a fresh clone has no .env (gitignored),
+// and writing fresh random creds would diverge from a DB already initialized
+// with the secrets-store values.
+func TestGenerateWithCredsUsesProvidedValues(t *testing.T) {
+	m := &manifest.Manifest{
+		Version: 2,
+		Project: manifest.ProjectConfig{Name: "ops", Type: manifest.TypeNodeJS, Domain: "ops.tainer.me"},
+		Runtime: manifest.RuntimeConfig{Node: "24", Database: manifest.DatabasePostgres},
+	}
+	path := filepath.Join(t.TempDir(), ".env")
+	creds := DBCreds{Name: "opsdb", User: "opsuser", Password: "sekret123", RootPassword: "rootsekret"}
+	if err := GenerateWithCreds(m, path, creds); err != nil {
+		t.Fatalf("GenerateWithCreds: %v", err)
+	}
+	got, _ := os.ReadFile(path)
+	s := string(got)
+	for _, want := range []string{
+		"TAINER_DOMAIN=ops.tainer.me",
+		"DB_NAME=opsdb",
+		"DB_USER=opsuser",
+		"DB_PASSWORD=sekret123",
+		"DB_ROOT_PASSWORD=rootsekret",
+		"POSTGRES_DB=opsdb",
+		"POSTGRES_USER=opsuser",
+		"POSTGRES_PASSWORD=sekret123",
+		"DATABASE_URL=postgresql://opsuser:sekret123@127.0.0.1:",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf(".env missing %q\n---\n%s", want, s)
+		}
+	}
+}
+
+func TestGenerateWithCredsSkipsExisting(t *testing.T) {
+	m := &manifest.Manifest{
+		Version: 2,
+		Project: manifest.ProjectConfig{Name: "ops", Type: manifest.TypeNodeJS, Domain: "ops.tainer.me"},
+		Runtime: manifest.RuntimeConfig{Node: "24", Database: manifest.DatabasePostgres},
+	}
+	path := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(path, []byte("USER_OWNED=yes\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := GenerateWithCreds(m, path, DBCreds{Name: "n", User: "u", Password: "p", RootPassword: "r"}); err != nil {
+		t.Fatalf("GenerateWithCreds: %v", err)
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != "USER_OWNED=yes\n" {
+		t.Errorf("existing .env must never be overwritten, got:\n%s", got)
+	}
+}

@@ -217,6 +217,12 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 		if err != nil {
 			return nil, fmt.Errorf("pod start: load secrets: %w", err)
 		}
+		// Clone-then-start: regenerate gitignored .env files from the
+		// effective secrets so the app has working DB credentials. Never
+		// overwrites files the user already has.
+		if err := ensureProjectEnv(m, opts.ProjectDir, secrets); err != nil {
+			return nil, fmt.Errorf("pod start: %w", err)
+		}
 	}
 	pctx := &podCtx{
 		secrets: secrets,

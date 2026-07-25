@@ -3,7 +3,10 @@ package pod
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 )
 
 // An old project (pre-secrets-store) whose DB was already initialized carries
@@ -77,4 +80,96 @@ func TestLoadOrCreateSecrets_ExistingSecretIgnoresEnv(t *testing.T) {
 	if s.DBPassword != "already-here" {
 		t.Errorf("DBPassword = %q, want the pre-existing secret (env must not override)", s.DBPassword)
 	}
+}
+
+// Clone-then-start: a fresh clone has no .env (gitignored), so start must
+// regenerate it FROM the pod's effective secrets — the database is already
+// (or will be) initialized with those values. Node-family apps read .env
+// from their own dir (html/), so they get a copy there too; PHP/WordPress
+// must NOT (html/ is the web-served docroot).
+func TestEnsureProjectEnv(t *testing.T) {
+	newManifest := func(typ manifest.ProjectType, db manifest.DatabaseType) *manifest.Manifest {
+		m := &manifest.Manifest{
+			Version: 2,
+			Project: manifest.ProjectConfig{Name: "demo", Type: typ, Domain: "demo.tainer.me"},
+			Runtime: manifest.RuntimeConfig{Database: db},
+			Pod:     &manifest.PodConfig{Size: manifest.PodSizeSmall},
+		}
+		if m.IsNode() {
+			m.Runtime.Node = "24"
+		} else if m.IsPHP() {
+			m.Runtime.PHP = "8.4"
+		}
+		return m
+	}
+	secrets := &Secrets{DBName: "demo", DBUser: "demouser", DBPassword: "pw123", DBRootPassword: "rootpw"}
+
+	t.Run("nodejs gets root and html env from secrets", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, "html"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		m := newManifest(manifest.TypeNodeJS, manifest.DatabasePostgres)
+		if err := ensureProjectEnv(m, dir, secrets); err != nil {
+			t.Fatalf("ensureProjectEnv: %v", err)
+		}
+		for _, p := range []string{".env", "html/.env"} {
+			b, err := os.ReadFile(filepath.Join(dir, p))
+			if err != nil {
+				t.Fatalf("%s not generated: %v", p, err)
+			}
+			if !strings.Contains(string(b), "DB_PASSWORD=pw123") {
+				t.Errorf("%s must carry the pod's secrets, got:\n%s", p, b)
+			}
+		}
+	})
+
+	t.Run("wordpress gets root env only", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, "html"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		m := newManifest(manifest.TypeWordPress, manifest.DatabaseMariaDB)
+		if err := ensureProjectEnv(m, dir, secrets); err != nil {
+			t.Fatalf("ensureProjectEnv: %v", err)
+		}
+		if _, err := os.ReadFile(filepath.Join(dir, ".env")); err != nil {
+			t.Fatalf("root .env not generated: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "html", ".env")); err == nil {
+			t.Errorf("html/.env must NOT be written for docroot types")
+		}
+	})
+
+	t.Run("existing files are never overwritten", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, "html"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("MINE=1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		m := newManifest(manifest.TypeNodeJS, manifest.DatabasePostgres)
+		if err := ensureProjectEnv(m, dir, secrets); err != nil {
+			t.Fatalf("ensureProjectEnv: %v", err)
+		}
+		b, _ := os.ReadFile(filepath.Join(dir, ".env"))
+		if string(b) != "MINE=1\n" {
+			t.Errorf("root .env overwritten: %s", b)
+		}
+		// html/.env still generated (it was missing).
+		if _, err := os.Stat(filepath.Join(dir, "html", ".env")); err != nil {
+			t.Errorf("html/.env should be generated when missing: %v", err)
+		}
+	})
+
+	t.Run("nil secrets or empty dir is a no-op", func(t *testing.T) {
+		m := newManifest(manifest.TypeNodeJS, manifest.DatabasePostgres)
+		if err := ensureProjectEnv(m, "", secrets); err != nil {
+			t.Errorf("empty dir: %v", err)
+		}
+		if err := ensureProjectEnv(m, t.TempDir(), nil); err != nil {
+			t.Errorf("nil secrets: %v", err)
+		}
+	})
 }
