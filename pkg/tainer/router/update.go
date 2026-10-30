@@ -53,12 +53,26 @@ func UpdateConfig(ctx context.Context, eng *engine.Client, pods []PodEndpoint) e
 // running; when it is not (or cannot be inspected), it is a silent
 // no-op — callers like the cert refresher install files that caddy
 // picks up on its next start.
+//
+// --force is required here: a cert refresh changes only the mounted
+// cert files, and `caddy reload` no-ops when the Caddyfile itself is
+// unchanged, leaving the old cert live in memory (seen on the live
+// stack 2026-10-30). UpdateConfig doesn't need it because it always
+// rewrites the Caddyfile first.
 func ReloadCaddy(ctx context.Context, eng *engine.Client) error {
 	insp, err := eng.Inspect(ctx, WebContainerName)
 	if err != nil || insp.State == nil || !insp.State.Running {
 		return nil
 	}
-	return reloadCaddy(ctx, eng)
+	res, err := eng.Exec(ctx, WebContainerName,
+		[]string{"caddy", "reload", "--config", "/etc/caddy/Caddyfile", "--force"})
+	if err != nil {
+		return err
+	}
+	if res.ExitCode != 0 {
+		return fmt.Errorf("exit %d: %s", res.ExitCode, strings.TrimSpace(string(res.Stderr)))
+	}
+	return nil
 }
 
 func reloadCaddy(ctx context.Context, eng *engine.Client) error {
