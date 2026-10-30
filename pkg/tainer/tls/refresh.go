@@ -17,7 +17,7 @@ import (
 )
 
 // Fingerprint describes the cert currently published at the renewal
-// endpoint (certs.tainer.me). See the 2026-10-30 cert auto-renew spec.
+// endpoint (certs.tainer.dev). See the 2026-10-30 cert auto-renew spec.
 type Fingerprint struct {
 	SHA256    string    `json:"sha256"`
 	NotAfter  time.Time `json:"notAfter"`

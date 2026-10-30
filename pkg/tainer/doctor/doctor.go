@@ -352,7 +352,7 @@ func (d *run) checkEdge() {
 
 // checkTLS verifies the wildcard cert exists and isn't expired or
 // about to be. The cert renews automatically: the first engine command
-// of each day fetches a fresh one from certs.tainer.me (certsync), so
+// of each day fetches a fresh one from certs.tainer.dev (certsync), so
 // this check also surfaces that machinery's last attempt.
 func (d *run) checkTLS() {
 	d.start("tls")

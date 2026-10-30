@@ -27,6 +27,7 @@ The architecture was decided 2026-07-15 (Leni) and refined 2026-10-30:
 - A fetch failure or an unreachable endpoint that **blocks or delays a user's command** beyond a short timeout. Cert refresh is best-effort background hygiene.
 - The publish endpoint's own TLS depending on the wildcard cert it serves. If renewal breaks, clients must still be able to fetch the fix. (This coupling is exactly what bit us today.)
 - The bunny API key, or any ACME state, appearing in the tainer repo, binary, or a user machine.
+- The publish endpoint living under **any zone tainer's resolver captures**. tainer installs `/etc/resolver/tainer.me`, which sends the whole tainer.me zone to the local responder (127.0.0.1) on every user machine — an endpoint under tainer.me resolves to the user's own router and never reaches the real server (discovered live 2026-10-30; the original `certs.tainer.me` choice was moved to `certs.tainer.dev` for exactly this reason).
 
 ## Why the key being public is fine
 
@@ -35,7 +36,7 @@ The architecture was decided 2026-07-15 (Leni) and refined 2026-10-30:
 ## Architecture
 
 ```
-Cyber5 server (Enhance-hosted website, certs.tainer.me, own independent TLS cert)
+Cyber5 server (Enhance-hosted website, certs.tainer.dev, own independent TLS cert)
   lego (static binary, no Go toolchain) + daily cron as the website user
     --dns bunny (BUNNY_API_KEY env) → renews *.tainer.me at ~30 days left
     on renewal: copy PEMs into web root, regenerate fingerprint.json
@@ -49,7 +50,7 @@ tainer CLI (user machine, first engine command of the day)
 
 ### Server half (Leni deploys; this is the reference setup)
 
-A regular website `certs.tainer.me` on an existing Enhance server (**nginx**; no Caddy anywhere on this half). A specific A record overrides the wildcard's 127.0.0.1. The site's own TLS is **managed by Enhance itself** (its built-in LE HTTP-01 flow) — independent of, and never, the wildcard it publishes, so a wildcard-renewal failure can't lock clients out of the fix. The renewer needs nothing from nginx beyond static file serving from the docroot.
+A regular website `certs.tainer.dev` on an existing Enhance server (**nginx**; no Caddy anywhere on this half). A specific A record overrides the wildcard's 127.0.0.1. The site's own TLS is **managed by Enhance itself** (its built-in LE HTTP-01 flow) — independent of, and never, the wildcard it publishes, so a wildcard-renewal failure can't lock clients out of the fix. The renewer needs nothing from nginx beyond static file serving from the docroot.
 
 **No root, ever (hard constraint — the Enhance account has none).** Everything runs as the site user: the lego binary and its ACME state live in the user's home (`--path $HOME/.lego`), and publishing is a plain copy of the three files into the site's docroot. Nothing is installed into system cert stores, nginx config, or anywhere outside the user's home + docroot. There is no Go app on the server — the renewer is the static lego binary plus the cron script; the only Go code in this feature is the fetcher inside tainer on user machines.
 
@@ -117,7 +118,7 @@ Deploy-time checks (30 seconds each): Enhance per-site cron actually runs as the
 **Flow** (all best-effort; any failure → warn once, continue the user's command):
 
 1. `tls.CertExists` / `tls.CheckExpiry` on the installed cert. If the cert exists and is outside the 30-day renewal window (`renewalThresholdDays`, `pkg/tainer/tls/cert.go:13`), touch `.last-check` and stop — **no network at all** on the happy path, ~364 days a year.
-2. Otherwise GET `https://certs.tainer.me/tainer.me/fingerprint.json` (short timeout, ~5s). If its `sha256` equals the sha256 of the installed `fullchain.pem`, the server has nothing newer (renewal pending server-side): touch `.last-check`, stop.
+2. Otherwise GET `https://certs.tainer.dev/tainer.me/fingerprint.json` (short timeout, ~5s). If its `sha256` equals the sha256 of the installed `fullchain.pem`, the server has nothing newer (renewal pending server-side): touch `.last-check`, stop.
 3. Fetch `fullchain.pem` + `privkey.pem` to temp files in `CertsDir()`. Validate before install: PEM parses; leaf covers `*.tainer.me` and `tainer.me`; `NotAfter` is in the future and matches `fingerprint.json`; the private key pairs with the leaf's public key; downloaded fullchain's sha256 matches `fingerprint.json`.
 4. **Install by in-place write, never rename** (key `0600`, cert `0644`). Verified empirically on the live stack 2026-10-30: the router bind-mounts the cert/key as individual files (`router/ensure.go:263-264`), and renaming a new file over the source **permanently severs the mount inside the container** — the file reads "No such file or directory" in the container even after restoring the original bytes, and only a container stop/start heals it. In-place writes (`os.WriteFile` to the existing file) propagate into the container instantly and byte-exact, matching the Caddyfile-update precedent (`router/update.go`). The half-written-file window is harmless because caddy only reads cert files at reload: write the key fully, then the cert fully, **then** call `router.reloadCaddy` — and only if the router container is running. Validate the downloaded PEMs (step 3) strictly before touching the live files, since in-place writing forgoes atomicity. Touch `.last-check`.
 5. One user-visible line on success (`tainer: refreshed tainer.me certificate (valid to <date>)`); one warning per day on failure, never an error exit.
@@ -126,7 +127,7 @@ Deploy-time checks (30 seconds each): Enhance per-site cron actually runs as the
 
 **Existing code to build on**: `tls.CertExists`, `tls.CheckExpiry`, `tls.DownloadCert` (`pkg/tainer/tls/cert.go` — DownloadCert's comment says "GitHub Releases", a relic; repoint and add the validation step, which it currently lacks), `config.CertsDir()` (`pkg/tainer/config/paths.go:19`), `router.reloadCaddy` (`pkg/tainer/router/update.go:52`).
 
-**Base URL**: hardcoded const `https://certs.tainer.me/tainer.me/`, overridable via `TAINER_CERT_URL` env for testing (same pattern as the `CYBERSTACKD` dev override).
+**Base URL**: hardcoded const `https://certs.tainer.dev/tainer.me/`, overridable via `TAINER_CERT_URL` env for testing (same pattern as the `CYBERSTACKD` dev override).
 
 ## Decisions and their owners
 
@@ -135,7 +136,7 @@ Deploy-time checks (30 seconds each): Enhance per-site cron actually runs as the
 | Hosted renewer, tainer as dumb consumer, secrets server-side only | Leni (2026-07-15) |
 | DNS-01 via lego + bunny (wildcards require DNS-01; certbot has no bunny plugin) | Leni (2026-07-15) |
 | Public key+cert on an unauthenticated endpoint | Leni (2026-07-15) |
-| Endpoint is `certs.tainer.me`, a regular website on an Enhance server, with its own independent cert | Leni (2026-10-30) |
+| Endpoint is `certs.tainer.dev`, a regular website on an Enhance server, with its own independent cert | Leni (2026-10-30) |
 | Daily check on first engine command; expiry check gates all network | Leni (2026-07-15, reaffirmed 2026-10-30) |
 | lego **CLI** (static binary) rather than lego-as-library custom app | Claude (Enhance constraint: no Go toolchain, no root needed) |
 | Per-cert directory layout (`/tainer.me/…`) for future certs | Claude |
@@ -149,4 +150,4 @@ Deploy-time checks (30 seconds each): Enhance per-site cron actually runs as the
 - Whether `.last-check` also records the last outcome for doctor (a one-line JSON is fine).
 - Pkg interplay: the .pkg continues to bundle whatever cert is current at build time (`TAINER_CERT_DIR` in the Makefile); first daily check upgrades it if stale. No installer changes expected.
 - TAIN Tracker task for this work (create via the ops tracker API at plan time — the Tracker, not Jira; see "Task tracker" in CLAUDE.md for the endpoint, auth, and read path).
-- Release sequencing: `certs.tainer.me` must be live and serving a fresh cert before 1.2.4 is tagged — the .pkg build itself bundles the current cert via `TAINER_CERT_DIR`, and field certs are already expired. The plan gets an explicit verification gate on the endpoint.
+- Release sequencing: `certs.tainer.dev` must be live and serving a fresh cert before 1.2.4 is tagged — the .pkg build itself bundles the current cert via `TAINER_CERT_DIR`, and field certs are already expired. The plan gets an explicit verification gate on the endpoint.

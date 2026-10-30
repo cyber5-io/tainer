@@ -19,7 +19,12 @@ import (
 
 // DefaultBaseURL is where the Cyber5 renewer publishes the wildcard
 // cert. Override with TAINER_CERT_URL for testing.
-const DefaultBaseURL = "https://certs.tainer.me/tainer.me/"
+//
+// The endpoint host must live OUTSIDE tainer.me: tainer's own
+// /etc/resolver/tainer.me sends that whole zone to the local responder
+// (127.0.0.1), so an endpoint under it would resolve to the user's own
+// router on every tainer machine and never reach the real server.
+const DefaultBaseURL = "https://certs.tainer.dev/tainer.me/"
 
 const checkInterval = 24 * time.Hour
 
