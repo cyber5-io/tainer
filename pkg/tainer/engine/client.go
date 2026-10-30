@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/docker/docker/api/types/container"
@@ -20,16 +19,6 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 )
-
-// DefaultSocketPath is where cyberstackd listens by default. It mirrors
-// cmd/cyberstackd/main.go's defaultPath("cyberstack.sock").
-func DefaultSocketPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".cyberstack", "cyberstack.sock")
-}
 
 // Client is a thin wrapper around the official Docker Go SDK pinned to
 // cyberstackd's Unix socket. The wrapper exists so higher layers don't

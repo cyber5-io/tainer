@@ -129,6 +129,7 @@ func Run(ctx context.Context, opts Options) Report {
 	d.checkAgent(ctx, eng)
 	d.checkNetworkMode()
 	d.checkRouter(ctx, eng)
+	d.checkPorts()
 	d.checkEdge()
 	d.checkTLS()
 	d.checkDNS(ctx)
@@ -182,6 +183,10 @@ func (d *run) checkDaemon(ctx context.Context) *engine.Client {
 	} else if d.opts.Fix {
 		eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
 		if err != nil {
+			if detail, hint, ok := platformDaemonDiag(st.Socket); ok {
+				d.add(Result{Name: "daemon", Status: StatusFail, Detail: detail, Hint: hint})
+				return nil
+			}
 			d.add(Result{Name: "daemon", Status: StatusFail,
 				Detail: "not reachable and auto-start failed: " + err.Error(),
 				Hint:   "check `cyberstackd` is installed at /opt/tainer/bin or on $PATH"})
@@ -196,6 +201,10 @@ func (d *run) checkDaemon(ctx context.Context) *engine.Client {
 			// Process alive but socket dead — the historic vsock-wedge
 			// signature. Worth calling out distinctly.
 			detail = fmt.Sprintf("process alive (pid %d) but socket not answering", st.PID)
+		}
+		if pd, ph, ok := platformDaemonDiag(st.Socket); ok {
+			d.add(Result{Name: "daemon", Status: StatusFail, Detail: pd, Hint: ph})
+			return nil
 		}
 		d.add(Result{Name: "daemon", Status: StatusFail, Detail: detail,
 			Hint: "run `tainer doctor --fix` (or any `tainer start`) to bring it up"})

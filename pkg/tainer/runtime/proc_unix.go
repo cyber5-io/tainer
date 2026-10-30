@@ -25,8 +25,3 @@ func SignalKill(pid int) error {
 func detachAttr() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{Setsid: true}
 }
-
-// canSpawnDaemon reports whether this OS can host the tainer engine.
-func canSpawnDaemon() error {
-	return nil
-}

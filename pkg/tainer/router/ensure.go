@@ -3,11 +3,11 @@ package router
 import (
 	"context"
 	"fmt"
-	"os/exec"
-	"runtime"
+	"net"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
@@ -119,34 +119,74 @@ func isNotFoundErr(err error) bool {
 }
 
 var (
-	sshPortOnce sync.Once
-	sshPortVal  int
+	sshPortMu  sync.Mutex
+	sshPortVal int
+	sshPortSet bool
 )
 
 // SSHHostPort is the host TCP port the ssh router publishes. Normally 22,
 // so `ssh <pod>@ssh.tainer.me` connects with no -p flag — the whole point
-// of the router. On macOS with Remote Login enabled the system sshd
-// already owns :22, so we fall back to 2222 (`ssh -p 2222 …`). The choice
-// is stable for the process lifetime (Remote Login can't toggle mid-run).
+// of the router. When the host's own sshd already owns :22 (macOS Remote
+// Login, or openssh-server on Linux) we fall back to 2222 (`ssh -p 2222 …`).
+// The choice is stable for the process lifetime; ensureSSH may pin it early
+// from an existing router container (see adoptSSHPort).
 func SSHHostPort() int {
-	sshPortOnce.Do(func() {
+	sshPortMu.Lock()
+	defer sshPortMu.Unlock()
+	if !sshPortSet {
 		sshPortVal = 22
-		if remoteLoginActive() {
+		if sshPortTaken() {
 			sshPortVal = 2222
 		}
-	})
+		sshPortSet = true
+	}
 	return sshPortVal
 }
 
-// remoteLoginActive reports whether macOS Remote Login (the system sshd)
-// is enabled, in which case :22 is taken and we must not fight it.
-// `launchctl print system/com.openssh.sshd` exits 0 only when the SSH
-// service is bootstrapped in the system domain.
-func remoteLoginActive() bool {
-	if runtime.GOOS != "darwin" {
-		return false
+// adoptSSHPort pins the port for this process, overriding any probe result.
+func adoptSSHPort(port int) {
+	sshPortMu.Lock()
+	defer sshPortMu.Unlock()
+	sshPortVal, sshPortSet = port, true
+}
+
+func publishesHostPort(hostPorts []string, port int) bool {
+	want := strconv.Itoa(port)
+	for _, p := range hostPorts {
+		if p == want {
+			return true
+		}
 	}
-	return exec.Command("launchctl", "print", "system/com.openssh.sshd").Run() == nil
+	return false
+}
+
+// chooseSSHPort returns preferred when nothing else is listening on it,
+// otherwise fallback.
+func chooseSSHPort(preferred, fallback string) string {
+	if sshPortAvailable(preferred) {
+		return preferred
+	}
+	return fallback
+}
+
+// sshPortAvailable reports whether a new listener could claim the port on
+// the host. It dials loopback rather than binding: binding :22 needs root
+// (EACCES would read as "taken" for ordinary users), while a refused dial is
+// an unprivileged, reliable "nobody is listening" signal. A listener that
+// greets with an SSHPiper banner is our own router and counts as available —
+// secondary guard only; ensureSSH pins the port from the existing container
+// first. The "SSH-2.0-SSHPiper" banner prefix is UNVERIFIED (confirm on a
+// laptop against the real sshpiperd image).
+func sshPortAvailable(port string) bool {
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", port), 500*time.Millisecond)
+	if err != nil {
+		return true
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	buf := make([]byte, 64)
+	n, _ := conn.Read(buf)
+	return strings.HasPrefix(strings.ToLower(string(buf[:n])), "ssh-2.0-sshpiper")
 }
 
 // SSHHint returns the exact command a user runs to reach a pod. The
@@ -169,28 +209,33 @@ func SSHBareHint(name string) string {
 }
 
 func ensureSSH(ctx context.Context, eng *engine.Client) error {
-	sshPort := SSHHostPort()
 	insp, ierr := eng.Inspect(ctx, SSHContainerName)
 	exists := ierr == nil
 	if !exists && !isNotFoundErr(ierr) {
 		return ierr
 	}
+	var publishedPorts []string
+	if exists && insp.HostConfig != nil {
+		for _, binds := range insp.HostConfig.PortBindings {
+			for _, b := range binds {
+				publishedPorts = append(publishedPorts, b.HostPort)
+			}
+		}
+	}
+	// A router already publishing :22 owns it: keep it, never probe (the
+	// probe would see our own listener and flip us to :2222).
+	if publishesHostPort(publishedPorts, 22) {
+		adoptSSHPort(22)
+	}
+	sshPort := SSHHostPort()
 	if exists {
 		// Reuse the existing container only if it already publishes the
 		// port we want. cyberstackd's inspect may not surface HostConfig;
 		// when it doesn't we can't tell, so conservatively reuse (assume
 		// match) rather than recreate on every start.
 		match := true
-		if insp.HostConfig != nil && len(insp.HostConfig.PortBindings) > 0 {
-			match = false
-			want := strconv.Itoa(sshPort)
-			for _, binds := range insp.HostConfig.PortBindings {
-				for _, b := range binds {
-					if b.HostPort == want {
-						match = true
-					}
-				}
-			}
+		if len(publishedPorts) > 0 {
+			match = publishesHostPort(publishedPorts, sshPort)
 		}
 		if match {
 			// Start if stopped, no-op if running.
