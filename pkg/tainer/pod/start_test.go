@@ -185,3 +185,19 @@ func TestBuildEnvSvelteBuildDir(t *testing.T) {
 		t.Errorf("svelte app env missing TAINER_SSHD=1: %v", env)
 	}
 }
+
+// TestBuildEnvSvelteKitNoBuildDir locks sveltekit as a server type:
+// caddy proxies to the app, so the web role must NOT get
+// TAINER_BUILD_DIR even when runtime.build-dir is set.
+func TestBuildEnvSvelteKitNoBuildDir(t *testing.T) {
+	pctx := &podCtx{hostUID: 501, hostGID: 20}
+	m := &manifest.Manifest{
+		Project: manifest.ProjectConfig{Type: manifest.TypeSvelteKit},
+		Runtime: manifest.RuntimeConfig{Node: "20", Database: manifest.DatabaseNone, BuildDir: "build"},
+	}
+	for _, e := range buildEnv(m, RoleWeb, pctx) {
+		if len(e) >= 17 && e[:17] == "TAINER_BUILD_DIR=" {
+			t.Errorf("sveltekit web env unexpectedly has %s", e)
+		}
+	}
+}

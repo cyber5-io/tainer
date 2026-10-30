@@ -18,6 +18,7 @@ func TestRolesForType(t *testing.T) {
 		{manifest.TypeKompozi, []string{"web", "app", "db"}},
 		{manifest.TypeReact, []string{"web", "app", "db"}},
 		{manifest.TypeSvelte, []string{"web", "app", "db"}},
+		{manifest.TypeSvelteKit, []string{"web", "app", "db"}},
 	}
 	for _, c := range cases {
 		got := RolesForType(c.typ)
@@ -41,6 +42,7 @@ func TestRolesForPod(t *testing.T) {
 		{"react+mariadb", manifest.TypeReact, manifest.DatabaseMariaDB, []string{"web", "app", "db"}},
 		{"react+none", manifest.TypeReact, manifest.DatabaseNone, []string{"web", "app"}},
 		{"svelte+none", manifest.TypeSvelte, manifest.DatabaseNone, []string{"web", "app"}},
+		{"sveltekit+none", manifest.TypeSvelteKit, manifest.DatabaseNone, []string{"web", "app"}},
 	}
 	for _, c := range cases {
 		m := &manifest.Manifest{
@@ -66,6 +68,9 @@ func TestDefaultExecRole(t *testing.T) {
 	}
 	if got := DefaultExecRole(manifest.TypeSvelte); got != "app" {
 		t.Errorf("Svelte: got %q, want app", got)
+	}
+	if got := DefaultExecRole(manifest.TypeSvelteKit); got != "app" {
+		t.Errorf("SvelteKit: got %q, want app", got)
 	}
 }
 
@@ -103,6 +108,17 @@ func TestImageRef(t *testing.T) {
 	}
 	if got := ImageRef(mSvelte, "app"); got != "ghcr.io/cyber5-io/tainer-svelte-app:node-20" {
 		t.Errorf("Svelte app image: got %q", got)
+	}
+
+	mSvelteKit := &manifest.Manifest{
+		Project: manifest.ProjectConfig{Type: manifest.TypeSvelteKit},
+		Runtime: manifest.RuntimeConfig{Node: "20"},
+	}
+	if got := ImageRef(mSvelteKit, "app"); got != "ghcr.io/cyber5-io/tainer-sveltekit-app:node-20" {
+		t.Errorf("SvelteKit app image: got %q", got)
+	}
+	if got := ImageRef(mSvelteKit, "web"); got != "ghcr.io/cyber5-io/tainer-caddy-web:2-alpine" {
+		t.Errorf("SvelteKit web image: got %q", got)
 	}
 
 	mKompozi := &manifest.Manifest{
