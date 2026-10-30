@@ -96,7 +96,8 @@ KEY="$LEGO_PATH/certificates/_.tainer.me.key"
 # publish only when content changed
 NEW_SHA=$(sha256sum "$CRT" | cut -d' ' -f1)
 OLD_SHA=$(sed -n 's/.*"sha256": *"\([0-9a-f]*\)".*/\1/p' "$WEBROOT/fingerprint.json" 2>/dev/null || true)
-[ "$NEW_SHA" = "$OLD_SHA" ] && exit 0
+# NOTE: an && list here would trip set -e when the hashes differ
+if [ "$NEW_SHA" = "$OLD_SHA" ]; then exit 0; fi
 
 NOT_AFTER=$(openssl x509 -in "$CRT" -noout -enddate | cut -d= -f2 | xargs -I{} date -u -d "{}" +%Y-%m-%dT%H:%M:%SZ)
 SERIAL=$(openssl x509 -in "$CRT" -noout -serial | cut -d= -f2)
