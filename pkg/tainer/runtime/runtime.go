@@ -16,7 +16,6 @@ import (
 	goruntime "runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/certsync"
@@ -103,16 +102,17 @@ func Engine(ctx context.Context, opts Options) (*engine.Client, error) {
 	return cli, nil
 }
 
+// ErrUnsupportedOS is returned by operations that have no implementation on
+// the current OS yet.
+var ErrUnsupportedOS = errors.New("not supported on Windows yet")
+
 // CurrentStatus probes without side-effects: does not start cyberstackd
 // even if missing. Useful for `tainer status` and diagnostic surfaces.
 func CurrentStatus(ctx context.Context, opts Options) Status {
 	socket := resolveSocket(opts)
 	st := Status{Socket: socket, PID: ReadPID(socket)}
 	if st.PID > 0 {
-		// On Unix, signal 0 is a no-op probe.
-		if err := syscall.Kill(st.PID, 0); err == nil {
-			st.Running = true
-		}
+		st.Running = ProcessAlive(st.PID)
 	}
 	if cli, err := dialAndPing(ctx, socket); err == nil {
 		_ = cli.Close()
@@ -167,6 +167,9 @@ func DaemonArgs(socket string, mode network.Mode, dnsPort int) []string {
 }
 
 func startDaemon(opts Options, socket string) error {
+	if err := canSpawnDaemon(); err != nil {
+		return fmt.Errorf("cannot start the tainer engine: %w", err)
+	}
 	bin, err := resolveBinary(opts)
 	if err != nil {
 		return err
@@ -199,7 +202,7 @@ func startDaemon(opts Options, socket string) error {
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.Stdin = nil
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = detachAttr()
 
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()

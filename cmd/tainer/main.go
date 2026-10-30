@@ -1969,13 +1969,7 @@ func cmdExec(args []string) {
 				}
 			}
 			doResize()
-			ch := make(chan os.Signal, 1)
-			signal.Notify(ch, syscall.SIGWINCH)
-			go func() { // leaks on exit by design — process lifetime
-				for range ch {
-					doResize()
-				}
-			}()
+			watchResize(doResize)
 		}
 	}
 

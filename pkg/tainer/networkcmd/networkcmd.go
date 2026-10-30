@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"syscall"
 	"time"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
@@ -153,16 +152,16 @@ func stopDaemon() error {
 	if pid == 0 {
 		return nil
 	}
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+	if err := runtime.SignalTerm(pid); err != nil {
 		return err
 	}
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		if err := syscall.Kill(pid, 0); err != nil {
+		if !runtime.ProcessAlive(pid) {
 			return nil // process gone
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	_ = syscall.Kill(pid, syscall.SIGKILL)
+	_ = runtime.SignalKill(pid)
 	return nil
 }
