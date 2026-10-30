@@ -6,7 +6,7 @@
         verify-pkg-only verify-pkg-full
 
 # Single source of truth for the binary version.
-VERSION := 1.2.4
+VERSION := 1.3.0
 LDFLAGS := -X main.version=$(VERSION)
 
 BIN_DIR := bin
