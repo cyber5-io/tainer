@@ -9,7 +9,7 @@ This branch is the fresh-build tainer 1.0.0, replacing the podman fork. The old 
 - **Module path**: `github.com/cyber5-io/tainer`
 - **Engine**: CyberStack (separate repo at `/Users/lenineto/dev/cyber5-io/cyber-stack`, private). Tainer talks to `cyberstackd`'s Docker-compatible Unix socket; users never see "VM" or "engine" in the UX.
 - **Hypervisor**: Apple Virtualization.framework on macOS (via vfkit), wrapped by cyberstackd. Linux runs containers natively (no VM). Windows TBD.
-- **Jira project**: TAIN
+- **Task tracker**: TAIN project in the Cyber5 Tracker (ops.cyber5.io; local dev instance at the `cyber5-ops` tainer project, `/Users/lenineto/dev/websites/cyber5.io/ops`). Jira is retired — tasks were migrated 2026-07-24 keeping their numbers (`tain-1`…`tain-97` carry the original Jira payload in `jira_raw`). Create/update tasks via `POST`/`PATCH /api/v1/tracker/tasks` with the `OPS_API_TOKEN` bearer from `ops/html/.env`; read via psql in the ops pod's db container (database `tainer`, tables `tracker_projects`/`tracker_tasks`).
 - **Current version target**: 1.2.0 (shipping from `dev/v1`, with CyberStack 0.7.0). 1.0.0 and 1.1.0 shipped internally. **Smart pods landed in 1.2.0**: a pod size is one absolute budget (nano 512M/1cpu … small 1G/1 … xxl 16G/8) enforced on a shared pod-level cgroup (`tainer-<project>`); containers run as limitless leaves that burst within it. Spec: `docs/superpowers/specs/2026-07-23-smart-pods-design.md`.
 
 ## Architecture
@@ -36,7 +36,7 @@ Each milestone gets a plan in `docs/superpowers/plans/` written via the `superpo
 
 ## Supported Project Types
 
-wordpress, php, nodejs, nextjs, nuxtjs, nestjs, react, kompozi (parity with current tainer 0.2.x).
+wordpress, php, nodejs, nextjs, nuxtjs, nestjs, react, svelte, kompozi. react and svelte are the SPA types (`StaticBundle` in the typespec): caddy serves the built bundle (`TAINER_BUILD_DIR`, default `dist`, override via `runtime.build-dir`), and the app role is an sshd + node-tooling workbench outside the request path (TAIN-98).
 
 ## Branch Workflow
 
@@ -58,3 +58,7 @@ wordpress, php, nodejs, nextjs, nuxtjs, nestjs, react, kompozi (parity with curr
 - **Kompozi** (CMS): `/Users/lenineto/dev/cyber5-io/kompozi`
 - **tainer.dev** (website): `/Users/lenineto/dev/websites/tainer.dev/html/`
 - **tainer-images** (project type images): `github.com/cyber5-io/tainer-images`
+
+## Open handoffs
+
+- `docs/handoff/2026-09-08-dev-pod-resilience.md` — three dev-pod bugs found while building cyber5-io-comms, with root causes and proposed fixes: the node-app dev server is OOM-killed under the pod budget and never restarted (tainer-images); `pod.size` changes are ignored for existing pods because `start` reuses containers and the agent re-asserts the budget stored at creation (tainer); `destroy` cannot remove a stopped container whose overlay mount stays busy (cyber-stack). Ticketed as `tain-99`, `tain-100`, `tain-101` (2026-10-30); the branch work itself is `tain-98`.
