@@ -1,4 +1,4 @@
-.PHONY: build sign menu-app verify-signatures test clean \
+.PHONY: build sign menu-app verify-signatures test cross clean \
         pkg-only-root pkg-only pkg-only-signed pkg-only-notarised \
         pkg-full-root pkg-full pkg-full-signed pkg-full-notarised \
         pkg-dist pkg-dist-signed pkg-dist-notarised \
@@ -46,6 +46,16 @@ FORCE:
 
 test:
 	go test ./...
+
+# Cross-compilation gate: every supported GOOS/GOARCH must compile.
+# Explicit target list — cmd/tainer-menu is darwin-only (vendored systray)
+# and excluded by design. Build-only (no artifacts kept): -o /dev/null
+# works per-binary, but pkg/... is a compile check, so plain `go build`.
+cross:
+	GOOS=darwin GOARCH=arm64 go build ./cmd/tainer ./pkg/...
+	GOOS=linux GOARCH=amd64 go build ./cmd/tainer ./pkg/...
+	GOOS=linux GOARCH=arm64 go build ./cmd/tainer ./pkg/...
+	GOOS=windows GOARCH=amd64 go build ./cmd/tainer ./pkg/...
 
 clean:
 	rm -rf $(BIN_DIR) $(DIST_DIR)
