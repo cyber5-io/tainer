@@ -24,17 +24,19 @@ func platformDaemonDiag(socket string) (detail, hint string, ok bool) {
 }
 
 // checkPorts is the Linux 80/443 pre-flight: another listener on an edge
-// port is a hard, actionable error.
+// port is a hard, actionable error. Detection (is anything listening?) is
+// separate from attribution (who?), so an unattributable listener is still
+// reported.
 func (d *run) checkPorts() {
 	d.start("ports")
 	reported := false
 	for _, port := range []string{"80", "443"} {
-		name, pid, ok := listenerOwner(port)
-		if !ok {
+		listening, name, pid := listenerOwner(port)
+		if !listening {
 			continue
 		}
-		r := portConflictResult(port, name, pid)
-		if r.Status == StatusFail {
+		r := portConflictResult(port, name, pid, d.engineUp)
+		if r.Status != StatusOK {
 			d.add(r)
 			reported = true
 		}
@@ -46,27 +48,30 @@ func (d *run) checkPorts() {
 
 var lsofLineRe = regexp.MustCompile(`^(\S+)\s+(\d+)\s`)
 
-// listenerOwner finds the process listening on a port: `ss -ltnp` first,
-// `lsof` as fallback. Best effort — other users' processes are invisible
-// without root.
-func listenerOwner(port string) (string, int, bool) {
+// listenerOwner detects a listener with `ss -ltnp` (loopback dial when ss is
+// unavailable) and attributes it from ss, then `lsof`. name is empty when the
+// listener exists but its owner is not visible without root.
+func listenerOwner(port string) (listening bool, name string, pid int) {
 	if out, err := exec.Command("ss", "-ltnp").Output(); err == nil {
-		if name, pid, ok := parseSSOwner(string(out), port); ok {
-			return name, pid, true
-		}
+		listening, name, pid = parseSSListener(string(out), port)
+	} else if conn, derr := net.DialTimeout("tcp", "127.0.0.1:"+port, time.Second); derr == nil {
+		conn.Close()
+		listening = true
+	}
+	if !listening || name != "" {
+		return listening, name, pid
 	}
 	out, err := exec.Command("lsof", "-nP", "-iTCP:"+port, "-sTCP:LISTEN").Output()
 	if err != nil {
-		return "", 0, false
+		return true, "", 0
 	}
 	lines := strings.Split(string(out), "\n")
 	if len(lines) < 2 {
-		return "", 0, false
+		return true, "", 0
 	}
-	m := lsofLineRe.FindStringSubmatch(lines[1])
-	if m == nil {
-		return "", 0, false
+	if m := lsofLineRe.FindStringSubmatch(lines[1]); m != nil {
+		pid, _ = strconv.Atoi(m[2])
+		return true, m[1], pid
 	}
-	pid, _ := strconv.Atoi(m[2])
-	return m[1], pid, true
+	return true, "", 0
 }

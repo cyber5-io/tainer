@@ -30,29 +30,41 @@ func classifySocketErr(socket string, err error) (detail, hint string) {
 
 var ssUsersRe = regexp.MustCompile(`\("([^"]+)",pid=(\d+)`)
 
-// parseSSOwner finds the first listener on the given local port in `ss -ltnp`
-// output and returns the owning process. ok is false when the port is absent
-// or its owner is not visible (processes of other users need root).
-func parseSSOwner(out, port string) (name string, pid int, ok bool) {
+// parseSSListener finds a listener on the given local port in `ss -ltnp`
+// output. listening is true whenever the port has a LISTEN line; name and pid
+// are set only when ss could attribute it (processes of other users need
+// root, so a listening port with an empty name is "owner unknown", not free).
+func parseSSListener(out, port string) (listening bool, name string, pid int) {
 	for _, line := range strings.Split(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 4 || !strings.HasSuffix(fields[3], ":"+port) {
 			continue
 		}
-		m := ssUsersRe.FindStringSubmatch(line)
-		if m == nil {
-			continue
+		listening = true
+		if m := ssUsersRe.FindStringSubmatch(line); m != nil {
+			pid, _ = strconv.Atoi(m[2])
+			return true, m[1], pid
 		}
-		pid, _ = strconv.Atoi(m[2])
-		return m[1], pid, true
 	}
-	return "", 0, false
+	return listening, "", 0
 }
 
-// portConflictResult reports a host edge port (80/443) held by a process
+// portConflictResult reports a host edge port (80/443) in use by something
 // other than tainer's own forwarder. There are deliberately no fallback
-// ports: https://proj.tainer.me must work without a port number.
-func portConflictResult(port, owner string, pid int) Result {
+// ports: https://proj.tainer.me must work without a port number. An unnamed
+// owner is still a finding: with the engine down it is a hard fail; with the
+// engine up the listener is most likely our own forwarder (a foreign one
+// would have stopped it binding), so it is only a warning.
+func portConflictResult(port, owner string, pid int, engineUp bool) Result {
+	if owner == "" {
+		r := Result{Name: "ports", Status: StatusFail,
+			Detail: "host port " + port + " is in use (owner not visible — re-run with sudo to identify it)",
+			Hint:   "tainer needs ports 80 and 443 and has no fallback ports — free the port and re-run"}
+		if engineUp {
+			r.Status = StatusWarn
+		}
+		return r
+	}
 	if strings.Contains(owner, "cyberstack") {
 		return Result{Name: "ports", Status: StatusOK, Detail: "host port " + port + " held by the tainer engine"}
 	}

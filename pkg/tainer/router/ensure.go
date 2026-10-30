@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
+
 	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 )
@@ -150,6 +152,36 @@ func adoptSSHPort(port int) {
 	sshPortVal, sshPortSet = port, true
 }
 
+// publishedHostPorts lists the host ports an inspected router container
+// publishes; nil when it does not exist or inspect omits HostConfig.
+func publishedHostPorts(exists bool, insp container.InspectResponse) []string {
+	var ports []string
+	if exists && insp.HostConfig != nil {
+		for _, binds := range insp.HostConfig.PortBindings {
+			for _, b := range binds {
+				ports = append(ports, b.HostPort)
+			}
+		}
+	}
+	return ports
+}
+
+// routerPublishes22 asks the engine whether our ssh router container
+// already publishes host :22, so cold callers (status, hints, `tainer ssh`)
+// agree with ensureSSH without relying on a probe that would see our own
+// listener. It never starts the engine; any failure reads as "no".
+func routerPublishes22() bool {
+	eng, err := engine.New()
+	if err != nil {
+		return false
+	}
+	defer eng.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	insp, err := eng.Inspect(ctx, SSHContainerName)
+	return publishesHostPort(publishedHostPorts(err == nil, insp), 22)
+}
+
 func publishesHostPort(hostPorts []string, port int) bool {
 	want := strconv.Itoa(port)
 	for _, p := range hostPorts {
@@ -214,14 +246,7 @@ func ensureSSH(ctx context.Context, eng *engine.Client) error {
 	if !exists && !isNotFoundErr(ierr) {
 		return ierr
 	}
-	var publishedPorts []string
-	if exists && insp.HostConfig != nil {
-		for _, binds := range insp.HostConfig.PortBindings {
-			for _, b := range binds {
-				publishedPorts = append(publishedPorts, b.HostPort)
-			}
-		}
-	}
+	publishedPorts := publishedHostPorts(exists, insp)
 	// A router already publishing :22 owns it: keep it, never probe (the
 	// probe would see our own listener and flip us to :2222).
 	if publishesHostPort(publishedPorts, 22) {

@@ -123,6 +123,7 @@ func Run(ctx context.Context, opts Options) Report {
 	d := &run{opts: opts}
 
 	eng := d.checkDaemon(ctx)
+	d.engineUp = eng != nil
 	if eng != nil {
 		defer eng.Close()
 	}
@@ -144,6 +145,8 @@ type run struct {
 	// agentUp records whether the VM/agent answered — pod checks skip
 	// when it didn't, even if the daemon socket itself is alive.
 	agentUp bool
+	// engineUp records whether the daemon socket answered.
+	engineUp bool
 	// edgeUp records whether host 443/80 answered — pod HTTP probes
 	// skip when they didn't (they would all fail with the same
 	// connection-refused, drowning the actual root cause).
