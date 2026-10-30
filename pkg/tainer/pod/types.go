@@ -22,8 +22,9 @@ func RolesForType(t manifest.ProjectType) []string {
 		return []string{RoleWeb, RoleDB}
 	}
 	if spec, ok := manifest.SpecFor(t); ok && !spec.HasAppRole {
-		// SPA types (react): the web role serves the built bundle,
-		// there is no separate app process.
+		// App-less types: web serves everything directly. No current
+		// type is shaped this way (react gained an app role in
+		// TAIN-98) but the table supports it.
 		return []string{RoleWeb, RoleDB}
 	}
 	return []string{RoleWeb, RoleApp, RoleDB}

@@ -78,10 +78,73 @@ func TestToolTypes(t *testing.T) {
 	if got := ToolTypes("composer"); len(got) != 2 {
 		t.Errorf("ToolTypes(composer) = %v, want wordpress+php", got)
 	}
-	if got := ToolTypes("npm"); len(got) != 6 {
-		t.Errorf("ToolTypes(npm) = %v, want the 6 node-flavoured types", got)
+	if got := ToolTypes("npm"); len(got) != 7 {
+		t.Errorf("ToolTypes(npm) = %v, want the 7 node-flavoured types", got)
 	}
 	if got := ToolTypes("kubectl"); got != nil {
 		t.Errorf("ToolTypes(kubectl) = %v, want nil", got)
+	}
+}
+
+// TestReactSpec locks TAIN-98: react pods carry an app role (sshd +
+// node tooling) like every other node type — the SPA distinction
+// lives in the caddy site config, not in the role set.
+func TestReactSpec(t *testing.T) {
+	s, ok := SpecFor(TypeReact)
+	if !ok {
+		t.Fatal("no spec for react")
+	}
+	if !s.HasAppRole {
+		t.Error("react: HasAppRole = false, want true")
+	}
+	if s.ExecUser != "1000:1000" {
+		t.Errorf("react: ExecUser = %q, want 1000:1000", s.ExecUser)
+	}
+	if s.ExecWorkdir != "/var/www/html" {
+		t.Errorf("react: ExecWorkdir = %q, want /var/www/html", s.ExecWorkdir)
+	}
+}
+
+// TestSvelteSpec locks the svelte SPA type: same pod shape as react —
+// caddy serves the static bundle, app = sshd + node tooling.
+func TestSvelteSpec(t *testing.T) {
+	s, ok := SpecFor(TypeSvelte)
+	if !ok {
+		t.Fatal("no spec for svelte")
+	}
+	if s.Family != FamilyNode {
+		t.Errorf("svelte: Family = %q, want node", s.Family)
+	}
+	if !s.HasAppRole {
+		t.Error("svelte: HasAppRole = false, want true")
+	}
+	if s.ExecUser != "1000:1000" {
+		t.Errorf("svelte: ExecUser = %q, want 1000:1000", s.ExecUser)
+	}
+	if s.ExecWorkdir != "/var/www/html" {
+		t.Errorf("svelte: ExecWorkdir = %q, want /var/www/html", s.ExecWorkdir)
+	}
+	if s.DefaultRuntime.Node != "20" {
+		t.Errorf("svelte: default node = %q, want 20", s.DefaultRuntime.Node)
+	}
+}
+
+// TestStaticBundle locks which types are SPAs (caddy serves the built
+// bundle; TAINER_BUILD_DIR applies) vs server types (caddy proxies).
+func TestStaticBundle(t *testing.T) {
+	for typ, want := range map[ProjectType]bool{
+		TypeReact:   true,
+		TypeSvelte:  true,
+		TypeNodeJS:  false,
+		TypeNextJS:  false,
+		TypeKompozi: false,
+	} {
+		s, ok := SpecFor(typ)
+		if !ok {
+			t.Fatalf("no spec for %s", typ)
+		}
+		if s.StaticBundle != want {
+			t.Errorf("%s: StaticBundle = %v, want %v", typ, s.StaticBundle, want)
+		}
 	}
 }

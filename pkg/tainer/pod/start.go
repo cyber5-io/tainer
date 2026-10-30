@@ -492,6 +492,17 @@ func buildEnv(m *manifest.Manifest, role string, pctx *podCtx) []string {
 	case RoleWeb:
 		// caddy-web entrypoint picks /etc/caddy/sites/<type>.Caddyfile.
 		env = append(env, "TAINER_PROJECT_TYPE="+string(m.Project.Type))
+		// SPA types (react, svelte) have caddy serve a static bundle
+		// rather than proxying; the site config reads the bundle dir
+		// from TAINER_BUILD_DIR ({$TAINER_BUILD_DIR:dist}) so CRA
+		// projects can set runtime.build-dir: build in tainer.yaml.
+		if m.IsSPA() {
+			dir := m.Runtime.BuildDir
+			if dir == "" {
+				dir = "dist"
+			}
+			env = append(env, "TAINER_BUILD_DIR="+dir)
+		}
 
 	case RoleApp:
 		if m.IsPHP() {
@@ -538,7 +549,10 @@ func buildEnv(m *manifest.Manifest, role string, pctx *podCtx) []string {
 
 // isSSHContainer reports whether this role owns the pod's single sshd
 // (:22 in the shared netns): the app (php-fpm/node) when the pod has
-// one, otherwise the web caddy (react/static).
+// one. Every current type has an app role (react gained one in
+// TAIN-98); the web fallback stays for app-less pod shapes like
+// database: none smoke pods, where caddy-web would need sshd support
+// it doesn't ship — don't reintroduce an app-less type without it.
 func isSSHContainer(m *manifest.Manifest, role string) bool {
 	hasApp := false
 	for _, r := range RolesForPod(m) {

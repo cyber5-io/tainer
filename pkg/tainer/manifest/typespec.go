@@ -39,6 +39,13 @@ type TypeSpec struct {
 	// the web role.
 	HasAppRole bool
 
+	// StaticBundle marks SPA types (react, svelte): the web caddy
+	// serves the built bundle directly (TAINER_BUILD_DIR), instead
+	// of proxying to the app. The app role is still a full node
+	// workbench (sshd + tooling) — it is just not in the request
+	// path.
+	StaticBundle bool
+
 	// ExecUser (UID:GID) and ExecWorkdir are the defaults `tainer
 	// exec` applies for the app role so tools run as the site owner
 	// inside the project directory. MUST match the app image's user
@@ -119,7 +126,20 @@ var typeSpecs = []TypeSpec{
 		Type:           TypeReact,
 		Family:         FamilyNode,
 		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseMariaDB},
-		HasAppRole:     false, // SPA: web (serves the bundle) + db only
+		HasAppRole:     true, // TAIN-98: app = sshd + node tooling; caddy still serves the static bundle
+		StaticBundle:   true,
+		ExecUser:       "1000:1000",
+		ExecWorkdir:    "/var/www/html",
+		Tools:          nodeTools,
+	},
+	{
+		Type:           TypeSvelte,
+		Family:         FamilyNode,
+		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseMariaDB},
+		HasAppRole:     true, // same shape as react: app = sshd + node tooling
+		StaticBundle:   true,
+		ExecUser:       "1000:1000",
+		ExecWorkdir:    "/var/www/html",
 		Tools:          nodeTools,
 	},
 	{

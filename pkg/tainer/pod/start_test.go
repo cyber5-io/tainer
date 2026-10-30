@@ -109,3 +109,79 @@ func TestPodCgroupSettings(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildEnvReactBuildDir locks TAIN-98: the web (caddy) container of
+// a react pod learns which bundle dir to serve via TAINER_BUILD_DIR —
+// runtime.build-dir when the manifest sets it, dist otherwise.
+func TestBuildEnvReactBuildDir(t *testing.T) {
+	pctx := &podCtx{hostUID: 501, hostGID: 20}
+	mk := func(buildDir string) *manifest.Manifest {
+		return &manifest.Manifest{
+			Project: manifest.ProjectConfig{Type: manifest.TypeReact},
+			Runtime: manifest.RuntimeConfig{Node: "20", Database: manifest.DatabaseNone, BuildDir: buildDir},
+		}
+	}
+	has := func(env []string, want string) bool {
+		for _, e := range env {
+			if e == want {
+				return true
+			}
+		}
+		return false
+	}
+
+	if env := buildEnv(mk("build"), RoleWeb, pctx); !has(env, "TAINER_BUILD_DIR=build") {
+		t.Errorf("react web env missing TAINER_BUILD_DIR=build: %v", env)
+	}
+	// With an app role in the pod, sshd belongs to app — web must not bind :22.
+	if env := buildEnv(mk(""), RoleWeb, pctx); has(env, "TAINER_SSHD=1") {
+		t.Errorf("react web env still claims sshd: %v", env)
+	}
+	if env := buildEnv(mk(""), RoleApp, pctx); !has(env, "TAINER_SSHD=1") {
+		t.Errorf("react app env missing TAINER_SSHD=1: %v", env)
+	}
+	if env := buildEnv(mk(""), RoleWeb, pctx); !has(env, "TAINER_BUILD_DIR=dist") {
+		t.Errorf("react web env missing TAINER_BUILD_DIR=dist default: %v", env)
+	}
+	// Non-react types don't get the env — their caddy configs proxy, not serve.
+	mNode := &manifest.Manifest{
+		Project: manifest.ProjectConfig{Type: manifest.TypeNodeJS},
+		Runtime: manifest.RuntimeConfig{Node: "20", Database: manifest.DatabaseNone},
+	}
+	for _, e := range buildEnv(mNode, RoleWeb, pctx) {
+		if len(e) >= 17 && e[:17] == "TAINER_BUILD_DIR=" {
+			t.Errorf("nodejs web env unexpectedly has %s", e)
+		}
+	}
+}
+
+// TestBuildEnvSvelteBuildDir: svelte is the second SPA type — same
+// TAINER_BUILD_DIR contract as react (vite's dist by default,
+// runtime.build-dir override).
+func TestBuildEnvSvelteBuildDir(t *testing.T) {
+	pctx := &podCtx{hostUID: 501, hostGID: 20}
+	mk := func(buildDir string) *manifest.Manifest {
+		return &manifest.Manifest{
+			Project: manifest.ProjectConfig{Type: manifest.TypeSvelte},
+			Runtime: manifest.RuntimeConfig{Node: "20", Database: manifest.DatabaseNone, BuildDir: buildDir},
+		}
+	}
+	has := func(env []string, want string) bool {
+		for _, e := range env {
+			if e == want {
+				return true
+			}
+		}
+		return false
+	}
+
+	if env := buildEnv(mk(""), RoleWeb, pctx); !has(env, "TAINER_BUILD_DIR=dist") {
+		t.Errorf("svelte web env missing TAINER_BUILD_DIR=dist default: %v", env)
+	}
+	if env := buildEnv(mk("public"), RoleWeb, pctx); !has(env, "TAINER_BUILD_DIR=public") {
+		t.Errorf("svelte web env missing TAINER_BUILD_DIR=public: %v", env)
+	}
+	if env := buildEnv(mk(""), RoleApp, pctx); !has(env, "TAINER_SSHD=1") {
+		t.Errorf("svelte app env missing TAINER_SSHD=1: %v", env)
+	}
+}

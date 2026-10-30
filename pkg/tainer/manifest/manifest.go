@@ -27,6 +27,7 @@ const (
 	TypeNuxtJS    ProjectType = "nuxtjs"
 	TypeNestJS    ProjectType = "nestjs"
 	TypeReact     ProjectType = "react"
+	TypeSvelte    ProjectType = "svelte"
 	TypeKompozi   ProjectType = "kompozi"
 )
 
@@ -184,10 +185,12 @@ func (m *Manifest) IsNode() bool {
 	return ok && s.Family == FamilyNode
 }
 
-// IsReact returns true for project types that are served as SPAs
-// (static files in prod, Vite dev server in dev mode).
-func (m *Manifest) IsReact() bool {
-	return m.Project.Type == TypeReact
+// IsSPA returns true for project types served as static bundles
+// (react, svelte): caddy serves the built files in prod, the Vite dev
+// server runs in dev mode. Driven by the TypeSpec table.
+func (m *Manifest) IsSPA() bool {
+	s, ok := SpecFor(m.Project.Type)
+	return ok && s.StaticBundle
 }
 
 func (m *Manifest) RuntimeVersion() string {

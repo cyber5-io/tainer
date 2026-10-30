@@ -58,7 +58,7 @@ func TestExecRoleResolution(t *testing.T) {
 		wantRole string
 	}{
 		{manifest.TypeWordPress, "", "app"},
-		{manifest.TypeReact, "", "web"},
+		{manifest.TypeReact, "", "app"}, // TAIN-98: react gained an app role
 		{manifest.TypeWordPress, "web", "web"},
 	}
 	for _, c := range cases {

@@ -16,7 +16,8 @@ func TestRolesForType(t *testing.T) {
 		{manifest.TypePHP, []string{"web", "app", "db"}},
 		{manifest.TypeNodeJS, []string{"web", "app", "db"}},
 		{manifest.TypeKompozi, []string{"web", "app", "db"}},
-		{manifest.TypeReact, []string{"web", "db"}},
+		{manifest.TypeReact, []string{"web", "app", "db"}},
+		{manifest.TypeSvelte, []string{"web", "app", "db"}},
 	}
 	for _, c := range cases {
 		got := RolesForType(c.typ)
@@ -37,8 +38,9 @@ func TestRolesForPod(t *testing.T) {
 		{"wp+none", manifest.TypeWordPress, manifest.DatabaseNone, []string{"web", "app"}},
 		{"node+postgres", manifest.TypeNodeJS, manifest.DatabasePostgres, []string{"web", "app", "db"}},
 		{"node+none", manifest.TypeNodeJS, manifest.DatabaseNone, []string{"web", "app"}},
-		{"react+mariadb", manifest.TypeReact, manifest.DatabaseMariaDB, []string{"web", "db"}},
-		{"react+none", manifest.TypeReact, manifest.DatabaseNone, []string{"web"}},
+		{"react+mariadb", manifest.TypeReact, manifest.DatabaseMariaDB, []string{"web", "app", "db"}},
+		{"react+none", manifest.TypeReact, manifest.DatabaseNone, []string{"web", "app"}},
+		{"svelte+none", manifest.TypeSvelte, manifest.DatabaseNone, []string{"web", "app"}},
 	}
 	for _, c := range cases {
 		m := &manifest.Manifest{
@@ -59,8 +61,11 @@ func TestDefaultExecRole(t *testing.T) {
 	if got := DefaultExecRole(manifest.TypeNodeJS); got != "app" {
 		t.Errorf("NodeJS: got %q, want app", got)
 	}
-	if got := DefaultExecRole(manifest.TypeReact); got != "web" {
-		t.Errorf("React: got %q, want web", got)
+	if got := DefaultExecRole(manifest.TypeReact); got != "app" {
+		t.Errorf("React: got %q, want app", got)
+	}
+	if got := DefaultExecRole(manifest.TypeSvelte); got != "app" {
+		t.Errorf("Svelte: got %q, want app", got)
 	}
 }
 
@@ -82,6 +87,22 @@ func TestImageRef(t *testing.T) {
 	}
 	if got := ImageRef(mNode, "app"); got != "ghcr.io/cyber5-io/tainer-nextjs-app:node-20" {
 		t.Errorf("NextJS app image: got %q", got)
+	}
+
+	mReact := &manifest.Manifest{
+		Project: manifest.ProjectConfig{Type: manifest.TypeReact},
+		Runtime: manifest.RuntimeConfig{Node: "20"},
+	}
+	if got := ImageRef(mReact, "app"); got != "ghcr.io/cyber5-io/tainer-react-app:node-20" {
+		t.Errorf("React app image: got %q", got)
+	}
+
+	mSvelte := &manifest.Manifest{
+		Project: manifest.ProjectConfig{Type: manifest.TypeSvelte},
+		Runtime: manifest.RuntimeConfig{Node: "20"},
+	}
+	if got := ImageRef(mSvelte, "app"); got != "ghcr.io/cyber5-io/tainer-svelte-app:node-20" {
+		t.Errorf("Svelte app image: got %q", got)
 	}
 
 	mKompozi := &manifest.Manifest{
