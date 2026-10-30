@@ -83,13 +83,12 @@ LEGO_PATH="$HOME/.lego"
 WEBROOT="$HOME/public_html/tainer.me"   # adjust to Enhance's docroot layout
 EMAIL="leni@cyber5.net"
 
-# idempotent: exits without network side effects until ~30 days before expiry
-"$HOME/lego" --accept-tos --email "$EMAIL" --dns bunny \
+# lego v5 (flags live on the command; `renew` was folded into `run`):
+# issues on first use, renews after, and only touches the network
+# inside the renewal window
+"$HOME/lego" run --accept-tos --email "$EMAIL" --dns bunny \
   --domains '*.tainer.me' --domains 'tainer.me' \
-  --path "$LEGO_PATH" renew --days 30 \
-  || "$HOME/lego" --accept-tos --email "$EMAIL" --dns bunny \
-       --domains '*.tainer.me' --domains 'tainer.me' \
-       --path "$LEGO_PATH" run   # first issuance only
+  --path "$LEGO_PATH" --renew-days 30
 
 CRT="$LEGO_PATH/certificates/_.tainer.me.crt"
 KEY="$LEGO_PATH/certificates/_.tainer.me.key"
