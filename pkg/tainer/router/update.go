@@ -49,6 +49,18 @@ func UpdateConfig(ctx context.Context, eng *engine.Client, pods []PodEndpoint) e
 	return nil
 }
 
+// ReloadCaddy reloads the router's caddy if the router web container is
+// running; when it is not (or cannot be inspected), it is a silent
+// no-op — callers like the cert refresher install files that caddy
+// picks up on its next start.
+func ReloadCaddy(ctx context.Context, eng *engine.Client) error {
+	insp, err := eng.Inspect(ctx, WebContainerName)
+	if err != nil || insp.State == nil || !insp.State.Running {
+		return nil
+	}
+	return reloadCaddy(ctx, eng)
+}
+
 func reloadCaddy(ctx context.Context, eng *engine.Client) error {
 	res, err := eng.Exec(ctx, WebContainerName,
 		[]string{"caddy", "reload", "--config", "/etc/caddy/Caddyfile"})

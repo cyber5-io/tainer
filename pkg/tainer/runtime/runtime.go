@@ -19,8 +19,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cyber5-io/tainer/pkg/tainer/certsync"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/network"
+	"github.com/cyber5-io/tainer/pkg/tainer/router"
 )
 
 // Defaults that mirror cyberstackd's own conventions. Override via env
@@ -80,6 +82,7 @@ func Engine(ctx context.Context, opts Options) (*engine.Client, error) {
 
 	// Fast path: existing socket, ping succeeds.
 	if cli, err := dialAndPing(ctx, socket); err == nil {
+		certsync.DailyRefresh(ctx, func(c context.Context) error { return router.ReloadCaddy(c, cli) })
 		return cli, nil
 	}
 
@@ -92,7 +95,12 @@ func Engine(ctx context.Context, opts Options) (*engine.Client, error) {
 	}
 
 	// Spawning is async — poll until the socket answers or we time out.
-	return waitForDaemon(ctx, socket)
+	cli, err := waitForDaemon(ctx, socket)
+	if err != nil {
+		return nil, err
+	}
+	certsync.DailyRefresh(ctx, func(c context.Context) error { return router.ReloadCaddy(c, cli) })
+	return cli, nil
 }
 
 // CurrentStatus probes without side-effects: does not start cyberstackd

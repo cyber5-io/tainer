@@ -1,12 +1,9 @@
 package router
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
-
-	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 )
 
 // CaddyContainerName is the engine name of the long-running Caddy
@@ -58,22 +55,6 @@ func GenerateCaddyfile(projects []CaddyProject, certPath, keyPath string) string
 func WriteCaddyfile(path string, projects []CaddyProject, certPath, keyPath string) error {
 	content := GenerateCaddyfile(projects, certPath, keyPath)
 	return os.WriteFile(path, []byte(content), 0644)
-}
-
-// ReloadCaddy tells the running Caddy router to re-read its Caddyfile.
-// The container itself is started by the router orchestration layer
-// (legacy/router until Step 8 redesign); this helper is the engine-API
-// equivalent of `caddy reload --config /etc/caddy/Caddyfile`.
-func ReloadCaddy(eng *engine.Client) error {
-	res, err := eng.Exec(context.Background(), CaddyContainerName,
-		[]string{"caddy", "reload", "--config", "/etc/caddy/Caddyfile"})
-	if err != nil {
-		return fmt.Errorf("Caddy reload: %w", err)
-	}
-	if res.ExitCode != 0 {
-		return fmt.Errorf("Caddy reload exited %d: %s", res.ExitCode, strings.TrimSpace(string(res.Stderr)))
-	}
-	return nil
 }
 
 // GenerateCaddyfileV2 renders site blocks from PodEndpoint records.
