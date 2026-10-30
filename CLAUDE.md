@@ -36,7 +36,7 @@ Each milestone gets a plan in `docs/superpowers/plans/` written via the `superpo
 
 ## Supported Project Types
 
-wordpress, php, nodejs, nextjs, nuxtjs, nestjs, react, svelte, kompozi. react and svelte are the SPA types (`StaticBundle` in the typespec): caddy serves the built bundle (`TAINER_BUILD_DIR`, default `dist`, override via `runtime.build-dir`), and the app role is an sshd + node-tooling workbench outside the request path (TAIN-98).
+wordpress, php, nodejs, nextjs, nuxtjs, nestjs, react, svelte, sveltekit, kompozi. react and svelte are the SPA types (`StaticBundle` in the typespec): caddy serves the built bundle (`TAINER_BUILD_DIR`, default `dist`, override via `runtime.build-dir`), and the app role is an sshd + node-tooling workbench outside the request path (TAIN-98). sveltekit (alias kit) is the server-side svelte type — nextjs shape: caddy proxies to the SvelteKit dev server.
 
 ## Branch Workflow
 

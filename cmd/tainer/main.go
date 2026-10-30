@@ -1020,14 +1020,14 @@ func cmdInit(args []string) {
 		}
 		fmt.Fprintln(os.Stderr, "tainer init: pass <type> [name] positionally (or run `tainer init` in a terminal for the wizard):")
 		fmt.Fprintln(os.Stderr, "  tainer init wordpress [myproject]")
-		fmt.Fprintln(os.Stderr, "  shortcuts: wp, php, node, next, nuxt, nest, react, kompozi")
+		fmt.Fprintln(os.Stderr, "  shortcuts: wp, php, node, next, nuxt, nest, react, kit, kompozi")
 		os.Exit(2)
 	}
 
 	rawType := rest[0]
 	canonical, ok := canonicalProjectType(rawType)
 	if !ok {
-		must(fmt.Errorf("unknown project type %q (one of: wordpress, php, nodejs, nextjs, nuxtjs, nestjs, react, kompozi — shortcuts: wp, node, next, nuxt, nest)", rawType))
+		must(fmt.Errorf("unknown project type %q (one of: wordpress, php, nodejs, nextjs, nuxtjs, nestjs, react, svelte, sveltekit, kompozi — shortcuts: wp, node, next, nuxt, nest, kit)", rawType))
 	}
 
 	opts := initcmd.Options{Type: canonical, PHP: phpVer, Node: nodeVer}
@@ -1311,7 +1311,7 @@ func runStartStyled(ctx context.Context, manifestPath, projectDir, projectName s
 	fmt.Println("  " + tui.MarkInfo() + router.SSHHint(res.Pod))
 	fmt.Println("  " + tui.MarkInfo() + router.SSHBareHint(res.Pod))
 	if noApp {
-		fmt.Println("  " + tui.MarkWarn() + noAppHint)
+		fmt.Println("  " + tui.MarkWarn() + scaffoldHintFor(manifestPath))
 	} else if !siteReady {
 		fmt.Println("  " + tui.MarkWarn() + "site is still warming up — give it a few more seconds")
 	}
@@ -1345,7 +1345,7 @@ func runStartPlain(ctx context.Context, manifestPath, projectDir, projectName st
 		fmt.Printf("%s started   (pod %d, %.1fs)\n", res.Pod, res.PodID, time.Since(started).Seconds())
 		if res.Domain != "" {
 			if nodeAppMissing(manifestPath, projectDir) {
-				fmt.Println(noAppHint)
+				fmt.Println(scaffoldHintFor(manifestPath))
 			} else {
 				fmt.Printf("waiting for https://%s...\n", res.Domain)
 				if _, ok := pod.WaitHTTPReady(ctx, res.Domain, startWarmupTimeout); ok {
@@ -1408,9 +1408,25 @@ func nodeAppMissing(manifestPath, projectDir string) bool {
 	return os.IsNotExist(serr)
 }
 
-// noAppHint is printed in place of the warming-up hint when
+// scaffoldHint is printed in place of the warming-up hint when
 // nodeAppMissing is true.
-const noAppHint = "no app in html/ yet — scaffold one (e.g. `tainer npm create vite@latest .`), then `tainer restart`"
+func scaffoldHint(t manifest.ProjectType) string {
+	scaffold := "npm create vite@latest ."
+	if t == manifest.TypeSvelteKit {
+		scaffold = "npm exec -- sv create ."
+	}
+	return "no app in html/ yet — scaffold one (e.g. `tainer " + scaffold + "`), then `tainer restart`"
+}
+
+// scaffoldHintFor returns the hint for the manifest's project type, falling
+// back to the generic copy when the manifest cannot be loaded.
+func scaffoldHintFor(manifestPath string) string {
+	m, err := manifest.Load(manifestPath)
+	if err != nil {
+		return scaffoldHint("")
+	}
+	return scaffoldHint(m.Project.Type)
+}
 
 func runStartWork(ctx context.Context, manifestPath, projectDir string, res **pod.StartResult) func() error {
 	return func() error {
@@ -1512,7 +1528,7 @@ func cmdRestart(args []string) {
 		fmt.Println("  " + tui.MarkInfo() + router.SSHHint(res.Pod))
 		fmt.Println("  " + tui.MarkInfo() + router.SSHBareHint(res.Pod))
 		if noApp {
-			fmt.Println("  " + tui.MarkWarn() + noAppHint)
+			fmt.Println("  " + tui.MarkWarn() + scaffoldHintFor(manifestPath))
 		} else if !siteReady {
 			fmt.Println("  " + tui.MarkWarn() + "site is still warming up — give it a few more seconds")
 		}
@@ -2975,7 +2991,7 @@ func cmdUpdate(args []string) {
 func runUpdateBase(outMode tui.OutputMode, rawType string) {
 	canonical, ok := canonicalProjectType(rawType)
 	if !ok {
-		must(fmt.Errorf("unknown project type %q (one of: wordpress, php, nodejs, nextjs, nuxtjs, nestjs, react, kompozi)", rawType))
+		must(fmt.Errorf("unknown project type %q (one of: wordpress, php, nodejs, nextjs, nuxtjs, nestjs, react, svelte, sveltekit, kompozi)", rawType))
 	}
 	started := time.Now()
 	label := "refreshing base image for " + string(canonical)

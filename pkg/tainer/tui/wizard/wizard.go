@@ -78,6 +78,7 @@ var (
 		{manifest.TypeNestJS, "Nest.js"},
 		{manifest.TypeReact, "React"},
 		{manifest.TypeSvelte, "Svelte"},
+		{manifest.TypeSvelteKit, "SvelteKit"},
 		{manifest.TypeKompozi, "Kompozi"},
 	}
 )
