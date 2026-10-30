@@ -83,3 +83,22 @@ func TestPublishesHostPort(t *testing.T) {
 		t.Error("publishesHostPort mismatch")
 	}
 }
+
+func TestShouldAdoptSSH22(t *testing.T) {
+	free := func() bool { return false }
+	taken := func() bool { return true }
+	if !shouldAdoptSSH22([]string{"22"}, free) {
+		t.Error("router on :22 and host port free must adopt")
+	}
+	if shouldAdoptSSH22([]string{"22"}, taken) {
+		t.Error("router on :22 but host sshd owns it (darwin Remote Login) must not adopt, so ensureSSH recreates on 2222")
+	}
+	if shouldAdoptSSH22([]string{"2222"}, free) || shouldAdoptSSH22(nil, free) {
+		t.Error("router not on :22 must not adopt")
+	}
+	called := false
+	shouldAdoptSSH22([]string{"2222"}, func() bool { called = true; return false })
+	if called {
+		t.Error("must not probe the host when the router is not on :22")
+	}
+}

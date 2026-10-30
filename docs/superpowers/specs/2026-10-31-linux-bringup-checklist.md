@@ -107,7 +107,7 @@ Container DNS is generated from the host's resolver configuration. Test on each:
 1. systemd-resolved host (`/etc/resolv.conf` -> `127.0.0.53`). Expect: containers get a usable upstream, not the loopback stub, which is unreachable from a container netns.
 2. Non-resolved host: plain static `/etc/resolv.conf` with real nameservers.
 3. Host with NetworkManager dnsmasq, and with the VPN rewriting resolv.conf.
-4. In each: `tainer exec <pod> getent hosts example.com` and `getent hosts <project>.tainer.me`.
+4. In each: `tainer exec <pod> cat /etc/resolv.conf` (it must match the host's real upstreams, picked from `/run/systemd/resolve/resolv.conf` first, then `/etc/resolv.conf`, falling back to public resolvers only when neither has a non-loopback nameserver), then `tainer exec <pod> getent hosts example.com` and `getent hosts <project>.tainer.me`. The file is regenerated on every container start, so after the VPN or resolver changes, restart the pod and re-check.
 
 ## Stage 11. Image store and registries
 

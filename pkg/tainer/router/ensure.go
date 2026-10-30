@@ -182,6 +182,16 @@ func routerPublishes22() bool {
 	return publishesHostPort(publishedHostPorts(err == nil, insp), 22)
 }
 
+// shouldAdoptSSH22 reports whether an existing router that publishes :22
+// should keep it. The router's own listener would fool a socket probe, so on
+// Linux sshPortTaken consults the router first and returns false while it owns
+// :22. On macOS sshPortTaken is the Remote Login check: once the user enables
+// it we must not pin :22, so SSHHostPort falls to 2222 and ensureSSH recreates
+// the router there.
+func shouldAdoptSSH22(publishedPorts []string, portTaken func() bool) bool {
+	return publishesHostPort(publishedPorts, 22) && !portTaken()
+}
+
 func publishesHostPort(hostPorts []string, port int) bool {
 	want := strconv.Itoa(port)
 	for _, p := range hostPorts {
@@ -247,9 +257,7 @@ func ensureSSH(ctx context.Context, eng *engine.Client) error {
 		return ierr
 	}
 	publishedPorts := publishedHostPorts(exists, insp)
-	// A router already publishing :22 owns it: keep it, never probe (the
-	// probe would see our own listener and flip us to :2222).
-	if publishesHostPort(publishedPorts, 22) {
+	if shouldAdoptSSH22(publishedPorts, sshPortTaken) {
 		adoptSSHPort(22)
 	}
 	sshPort := SSHHostPort()
