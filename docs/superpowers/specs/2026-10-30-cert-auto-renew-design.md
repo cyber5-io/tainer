@@ -104,6 +104,8 @@ SERIAL=$(openssl x509 -in "$CRT" -noout -serial | cut -d= -f2)
 mkdir -p "$WEBROOT"
 cp "$CRT" "$WEBROOT/fullchain.pem.tmp" && mv "$WEBROOT/fullchain.pem.tmp" "$WEBROOT/fullchain.pem"
 cp "$KEY" "$WEBROOT/privkey.pem.tmp"   && mv "$WEBROOT/privkey.pem.tmp"   "$WEBROOT/privkey.pem"
+# cp preserves lego's 0600 and nginx then 403s; these copies are public by design
+chmod 644 "$WEBROOT/fullchain.pem" "$WEBROOT/privkey.pem"
 printf '{\n  "sha256": "%s",\n  "notAfter": "%s",\n  "serial": "%s",\n  "generated": "%s"\n}\n' \
   "$NEW_SHA" "$NOT_AFTER" "$SERIAL" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   > "$WEBROOT/fingerprint.json.tmp" && mv "$WEBROOT/fingerprint.json.tmp" "$WEBROOT/fingerprint.json"
