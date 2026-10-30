@@ -24,7 +24,7 @@ import (
 // /etc/resolver/tainer.me sends that whole zone to the local responder
 // (127.0.0.1), so an endpoint under it would resolve to the user's own
 // router on every tainer machine and never reach the real server.
-const DefaultBaseURL = "https://certs.tainer.dev/tainer.me/"
+const DefaultBaseURL = "https://get.tainer.dev/tainer.me/"
 
 const checkInterval = 24 * time.Hour
 

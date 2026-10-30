@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Tainer refreshes the `*.tainer.me` cert from `https://certs.tainer.dev` once a day, in-place, without ever blocking a user command.
+**Goal:** Tainer refreshes the `*.tainer.me` cert from `https://get.tainer.dev` once a day, in-place, without ever blocking a user command.
 
 **Architecture:** A new `pkg/tainer/certsync` package orchestrates a daily gate (stamp file) → local expiry check → fingerprint compare → fetch+validate → in-place install → caddy reload. Pure fetch/validate logic lives in `pkg/tainer/tls`; the hook is one call in `runtime.Engine` after a successful engine connection.
 
@@ -15,7 +15,7 @@
 - Install by **in-place write only** — never rename over `config.CertFile()`/`KeyFile()` (per-file bind mounts sever on rename; verified 2026-10-30).
 - Write order: key fully, then cert fully, then reload. Validate everything before the first byte touches the live files.
 - Any failure: warn and return — never an error exit, never block the command. One attempt per day (stamp is written on every attempt).
-- Base URL const `https://certs.tainer.dev/tainer.me/`, env override `TAINER_CERT_URL` (same pattern as `CYBERSTACKD`).
+- Base URL const `https://get.tainer.dev/tainer.me/`, env override `TAINER_CERT_URL` (same pattern as `CYBERSTACKD`).
 - HTTP timeout 5s; strict TLS verification (no InsecureSkipVerify anywhere).
 - Key perms `0600`, cert perms `0644`.
 - User-facing output never says "podman", "docker", or "engine".
@@ -65,7 +65,7 @@ func TestInstallInPlace(t *testing.T)              // writes in place: inode unc
 - [ ] **Step 2: Run to verify they fail** — `go test ./pkg/tainer/tls/ -run 'TestFetch|TestInstall' -v` → FAIL (undefined symbols).
 - [ ] **Step 3: Implement `refresh.go`** per the Produces block. HTTP client: 5s timeout, created in the package (`var httpClient = &http.Client{Timeout: 5 * time.Second}` — tests use httptest URLs through the same client).
 - [ ] **Step 4: Run to verify pass** — same command → PASS; then `go vet ./pkg/tainer/tls/`.
-- [ ] **Step 5: Commit** — `git add pkg/tainer/tls/ && git commit -m "feat(tls): fetch and validate renewed certs from certs.tainer.dev"`
+- [ ] **Step 5: Commit** — `git add pkg/tainer/tls/ && git commit -m "feat(tls): fetch and validate renewed certs from get.tainer.dev"`
 
 ### Task 2: Daily gate + orchestration in `pkg/tainer/certsync`
 
@@ -76,7 +76,7 @@ func TestInstallInPlace(t *testing.T)              // writes in place: inode unc
 **Interfaces:**
 - Consumes: Task 1's `tls` functions; `config.CertsDir()/CertFile()/KeyFile()`; `router.ReloadCaddy` (Task 3 — stub the reload via the `reload func(...)` parameter until then).
 - Produces:
-  - `const DefaultBaseURL = "https://certs.tainer.dev/tainer.me/"`
+  - `const DefaultBaseURL = "https://get.tainer.dev/tainer.me/"`
   - `func BaseURL() string` — `TAINER_CERT_URL` env or default
   - `type Outcome struct { CheckedAt time.Time; Refreshed bool; Err string }` — JSON, written to `filepath.Join(config.CertsDir(), ".last-check")`
   - `func ReadLastOutcome() (Outcome, bool)` — for doctor
@@ -144,9 +144,9 @@ Tests point `config` at a temp dir — check how existing tests fake `BaseDir()`
 - [ ] **Step 1: Verify the release gate (manual, blocking)** — all three must pass, else STOP and hand back:
 
 ```bash
-curl -sS -m 10 https://certs.tainer.dev/tainer.me/fingerprint.json   # valid JSON, no TLS error
-curl -sS -m 10 https://certs.tainer.dev/tainer.me/fullchain.pem | openssl x509 -noout -subject -enddate  # CN=*.tainer.me, notAfter in the future
-echo | openssl s_client -connect certs.tainer.dev:443 2>/dev/null | openssl x509 -noout -issuer -enddate # issuer is Let's Encrypt/Enhance-issued, NOT SSL2BUY; not expired
+curl -sS -m 10 https://get.tainer.dev/tainer.me/fingerprint.json   # valid JSON, no TLS error
+curl -sS -m 10 https://get.tainer.dev/tainer.me/fullchain.pem | openssl x509 -noout -subject -enddate  # CN=*.tainer.me, notAfter in the future
+echo | openssl s_client -connect get.tainer.dev:443 2>/dev/null | openssl x509 -noout -issuer -enddate # issuer is Let's Encrypt/Enhance-issued, NOT SSL2BUY; not expired
 ```
 
 As of 2026-10-30 this gate FAILS (site serves the expired SSL2BUY wildcard; published files are 0 bytes) — Leni's side.
