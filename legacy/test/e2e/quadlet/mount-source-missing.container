@@ -1,6 +1,0 @@
-## assert-failed
-## assert-stderr-contains "source cannot be empty"
-
-[Container]
-Image=localhost/imagename
-Mount=/home:/home

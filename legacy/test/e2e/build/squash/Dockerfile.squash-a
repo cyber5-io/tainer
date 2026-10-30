@@ -1,2 +1,0 @@
-FROM quay.io/libpod/busybox:latest
-ADD alpinetest.tgz /data

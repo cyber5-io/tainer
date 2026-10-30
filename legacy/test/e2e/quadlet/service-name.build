@@ -1,6 +1,0 @@
-## assert-podman-args "--tag" "localhost/imagename"
-
-[Build]
-ServiceName=basic
-ImageTag=localhost/imagename
-SetWorkingDirectory=unit

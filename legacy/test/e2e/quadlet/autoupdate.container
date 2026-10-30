@@ -1,6 +1,0 @@
-## assert-podman-final-args localhost/imagename
-## assert-podman-args "--label" "io.containers.autoupdate=registry"
-
-[Container]
-Image=localhost/imagename
-AutoUpdate=registry

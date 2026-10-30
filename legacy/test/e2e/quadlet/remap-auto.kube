@@ -1,5 +1,0 @@
-## assert-podman-args --userns auto
-
-[Kube]
-Yaml=/opt/k8s/deployment.yml
-RemapUsers=auto

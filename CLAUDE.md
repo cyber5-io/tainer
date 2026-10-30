@@ -1,16 +1,16 @@
-# Tainer (rebuild — `dev/v1`)
+# Tainer
 
-This branch is the fresh-build tainer 1.0.0, replacing the podman fork. The old tree lives at [`legacy/`](./legacy) for reference and is **read-only** — never modify code under `legacy/`. After 1.0.0 ships and merges to `main`, `legacy/` will be removed from `main` (preserved on a `legacy-archive` branch).
+The fresh-build tainer, replacing the podman fork. **The rebuild is complete**: `dev/v1` merged to `main` on 2026-10-30 (tag `v1.3.0`) and the old podman-fork tree was removed — it is preserved on the `legacy-archive` branch (read-only reference; never develop against it).
 
 ## Quick Context
 
 - **Owner**: Cyber5 IO (cyber5.io) — UK company
-- **License**: BSL 1.1 (the `legacy/` tree is Apache 2.0, inherited from podman)
+- **License**: BSL 1.1 (the podman-inherited tree on `legacy-archive` is Apache 2.0)
 - **Module path**: `github.com/cyber5-io/tainer`
 - **Engine**: CyberStack (separate repo at `/Users/lenineto/dev/cyber5-io/cyber-stack`, private). Tainer talks to `cyberstackd`'s Docker-compatible Unix socket; users never see "VM" or "engine" in the UX.
 - **Hypervisor**: Apple Virtualization.framework on macOS (via vfkit), wrapped by cyberstackd. Linux runs containers natively (no VM). Windows TBD.
 - **Task tracker**: TAIN project in the Cyber5 Tracker (ops.cyber5.io; local dev instance at the `cyber5-ops` tainer project, `/Users/lenineto/dev/websites/cyber5.io/ops`). Jira is retired — tasks were migrated 2026-07-24 keeping their numbers (`tain-1`…`tain-97` carry the original Jira payload in `jira_raw`). Create/update tasks via `POST`/`PATCH /api/v1/tracker/tasks` with the `OPS_API_TOKEN` bearer from `ops/html/.env`; read via psql in the ops pod's db container (database `tainer`, tables `tracker_projects`/`tracker_tasks`).
-- **Current version target**: 1.2.0 (shipping from `dev/v1`, with CyberStack 0.7.0). 1.0.0 and 1.1.0 shipped internally. **Smart pods landed in 1.2.0**: a pod size is one absolute budget (nano 512M/1cpu … small 1G/1 … xxl 16G/8) enforced on a shared pod-level cgroup (`tainer-<project>`); containers run as limitless leaves that burst within it. Spec: `docs/superpowers/specs/2026-07-23-smart-pods-design.md`.
+- **Current version**: 1.3.0 (first release from `main`; CyberStack 0.7.1). Highlights by release: **smart pods** in 1.2.0 (one absolute budget per pod — nano 512M/1cpu … xxl 16G/8 — on a shared cgroup `tainer-<project>`, containers burst within it; spec `docs/superpowers/specs/2026-07-23-smart-pods-design.md`); **hands-free pkg upgrades** in 1.2.x; **auto-renewing tainer.me certs** (certsync ← get.tainer.dev), **react app role** and the **svelte type** in 1.3.0 (specs dated 2026-10-30).
 
 ## Architecture
 
@@ -40,10 +40,10 @@ wordpress, php, nodejs, nextjs, nuxtjs, nestjs, react, svelte, kompozi. react an
 
 ## Branch Workflow
 
-- All rebuild work lands on `dev/v1`.
-- `main` continues to receive bug fixes for the legacy tree (merge from a `legacy-fixes` branch if needed) until 1.0.0 ships.
-- Final `dev/v1` → `main` merge completes the rebuild; tag `v1.0.0` from main.
-- After tag, remove `legacy/` from main and push the `legacy-archive` branch from the pre-merge `dev/v1` SHA.
+- `main` is the development and release branch (since the 2026-10-30 rebuild merge, tag `v1.3.0`).
+- Feature work: branch from `main` (named after the Tracker task, e.g. `TAIN-98-react-app-role`), merge back fast-forward, tag releases from `main`.
+- `legacy-archive` holds the pre-rebuild podman-fork tree (with `legacy/` intact) — read-only reference.
+- `dev/v1` is retired (fully merged); safe to delete once nothing external references it.
 
 ## Coding Standards
 

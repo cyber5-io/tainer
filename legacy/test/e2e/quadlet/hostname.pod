@@ -1,3 +1,0 @@
-[Pod]
-## assert-podman-pre-args "--hostname" "my-host-name"
-HostName=my-host-name

@@ -1,5 +1,0 @@
-## assert-podman-final-args "test-network"
-
-[Network]
-ServiceName=basic
-NetworkName=test-network

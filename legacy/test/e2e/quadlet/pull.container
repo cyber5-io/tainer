@@ -1,6 +1,0 @@
-## assert-podman-final-args localhost/imagename
-## assert-podman-args --pull never
-
-[Container]
-Image=localhost/imagename
-Pull=never

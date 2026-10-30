@@ -1,7 +1,0 @@
-FROM docker.io/library/mariadb:11
-
-COPY shared/tainer-db-entrypoint-debian.sh /usr/local/bin/tainer-db-entrypoint.sh
-RUN chmod +x /usr/local/bin/tainer-db-entrypoint.sh
-
-ENTRYPOINT ["tainer-db-entrypoint.sh"]
-CMD ["mariadbd"]

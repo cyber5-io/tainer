@@ -1,6 +1,0 @@
-## assert-podman-final-args localhost/imagename
-## assert-podman-args --all-tags
-
-[Image]
-Image=localhost/imagename
-AllTags=yes

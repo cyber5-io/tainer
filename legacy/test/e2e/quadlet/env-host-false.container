@@ -1,6 +1,0 @@
-## assert-podman-final-args localhost/imagename
-## assert-podman-args --env-host=false
-
-[Container]
-Image=localhost/imagename
-EnvironmentHost=no

@@ -1,6 +1,0 @@
-## assert-failed
-## assert-stderr-contains "pod test-pod is not Quadlet based"
-
-[Container]
-Image=localhost/imagename
-Pod=test-pod

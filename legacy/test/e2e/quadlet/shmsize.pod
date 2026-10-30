@@ -1,4 +1,0 @@
-## assert-podman-pre-args "--shm-size" "5g"
-
-[Pod]
-ShmSize=5g

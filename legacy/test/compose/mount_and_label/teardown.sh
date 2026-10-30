@@ -1,1 +1,0 @@
-rm /tmp/data/message

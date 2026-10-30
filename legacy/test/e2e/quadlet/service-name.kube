@@ -1,5 +1,0 @@
-## assert-podman-final-args-regex .*/podman-e2e-.*/subtest-.*/quadlet/deployment.yml
-
-[Kube]
-ServiceName=basic
-Yaml=deployment.yml

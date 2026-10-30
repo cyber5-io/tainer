@@ -1,2 +1,0 @@
-FROM quay.io/libpod/alpine:latest
-LABEL testlabel=testvalue

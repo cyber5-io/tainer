@@ -1,5 +1,0 @@
-## assert-podman-final-args "--file" "/etc/containers/systemd/Containerfile"
-
-[Build]
-File=/etc/containers/systemd/Containerfile
-ImageTag=localhost/imagename

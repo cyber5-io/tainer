@@ -1,5 +1,0 @@
-## assert-podman-final-args systemd-interface-name
-## assert-podman-args "--interface-name" "enp1"
-
-[Network]
-InterfaceName=enp1

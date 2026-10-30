@@ -1,6 +1,0 @@
-## assert-podman-pre-args --network-alias name
-## assert-podman-pre-args --network-alias othername
-
-[Pod]
-NetworkAlias=name
-NetworkAlias=othername

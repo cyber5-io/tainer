@@ -1,6 +1,0 @@
-## assert-podman-final-args localhost/imagename
-## assert-podman-args --tls-verify=false
-
-[Image]
-Image=localhost/imagename
-TLSVerify=no

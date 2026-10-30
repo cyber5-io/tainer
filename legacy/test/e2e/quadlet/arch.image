@@ -1,6 +1,0 @@
-## assert-podman-final-args localhost/imagename
-## assert-podman-args "--arch" "aarch64"
-
-[Image]
-Image=localhost/imagename
-Arch=aarch64
