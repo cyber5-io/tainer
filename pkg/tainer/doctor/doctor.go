@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cyber5-io/tainer/pkg/tainer/certsync"
 	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/dns"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
@@ -350,15 +351,31 @@ func (d *run) checkEdge() {
 }
 
 // checkTLS verifies the wildcard cert exists and isn't expired or
-// about to. No auto-fix — cert distribution is an install-time
-// concern and re-downloading needs the release URL wiring.
+// about to be. The cert renews automatically: the first engine command
+// of each day fetches a fresh one from certs.tainer.me (certsync), so
+// this check also surfaces that machinery's last attempt.
 func (d *run) checkTLS() {
 	d.start("tls")
 	certPath := config.CertFile()
+
+	// refreshHint explains the automatic refresh state for fail/warn lines.
+	refreshHint := func() string {
+		out, ok := certsync.ReadLastOutcome()
+		if ok && out.Err != "" {
+			return "automatic refresh from " + certsync.BaseURL() + " is failing (last attempt " +
+				out.CheckedAt.Format("2006-01-02 15:04") + "): " + out.Err
+		}
+		if ok {
+			return "it renews automatically from " + certsync.BaseURL() + " (last check " +
+				out.CheckedAt.Format("2006-01-02 15:04") + ")"
+		}
+		return "it renews automatically on the next tainer command; run one and re-check"
+	}
+
 	if !tainertls.CertExists(certPath) {
 		d.add(Result{Name: "tls", Status: StatusFail,
 			Detail: "certificate missing: " + certPath,
-			Hint:   "reinstall tainer to restore the *.tainer.me certificate"})
+			Hint:   "the *.tainer.me certificate is fetched automatically on the next tainer command"})
 		return
 	}
 	expiry, needsRenewal, err := tainertls.CheckExpiry(certPath)
@@ -369,13 +386,13 @@ func (d *run) checkTLS() {
 	if time.Now().After(expiry) {
 		d.add(Result{Name: "tls", Status: StatusFail,
 			Detail: "certificate expired " + expiry.Format("2006-01-02"),
-			Hint:   "update tainer to get the renewed certificate"})
+			Hint:   refreshHint()})
 		return
 	}
 	if needsRenewal {
 		d.add(Result{Name: "tls", Status: StatusWarn,
 			Detail: "certificate expires " + expiry.Format("2006-01-02"),
-			Hint:   "update tainer soon to get the renewed certificate"})
+			Hint:   refreshHint()})
 		return
 	}
 	d.add(Result{Name: "tls", Status: StatusOK, Detail: "valid until " + expiry.Format("2006-01-02")})
