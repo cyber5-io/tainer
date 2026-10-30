@@ -143,6 +143,16 @@ var typeSpecs = []TypeSpec{
 		Tools:          nodeTools,
 	},
 	{
+		Type:           TypeSvelteKit,
+		Family:         FamilyNode,
+		Aliases:        []string{"kit"},
+		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseMariaDB},
+		HasAppRole:     true,
+		ExecUser:       "1000:1000",
+		ExecWorkdir:    "/var/www/html",
+		Tools:          nodeTools,
+	},
+	{
 		Type:           TypeKompozi,
 		Family:         FamilyNode,
 		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabasePostgres},

@@ -60,6 +60,9 @@ func TestCanonicalType(t *testing.T) {
 		{"next", TypeNextJS, true},
 		{"node", TypeNodeJS, true},
 		{"kompozi", TypeKompozi, true},
+		{"sveltekit", TypeSvelteKit, true},
+		{"kit", TypeSvelteKit, true},
+		{"KIT", TypeSvelteKit, true},
 		{"rails", "", false},
 		{"", "", false},
 	}
@@ -78,8 +81,8 @@ func TestToolTypes(t *testing.T) {
 	if got := ToolTypes("composer"); len(got) != 2 {
 		t.Errorf("ToolTypes(composer) = %v, want wordpress+php", got)
 	}
-	if got := ToolTypes("npm"); len(got) != 7 {
-		t.Errorf("ToolTypes(npm) = %v, want the 7 node-flavoured types", got)
+	if got := ToolTypes("npm"); len(got) != 8 {
+		t.Errorf("ToolTypes(npm) = %v, want the 8 node-flavoured types", got)
 	}
 	if got := ToolTypes("kubectl"); got != nil {
 		t.Errorf("ToolTypes(kubectl) = %v, want nil", got)
@@ -129,15 +132,46 @@ func TestSvelteSpec(t *testing.T) {
 	}
 }
 
+// TestSvelteKitSpec locks the server-side svelte type: nextjs shape —
+// caddy proxies to the app server; no static bundle.
+func TestSvelteKitSpec(t *testing.T) {
+	s, ok := SpecFor(TypeSvelteKit)
+	if !ok {
+		t.Fatal("no spec for sveltekit")
+	}
+	if s.Family != FamilyNode {
+		t.Errorf("sveltekit: Family = %q, want node", s.Family)
+	}
+	if !s.HasAppRole {
+		t.Error("sveltekit: HasAppRole = false, want true")
+	}
+	if s.StaticBundle {
+		t.Error("sveltekit: StaticBundle = true, want false (server type)")
+	}
+	if s.ExecUser != "1000:1000" {
+		t.Errorf("sveltekit: ExecUser = %q, want 1000:1000", s.ExecUser)
+	}
+	if s.ExecWorkdir != "/var/www/html" {
+		t.Errorf("sveltekit: ExecWorkdir = %q, want /var/www/html", s.ExecWorkdir)
+	}
+	if s.DefaultRuntime.Node != "20" {
+		t.Errorf("sveltekit: default node = %q, want 20", s.DefaultRuntime.Node)
+	}
+	if s.DefaultRuntime.Database != DatabaseMariaDB {
+		t.Errorf("sveltekit: default db = %q, want mariadb", s.DefaultRuntime.Database)
+	}
+}
+
 // TestStaticBundle locks which types are SPAs (caddy serves the built
 // bundle; TAINER_BUILD_DIR applies) vs server types (caddy proxies).
 func TestStaticBundle(t *testing.T) {
 	for typ, want := range map[ProjectType]bool{
-		TypeReact:   true,
-		TypeSvelte:  true,
-		TypeNodeJS:  false,
-		TypeNextJS:  false,
-		TypeKompozi: false,
+		TypeReact:     true,
+		TypeSvelte:    true,
+		TypeSvelteKit: false,
+		TypeNodeJS:    false,
+		TypeNextJS:    false,
+		TypeKompozi:   false,
 	} {
 		s, ok := SpecFor(typ)
 		if !ok {

@@ -28,6 +28,7 @@ const (
 	TypeNestJS    ProjectType = "nestjs"
 	TypeReact     ProjectType = "react"
 	TypeSvelte    ProjectType = "svelte"
+	TypeSvelteKit ProjectType = "sveltekit"
 	TypeKompozi   ProjectType = "kompozi"
 )
 
