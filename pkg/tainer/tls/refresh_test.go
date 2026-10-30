@@ -104,10 +104,10 @@ func TestFetchFingerprintMalformed(t *testing.T) {
 	notAfter := time.Now().Add(60 * 24 * time.Hour)
 	certPEM, keyPEM := makeCertPair(t, tainerDomains, notAfter)
 	for name, body := range map[string]string{
-		"not json":      "<html>enhance 404</html>",
-		"missing sha":   `{"notAfter":"2027-01-01T00:00:00Z","serial":"1","generated":"2026-10-30T00:00:00Z"}`,
-		"bad notAfter":  `{"sha256":"abc123","notAfter":"next tuesday","serial":"1","generated":"2026-10-30T00:00:00Z"}`,
-		"empty body":    "",
+		"not json":     "<html>enhance 404</html>",
+		"missing sha":  `{"notAfter":"2027-01-01T00:00:00Z","serial":"1","generated":"2026-10-30T00:00:00Z"}`,
+		"bad notAfter": `{"sha256":"abc123","notAfter":"next tuesday","serial":"1","generated":"2026-10-30T00:00:00Z"}`,
+		"empty body":   "",
 	} {
 		base := serveFiles(t, []byte(body), certPEM, keyPEM)
 		if _, err := FetchFingerprint(context.Background(), base); err == nil {

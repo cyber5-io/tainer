@@ -11,11 +11,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -172,6 +175,105 @@ func TestDailyRefreshInstallsAndReloads(t *testing.T) {
 	out, ok := ReadLastOutcome()
 	if !ok || !out.Refreshed || out.Err != "" {
 		t.Errorf("outcome = %+v, want Refreshed=true", out)
+	}
+}
+
+// captureFd swaps the given *os.File (os.Stdout or os.Stderr) for a pipe
+// while fn runs and returns what was written.
+func captureFd(t *testing.T, target **os.File, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := *target
+	*target = w
+	defer func() { *target = old }()
+	fn()
+	w.Close()
+	out, _ := io.ReadAll(r)
+	return string(out)
+}
+
+// A fresh machine (or a user who rm -rf'd the certs dir) must get the
+// cert installed on the FIRST attempt, not fail on the missing dir and
+// heal a day later.
+func TestDailyRefreshFreshDir(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // certs dir does NOT exist
+	notAfter := time.Now().Add(89 * 24 * time.Hour).Truncate(time.Second)
+	certPEM, keyPEM := makeCertPair(t, notAfter)
+	serveEndpoint(t, certPEM, keyPEM, notAfter)
+
+	DailyRefresh(context.Background(), func(context.Context) error { return nil })
+
+	got, err := os.ReadFile(config.CertFile())
+	if err != nil || string(got) != string(certPEM) {
+		t.Fatalf("cert not installed on fresh dir: %v", err)
+	}
+	out, ok := ReadLastOutcome()
+	if !ok || !out.Refreshed || out.Err != "" {
+		t.Errorf("outcome = %+v, want Refreshed=true", out)
+	}
+}
+
+// The whole refresh flow must be bounded by its own deadline so a
+// wedged engine cannot stall the user's command on cert hygiene.
+func TestDailyRefreshBoundsContext(t *testing.T) {
+	fakeConfigDir(t)
+	notAfter := time.Now().Add(89 * 24 * time.Hour).Truncate(time.Second)
+	writeCert(t, time.Now().Add(5*24*time.Hour))
+	newCert, newKey := makeCertPair(t, notAfter)
+	serveEndpoint(t, newCert, newKey, notAfter)
+
+	var hadDeadline bool
+	DailyRefresh(context.Background(), func(c context.Context) error {
+		_, hadDeadline = c.Deadline()
+		return nil
+	})
+	if !hadDeadline {
+		t.Error("reload ran without a deadline — refresh flow must bound itself even when the caller's context doesn't")
+	}
+}
+
+// Success messaging must not touch stdout: --json commands encode their
+// result there and a prepended line corrupts it.
+func TestDailyRefreshQuietStdout(t *testing.T) {
+	fakeConfigDir(t)
+	notAfter := time.Now().Add(89 * 24 * time.Hour).Truncate(time.Second)
+	writeCert(t, time.Now().Add(5*24*time.Hour))
+	newCert, newKey := makeCertPair(t, notAfter)
+	serveEndpoint(t, newCert, newKey, notAfter)
+
+	stdout := captureFd(t, &os.Stdout, func() {
+		DailyRefresh(context.Background(), func(context.Context) error { return nil })
+	})
+	if stdout != "" {
+		t.Errorf("refresh wrote to stdout (corrupts --json): %q", stdout)
+	}
+}
+
+// A reload failure warning is user-facing output: it must not leak the
+// engine wrapper's forbidden vocabulary, and the install still counts.
+func TestDailyRefreshReloadFailureWarning(t *testing.T) {
+	fakeConfigDir(t)
+	notAfter := time.Now().Add(89 * 24 * time.Hour).Truncate(time.Second)
+	writeCert(t, time.Now().Add(5*24*time.Hour))
+	newCert, newKey := makeCertPair(t, notAfter)
+	serveEndpoint(t, newCert, newKey, notAfter)
+
+	stderr := captureFd(t, &os.Stderr, func() {
+		DailyRefresh(context.Background(), func(context.Context) error {
+			return fmt.Errorf("engine: exec create on tainer-router-web: boom")
+		})
+	})
+	for _, banned := range []string{"engine", "docker", "podman"} {
+		if strings.Contains(strings.ToLower(stderr), banned) {
+			t.Errorf("user-facing warning contains %q: %q", banned, stderr)
+		}
+	}
+	out, ok := ReadLastOutcome()
+	if !ok || !out.Refreshed {
+		t.Errorf("outcome = %+v, want Refreshed=true (files are installed)", out)
 	}
 }
 

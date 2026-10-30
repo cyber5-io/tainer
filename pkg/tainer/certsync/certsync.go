@@ -23,6 +23,10 @@ const DefaultBaseURL = "https://certs.tainer.me/tainer.me/"
 
 const checkInterval = 24 * time.Hour
 
+// refreshTimeout bounds one whole refresh attempt (fingerprint + two
+// PEM fetches + reload), independently of the caller's context.
+const refreshTimeout = 15 * time.Second
+
 // BaseURL returns the publish endpoint, honoring TAINER_CERT_URL.
 func BaseURL() string {
 	if u := os.Getenv("TAINER_CERT_URL"); u != "" {
@@ -98,6 +102,12 @@ func DailyRefresh(ctx context.Context, reload func(context.Context) error) {
 		return
 	}
 
+	// Bound the whole flow ourselves: the caller's context can be a
+	// 10-minute command deadline, and cert hygiene must never stall a
+	// user command on a wedged router or endpoint.
+	ctx, cancel := context.WithTimeout(ctx, refreshTimeout)
+	defer cancel()
+
 	fail := func(err error) {
 		writeOutcome(Outcome{CheckedAt: now, Err: err.Error()})
 		fmt.Fprintf(os.Stderr, "warning: tainer.me certificate refresh failed: %v (will retry tomorrow; see `tainer doctor`)\n", err)
@@ -122,14 +132,22 @@ func DailyRefresh(ctx context.Context, reload func(context.Context) error) {
 		fail(err)
 		return
 	}
+	// A fresh machine (or a wiped config dir) has no certs dir yet.
+	if err := os.MkdirAll(config.CertsDir(), 0755); err != nil {
+		fail(err)
+		return
+	}
 	if err := tls.InstallInPlace(certPEM, keyPEM, certPath, keyPath); err != nil {
 		fail(err)
 		return
 	}
 	if err := reload(ctx); err != nil {
-		// Files are installed; caddy picks them up on its next start.
-		fmt.Fprintf(os.Stderr, "warning: certificate installed but router reload failed: %v\n", err)
+		// Files are installed; the router picks them up on its next
+		// start. Fixed copy — the raw error wraps internal vocabulary
+		// that user-facing output must not carry.
+		fmt.Fprintln(os.Stderr, "warning: certificate installed but the router did not reload — it will be used on the next start (see `tainer doctor`)")
 	}
 	writeOutcome(Outcome{CheckedAt: now, Refreshed: true})
-	fmt.Printf("tainer: refreshed tainer.me certificate (valid to %s)\n", fp.NotAfter.Format("2006-01-02"))
+	// stderr, not stdout: --json commands own stdout.
+	fmt.Fprintf(os.Stderr, "tainer: refreshed tainer.me certificate (valid to %s)\n", fp.NotAfter.Format("2006-01-02"))
 }
