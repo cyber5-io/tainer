@@ -58,7 +58,7 @@ func Update(ctx context.Context, eng *engine.Client, opts StartOptions, uopt Upd
 			return fmt.Errorf("update: pull %s: %w", role, err)
 		}
 	}
-	report("pull", "images updated", 100, true)
+	report("pull", "images updated", -1, false)
 	// Recreate containers by stopping + removing + re-running. Volumes
 	// preserved (DB data on the named volume; mount binds untouched).
 	if err := Stop(ctx, eng, m.Project.Name); err != nil {
@@ -75,8 +75,11 @@ func Update(ctx context.Context, eng *engine.Client, opts StartOptions, uopt Upd
 			}
 		}
 	}
-	_, err = Start(ctx, eng, opts)
-	return err
+	if _, err = Start(ctx, eng, opts); err != nil {
+		return err
+	}
+	report("restart", "pod updated", 100, true)
+	return nil
 }
 
 // defaultRuntimeFor returns the default RuntimeConfig for a project

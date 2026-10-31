@@ -93,3 +93,50 @@ func TestReporterSwallowsRejection(t *testing.T) {
 		t.Fatal("no POST received")
 	}
 }
+
+func TestReporterTimesOutOnHungDaemon(t *testing.T) {
+	dir, err := os.MkdirTemp("", "tp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "h.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = c // accepted, never answered
+		}
+	}()
+	t.Setenv("DOCKER_HOST", "unix://"+sock)
+
+	start := time.Now()
+	Reporter(context.Background(), "start", "demo")("pull", "m", -1, false)
+	if d := time.Since(start); d > 150*time.Millisecond {
+		t.Fatalf("hung daemon held the reporter for %v", d)
+	}
+}
+
+func TestReporterClampsPercent(t *testing.T) {
+	got, sock := serveUnix(t, http.StatusNoContent)
+	t.Setenv("DOCKER_HOST", "unix://"+sock)
+	report := Reporter(context.Background(), "start", "demo")
+	for in, want := range map[int]float64{-7: -1, 250: 100, 42: 42} {
+		report("pull", "m", in, false)
+		c := <-got
+		var doc map[string]any
+		if err := json.Unmarshal(c.body, &doc); err != nil {
+			t.Fatal(err)
+		}
+		if doc["percent"] != want {
+			t.Fatalf("percent %d sent as %v, want %v", in, doc["percent"], want)
+		}
+	}
+}

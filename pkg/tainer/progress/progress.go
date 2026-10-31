@@ -27,6 +27,7 @@ type document struct {
 // percent is -1 when unknown.
 func Reporter(ctx context.Context, op, pod string) func(step, message string, percent int, done bool) {
 	return func(step, message string, percent int, done bool) {
+		percent = max(-1, min(100, percent))
 		body, err := json.Marshal(document{op, pod, step, percent, message, done})
 		if err != nil {
 			return
