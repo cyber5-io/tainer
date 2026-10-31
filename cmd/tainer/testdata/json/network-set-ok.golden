@@ -1,0 +1,13 @@
+{
+  "switched": true,
+  "noChange": false,
+  "previous": "compat",
+  "new": "perf",
+  "restarted": [
+    "blog"
+  ],
+  "failed": [
+    "shop"
+  ],
+  "elapsedMs": 4000
+}

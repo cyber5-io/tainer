@@ -1,0 +1,10 @@
+{
+  "daemon": {
+    "socket": "",
+    "running": false,
+    "reachable": false
+  },
+  "project": "gone",
+  "containers": [],
+  "queryError": "agent unreachable"
+}

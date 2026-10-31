@@ -1,0 +1,18 @@
+{
+  "Pod": "blog",
+  "PodID": 7,
+  "Domain": "blog.tainer.me",
+  "HTTPServices": [
+    {
+      "Role": "web",
+      "URL": "https://blog.tainer.me"
+    }
+  ],
+  "TCPServices": [
+    {
+      "Role": "db",
+      "Host": "127.0.0.1:70"
+    }
+  ],
+  "AlreadyRunning": false
+}

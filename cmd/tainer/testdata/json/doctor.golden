@@ -1,0 +1,18 @@
+{
+  "checks": [
+    {
+      "name": "daemon",
+      "status": "ok",
+      "detail": "reachable"
+    },
+    {
+      "name": "pods",
+      "status": "fail",
+      "detail": "blog down",
+      "hint": "tainer restart blog",
+      "fixed": true
+    }
+  ],
+  "stoppedPods": 2,
+  "healthy": false
+}
