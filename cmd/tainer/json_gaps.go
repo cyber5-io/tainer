@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -42,23 +44,39 @@ func logLineTS(line string) string {
 
 // streamLogLines reads r line by line and writes one NDJSON record per line to
 // w. Lines are passed through raw; blank lines are preserved.
+//
+// Contract notes: "ts" is non-empty only when the line itself starts with a
+// parseable RFC 3339 timestamp (the engine is not asked to stamp lines), so
+// it is usually empty. A line longer than logLineMax ends the stream with a
+// logs-unavailable error; records already written stay valid.
 func streamLogLines(r io.Reader, w io.Writer, pod, part string) error {
-	br := bufio.NewReader(r)
-	for {
-		raw, err := br.ReadString('\n')
-		if raw != "" {
-			line := strings.TrimSuffix(strings.TrimSuffix(raw, "\n"), "\r")
-			if werr := jsonLine(w, logJSONLine{Pod: pod, Part: part, TS: logLineTS(line), Line: line}); werr != nil {
-				return werr
-			}
-		}
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
+	sc := newLogScanner(r)
+	for sc.Scan() {
+		line := sc.Text()
+		if err := jsonLine(w, logJSONLine{Pod: pod, Part: part, TS: logLineTS(line), Line: line}); err != nil {
 			return err
 		}
 	}
+	return logScanErr(sc.Err())
+}
+
+// logLineMax bounds a single log line in both the JSON and plain paths.
+const logLineMax = 4 * 1024 * 1024
+
+func newLogScanner(r io.Reader) *bufio.Scanner {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), logLineMax)
+	return sc
+}
+
+func logScanErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, bufio.ErrTooLong) {
+		return withCode("logs-unavailable", fmt.Errorf("log line exceeds %d bytes", logLineMax))
+	}
+	return withCode("logs-unavailable", err)
 }
 
 // lockedWriter serialises whole-record writes from concurrent log streams.
@@ -103,9 +121,13 @@ func emitDoctorJSON(rep doctor.Report, fix bool) {
 	checks := make([]doctorJSONCheck, 0, len(rep.Results))
 	fixed := []string{}
 	for _, r := range rep.Results {
+		hint := r.Hint
+		if r.Status == doctor.StatusSkip && hint == "" {
+			hint = "skipped: " + r.Detail // a fail must never be unexplained
+		}
 		checks = append(checks, doctorJSONCheck{
 			Name: r.Name, Status: doctorJSONStatus(r.Status),
-			Detail: r.Detail, Hint: r.Hint, Fixed: r.Fixed,
+			Detail: r.Detail, Hint: hint, Fixed: r.Fixed,
 		})
 		if r.Fixed {
 			fixed = append(fixed, r.Name)
@@ -202,6 +224,9 @@ type execStreamWriter struct {
 	stream string
 }
 
+// Write emits one record per call. Chunks are carried as JSON strings, so
+// non-UTF-8 output bytes are replaced with U+FFFD (binary output is not
+// representable in this contract).
 func (s execStreamWriter) Write(p []byte) (int, error) {
 	s.e.mu.Lock()
 	defer s.e.mu.Unlock()

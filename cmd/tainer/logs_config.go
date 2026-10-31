@@ -1,10 +1,11 @@
 package main
 
 import (
-	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"strings"
 	"sync"
@@ -42,9 +43,23 @@ func loadManifestFor(project string) (*manifest.Manifest, string) {
 	}
 	path, _, err := locateManifest(locator)
 	must(err)
-	m, err := manifest.Load(path)
-	must(withCode("manifest-invalid", err))
+	m, err := loadManifestAt(path)
+	must(err)
 	return m, path
+}
+
+// loadManifestAt loads a manifest, slugging failures precisely: a file that
+// cannot be read is project-not-found, one that does not parse (or fails
+// validation) is manifest-invalid.
+func loadManifestAt(path string) (*manifest.Manifest, error) {
+	m, err := manifest.Load(path)
+	if err == nil {
+		return m, nil
+	}
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
+		return nil, withCode("project-not-found", err)
+	}
+	return nil, withCode("manifest-invalid", err)
 }
 
 // cmdLogs implements `tainer logs [project] [role] [--follow]`.
@@ -132,14 +147,13 @@ func cmdLogs(args []string) {
 
 // streamLogLinesPlain writes `part | line` for each line of r.
 func streamLogLinesPlain(r io.Reader, w io.Writer, part string) error {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	sc := newLogScanner(r)
 	for sc.Scan() {
 		if _, err := fmt.Fprintf(w, "%s | %s\n", part, sc.Text()); err != nil {
 			return err
 		}
 	}
-	return sc.Err()
+	return logScanErr(sc.Err())
 }
 
 // cmdConfig implements `tainer config [project]`: print the project's manifest.
