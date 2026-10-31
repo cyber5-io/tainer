@@ -7,8 +7,13 @@ import (
 
 func TestEngineManagedCopy(t *testing.T) {
 	msg := ErrEngineManaged.Error()
+	for _, banned := range []string{"engine", "podman", "docker"} {
+		if strings.Contains(strings.ToLower(msg), banned) {
+			t.Errorf("ErrEngineManaged %q must not mention %q", msg, banned)
+		}
+	}
 	for _, want := range []string{
-		"the tainer engine isn't running",
+		"the tainer stack isn't running",
 		"sudo apt install ./tainer.deb",
 		"'cyberstack' group",
 		"groups | grep cyberstack",

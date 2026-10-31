@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -41,7 +42,43 @@ func captureStdout(t *testing.T, fn func()) []byte {
 	return <-done
 }
 
+// checkSnapshot compares got to a golden captured before the envelope existed.
+// "v":1 is REQUIRED in got; it is removed before comparing. With wantV the
+// golden itself already carries v and the documents must match exactly.
+func checkSnapshot(got, want []byte, wantV bool) error {
+	var gotDoc, wantDoc any
+	if err := json.Unmarshal(got, &gotDoc); err != nil {
+		return fmt.Errorf("output is not valid JSON: %v\n%s", err, got)
+	}
+	if err := json.Unmarshal(want, &wantDoc); err != nil {
+		return fmt.Errorf("golden is not valid JSON: %v", err)
+	}
+	if !wantV {
+		m, ok := gotDoc.(map[string]any)
+		if !ok {
+			return fmt.Errorf("output is not a JSON object: %s", got)
+		}
+		v, has := m["v"]
+		if !has {
+			return fmt.Errorf(`missing top-level "v": %s`, got)
+		}
+		if v != float64(1) {
+			return fmt.Errorf(`"v" = %v, want 1`, v)
+		}
+		delete(m, "v")
+	}
+	if !reflect.DeepEqual(gotDoc, wantDoc) {
+		return fmt.Errorf("output changed beyond adding v\n got: %s\nwant: %s", got, want)
+	}
+	return nil
+}
+
 func assertSnapshot(t *testing.T, name string, fn func()) {
+	t.Helper()
+	assertGolden(t, name, false, fn)
+}
+
+func assertGolden(t *testing.T, name string, wantV bool, fn func()) {
 	t.Helper()
 	got := captureStdout(t, fn)
 	path := filepath.Join("testdata", "json", name+".golden")
@@ -58,23 +95,24 @@ func assertSnapshot(t *testing.T, name string, fn func()) {
 	if err != nil {
 		t.Fatalf("read golden: %v", err)
 	}
-	var gotDoc, wantDoc any
-	if err := json.Unmarshal(got, &gotDoc); err != nil {
-		t.Fatalf("output is not valid JSON: %v\n%s", err, got)
+	if err := checkSnapshot(got, want, wantV); err != nil {
+		t.Errorf("%s: %v", name, err)
 	}
-	if err := json.Unmarshal(want, &wantDoc); err != nil {
-		t.Fatalf("golden is not valid JSON: %v", err)
+}
+
+func TestCheckSnapshotRequiresV(t *testing.T) {
+	golden := []byte(`{"a":1}`)
+	if err := checkSnapshot([]byte(`{"a":1}`), golden, false); err == nil {
+		t.Error("a document without v must fail the snapshot")
 	}
-	if m, ok := gotDoc.(map[string]any); ok {
-		if v, has := m["v"]; has {
-			if v != float64(1) {
-				t.Fatalf(`"v" = %v, want 1`, v)
-			}
-			delete(m, "v")
-		}
+	if err := checkSnapshot([]byte(`{"v":2,"a":1}`), golden, false); err == nil {
+		t.Error("v != 1 must fail")
 	}
-	if !reflect.DeepEqual(gotDoc, wantDoc) {
-		t.Errorf("%s: output changed beyond adding v\n got: %s\nwant: %s", name, got, want)
+	if err := checkSnapshot([]byte(`{"v":1,"a":1}`), golden, false); err != nil {
+		t.Errorf("valid doc rejected: %v", err)
+	}
+	if err := checkSnapshot([]byte(`{"v":1,"a":2}`), golden, false); err == nil {
+		t.Error("changed key must fail")
 	}
 }
 
@@ -172,10 +210,10 @@ func sampleListRows() []listRow {
 }
 
 // The list document was a bare array before the envelope; v cannot be added to
-// an array, so it is the one family whose shape changes (see TestJSONListEnvelope).
-func TestJSONSnapshotListGolden(t *testing.T) {
-	if os.Getenv("TAINER_UPDATE_GOLDEN") != "1" {
-		t.Skip("golden is only (re)generated on demand")
-	}
-	assertSnapshot(t, "list", func() { emitListJSON(sampleListRows()) })
+// an array, so it is the one family whose shape deliberately changes. The new
+// shape has its own committed golden (see also TestJSONListEnvelope, which pins
+// the rows against the pre-envelope array in list.golden).
+func TestJSONSnapshotList(t *testing.T) {
+	assertGolden(t, "list-v1", true, func() { emitListJSON(sampleListRows()) })
+	assertGolden(t, "list-v1-empty", true, func() { emitListJSON(nil) })
 }

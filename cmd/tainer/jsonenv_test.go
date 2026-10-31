@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/cyber5-io/tainer/pkg/tainer/pod"
 	"github.com/cyber5-io/tainer/pkg/tainer/runtime"
 	"github.com/cyber5-io/tainer/pkg/tainer/tui"
 )
@@ -261,5 +263,43 @@ func TestFailedUpdateAndNetworkEmitEnvelope(t *testing.T) {
 	})
 	if !strings.Contains(string(out), `"code":"network-switch-failed"`) {
 		t.Errorf("got %s", out)
+	}
+}
+
+func TestNukeGuardInJSONMode(t *testing.T) {
+	origIn := os.Stdin
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = w.WriteString("blog\n")
+	os.Stdin = r
+	defer func() { os.Stdin = origIn; r.Close(); w.Close() }()
+
+	out, exit := failureHarness(t, true, func() { requireNukeConfirmation("blog", tui.ModeJSON, pod.DestroyNuke, false) })
+	want := `{"v":1,"error":{"code":"confirmation-required","message":"destroy --nuke requires --yes in --json mode"}}` + "\n"
+	if string(out) != want || exit != 1 {
+		t.Errorf("out=%q exit=%d", out, exit)
+	}
+	// Nothing was read: the typed confirmation is still pending on stdin.
+	_ = w.Close()
+	rest, _ := io.ReadAll(r)
+	if string(rest) != "blog\n" {
+		t.Errorf("stdin was consumed: %q", rest)
+	}
+
+	for name, c := range map[string]struct {
+		mode tui.OutputMode
+		dm   pod.DestroyMode
+		yes  bool
+	}{
+		"yes given":      {tui.ModeJSON, pod.DestroyNuke, true},
+		"not a nuke":     {tui.ModeJSON, pod.DestroyClean, false},
+		"human mode too": {tui.ModePlain, pod.DestroyDefault, false},
+	} {
+		out, exit := failureHarness(t, true, func() { requireNukeConfirmation("blog", c.mode, c.dm, c.yes) })
+		if exit != -1 || len(out) != 0 {
+			t.Errorf("%s: out=%q exit=%d; guard must not fire", name, out, exit)
+		}
 	}
 }

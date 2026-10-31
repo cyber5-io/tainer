@@ -106,9 +106,9 @@ func Engine(ctx context.Context, opts Options) (*engine.Client, error) {
 // the current OS yet.
 var ErrUnsupportedOS = errors.New("not supported on Windows yet")
 
-// ErrEngineManaged is returned where the engine is started by the service
+// ErrEngineManaged is returned where the stack is started by the service
 // manager (Linux/systemd) rather than by tainer, and is not answering.
-var ErrEngineManaged = errors.New("the tainer engine isn't running — is the tainer package installed? (sudo apt install ./tainer.deb) — and are you in the 'cyberstack' group? (groups | grep cyberstack)")
+var ErrEngineManaged = errors.New("the tainer stack isn't running — is the tainer package installed? (sudo apt install ./tainer.deb) — and are you in the 'cyberstack' group? (groups | grep cyberstack)")
 
 // CurrentStatus probes without side-effects: does not start cyberstackd
 // even if missing. Useful for `tainer status` and diagnostic surfaces.

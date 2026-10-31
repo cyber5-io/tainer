@@ -1,0 +1,19 @@
+{
+  "v": 1,
+  "projects": [
+    {
+      "name": "blog",
+      "type": "wordpress",
+      "domain": "blog.tainer.me",
+      "path": "/p/blog",
+      "status": "running"
+    },
+    {
+      "name": "shop",
+      "type": "nodejs",
+      "domain": "shop.tainer.me",
+      "path": "/p/shop",
+      "status": "stopped"
+    }
+  ]
+}

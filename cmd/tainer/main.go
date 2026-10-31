@@ -1648,6 +1648,7 @@ func cmdDestroy(args []string) {
 	// Only --nuke prompts (data loss is irreversible). --clean is
 	// recoverable from version control + a re-init; default just
 	// removes containers and is reversible via `tainer start`.
+	requireNukeConfirmation(projectName, mode, destroyMode, *skipConfirm)
 	if destroyMode == pod.DestroyNuke && !*skipConfirm {
 		if !confirmNukeStyled(projectName, mode) {
 			runDestroyCancelled(projectName, mode)
@@ -1665,6 +1666,14 @@ func cmdDestroy(args []string) {
 		runDestroyPlain(ctx, projectName, projectDir, destroyMode, *keepImages)
 	default:
 		runDestroyStyled(ctx, projectName, projectDir, destroyMode, *keepImages)
+	}
+}
+
+// requireNukeConfirmation refuses an unconfirmed --nuke under --json: machine
+// mode never prompts, so the caller must pass --yes explicitly.
+func requireNukeConfirmation(projectName string, mode tui.OutputMode, destroyMode pod.DestroyMode, skipConfirm bool) {
+	if mode == tui.ModeJSON && destroyMode == pod.DestroyNuke && !skipConfirm {
+		exitFn(jsonFail("confirmation-required", "destroy --nuke requires --yes in --json mode"))
 	}
 }
 
