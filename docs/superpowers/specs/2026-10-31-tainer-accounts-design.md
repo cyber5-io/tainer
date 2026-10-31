@@ -19,8 +19,8 @@ friction-free with no login at all.
 ## Goals
 
 - Free account signup + login, usable from the local control pod and the CLI.
-- Long-lived sessions: users re-authenticate roughly weekly/monthly, never
-  per-use; offline work between logins is unaffected.
+- Long-lived sessions: users re-authenticate weekly, never per-use; offline
+  work within the session window is unaffected.
 - Revocable sessions (lost laptop story) with bounded revocation lag.
 - A data model that teams/licenses/blenzi plans can extend without migration
   pain — modeled, not built.
@@ -65,9 +65,11 @@ not jeopardise the timeline, otherwise the first fast-follow (Leni,
 one so providers are additive either way.
 
 **Token shape: OAuth2-style refresh + access pair.**
-- Refresh token: opaque, server-side record, **7-day sliding expiry**
-  (weekly forced re-login — Leni, 2026-10-31), bound to a named device
-  ("Leni's Studio"), revocable individually.
+- Refresh token: opaque, server-side record, **absolute 7-day session
+  lifetime** (weekly re-login — Leni, 2026-10-31: "users are only forced to
+  re-login once a week"): rotation works freely within the window but never
+  extends it; 7 days after login the user re-authenticates. Bound to a named
+  device ("Leni's Studio"), revocable individually.
 - Access token: JWT, ES256, 15-minute TTL, carrying `sub`, `session`, and a
   forward-compatible `entitlements` claim (empty today). JWKS published at
   a well-known URL so the local host bridge can verify offline.
