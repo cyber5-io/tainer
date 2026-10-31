@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 
@@ -115,6 +116,25 @@ func (c *Client) Logs(ctx context.Context, name string, follow bool) (io.ReadClo
 		ShowStderr: true,
 		Follow:     follow,
 	})
+}
+
+// EventsStream opens the stack's NDJSON event stream (GET /cyberstack/events).
+// The body stays open until the daemon stops or the caller closes it or
+// cancels ctx.
+func (c *Client) EventsStream(ctx context.Context) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://cyberstack/cyberstack/events", nil)
+	if err != nil {
+		return nil, fmt.Errorf("engine: events: %w", err)
+	}
+	resp, err := c.api.HTTPClient().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("engine: events: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("engine: events: unexpected status %s", resp.Status)
+	}
+	return resp.Body, nil
 }
 
 // LabelFilter builds a Docker label filter that matches "<key>=<value>"
