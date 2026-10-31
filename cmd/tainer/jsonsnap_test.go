@@ -149,7 +149,7 @@ func TestJSONSnapshotDoctor(t *testing.T) {
 		},
 		StoppedPods: 2,
 	}
-	assertSnapshot(t, "doctor", func() { emitDoctorJSON(rep) })
+	assertSnapshot(t, "doctor", func() { emitDoctorJSON(rep, false) })
 }
 
 func TestJSONSnapshotInit(t *testing.T) {

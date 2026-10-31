@@ -92,6 +92,10 @@ func main() {
 		cmdDestroy(os.Args[2:])
 	case "exec":
 		cmdExec(os.Args[2:])
+	case "logs":
+		cmdLogs(os.Args[2:])
+	case "config":
+		cmdConfig(os.Args[2:])
 	case "ssh":
 		cmdSSH(os.Args[2:])
 	case "list", "ls":
@@ -131,6 +135,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  exec <project> [<role>] -- <cmd...>    run a command in a container")
 	fmt.Fprintln(os.Stderr, "  wp|composer|artisan|php <args...>      run the tool in the current project")
 	fmt.Fprintln(os.Stderr, "  npm|yarn|pnpm|node <args...>           run the tool in the current project")
+	fmt.Fprintln(os.Stderr, "  logs [project] [role] [--follow]       stream container logs")
+	fmt.Fprintln(os.Stderr, "  config [project]                       show the project manifest")
 	fmt.Fprintln(os.Stderr, "  status                                 show pod state(s)")
 	fmt.Fprintln(os.Stderr, "  doctor [--fix]                         check every layer of the stack")
 	fmt.Fprintln(os.Stderr, "  list (ls)                              list all pods")
@@ -586,14 +592,6 @@ func runStatusProjectJSON(s projectStatusSnapshot) {
 	jsonDoc(out)
 }
 
-func emitDoctorJSON(rep doctor.Report) {
-	out := struct {
-		doctor.Report
-		Healthy bool `json:"healthy"`
-	}{rep, rep.Healthy()}
-	jsonDoc(out)
-}
-
 // statusSnapshot is the resolved view collectStatus returns. Splitting
 // data-gathering from rendering keeps each output mode trivial.
 type statusSnapshot struct {
@@ -833,9 +831,9 @@ func cmdDoctor(args []string) {
 	// JSON mode: run silently, emit the report as one document.
 	if mode == tui.ModeJSON {
 		rep := doctor.Run(ctx, opts)
-		emitDoctorJSON(rep)
-		if !rep.Healthy() {
-			os.Exit(1)
+		emitDoctorJSON(rep, opts.Fix)
+		if c := doctorExitCode(rep); c != 0 {
+			exitFn(c)
 		}
 		return
 	}
@@ -1848,11 +1846,26 @@ func alreadyConfirmedPrompt(podName string) func() string {
 // (piped, redirected, quick commands) prints the full open/close
 // bookends around the streamed output.
 func cmdExec(args []string) {
+	jsonOut, args := splitExecOutputFlags(args)
+	if jsonOut {
+		resolveMode(tui.OutputFlags{JSON: true}, false)
+	}
 	parsed, err := parseExecArgs(args)
+	if err != nil && jsonOut {
+		exitFn(jsonFail("invalid-arguments", err.Error()))
+		return
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "tainer:", err)
 		fmt.Fprintln(os.Stderr, "usage: tainer exec [project] [role] [flags] -- <cmd...>")
 		os.Exit(2)
+	}
+
+	if jsonOut {
+		if code, msg := execJSONRefusal(parsed); code != "" {
+			exitFn(jsonFail(code, msg))
+			return
+		}
 	}
 
 	// Resolve which project / role we're operating against. Project
@@ -1896,6 +1909,9 @@ func cmdExec(args []string) {
 	if !parsed.ttyExplicit {
 		tty = tui.IsTTY(os.Stdin.Fd()) && tui.IsTTY(os.Stdout.Fd())
 	}
+	if jsonOut {
+		tty = false // non-interactive by contract
+	}
 
 	// Brand surface: one-liner header, always. On exit, closing
 	// bookend with exit code + elapsed. Interactive TTY mode skips
@@ -1912,9 +1928,11 @@ func cmdExec(args []string) {
 		display = strings.Join(parsed.cmd[1:], " ")
 	}
 	started := time.Now()
-	if tty {
+	switch {
+	case jsonOut:
+	case tty:
 		fmt.Println(tui.MarkBrand() + fmt.Sprintf("%s · %s · %s", projectName, verb, display))
-	} else {
+	default:
 		tui.Bookend(projectName, verb, display)
 	}
 
@@ -1967,7 +1985,7 @@ func cmdExec(args []string) {
 	//
 	// -i / --interactive forces attach regardless.
 	var stdin io.Reader
-	if tty || parsed.interactive || !tui.IsTTY(os.Stdin.Fd()) {
+	if !jsonOut && (tty || parsed.interactive || !tui.IsTTY(os.Stdin.Fd())) {
 		stdin = os.Stdin
 	}
 
@@ -1988,6 +2006,12 @@ func cmdExec(args []string) {
 		}
 	}
 
+	var jsonEm *execJSONEmitter
+	var stdout, stderr io.Writer = os.Stdout, os.Stderr
+	if jsonOut {
+		jsonEm = newExecJSONEmitter(os.Stdout)
+		stdout, stderr = jsonEm.Stdout(), jsonEm.Stderr()
+	}
 	code, err := pod.Exec(ctx, eng, projectName, role, pod.ExecOptions{
 		Cmd:        parsed.cmd,
 		User:       execUser,
@@ -1995,11 +2019,24 @@ func cmdExec(args []string) {
 		Env:        parsed.env,
 		Tty:        tty,
 		Stdin:      stdin,
-		Stdout:     os.Stdout,
-		Stderr:     os.Stderr,
+		Stdout:     stdout,
+		Stderr:     stderr,
 		OnAttached: onAttached,
 	})
 	elapsed := time.Since(started)
+
+	if jsonOut {
+		if err != nil {
+			exitFn(jsonFail(errCodeOr(err, "exec-failed"), err.Error()))
+			return
+		}
+		if werr := jsonEm.Exit(code); werr != nil {
+			exitFn(1)
+			return
+		}
+		exitFn(code)
+		return
+	}
 
 	// Restore terminal BEFORE we print anything else. Doing it here as
 	// well as via defer guarantees the restore runs before the os.Exit
