@@ -6,6 +6,7 @@ import (
 
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
+	"github.com/cyber5-io/tainer/pkg/tainer/progress"
 )
 
 // UpdateOptions configures an update run.
@@ -35,11 +36,14 @@ func Update(ctx context.Context, eng *engine.Client, opts StartOptions, uopt Upd
 			Project: manifest.ProjectConfig{Type: uopt.BaseType},
 			Runtime: defaultRuntimeFor(uopt.BaseType),
 		}
+		report := progress.Reporter(ctx, "update", string(uopt.BaseType))
+		report("pull", "pulling base images", -1, false)
 		for _, role := range RolesForType(uopt.BaseType) {
 			if err := eng.Pull(ctx, ImageRef(m, role)); err != nil {
 				return fmt.Errorf("update --base: pull %s: %w", role, err)
 			}
 		}
+		report("pull", "base images updated", 100, true)
 		return nil
 	}
 
@@ -47,11 +51,14 @@ func Update(ctx context.Context, eng *engine.Client, opts StartOptions, uopt Upd
 	if err != nil {
 		return err
 	}
+	report := progress.Reporter(ctx, "update", m.Project.Name)
+	report("pull", "pulling images", -1, false)
 	for _, role := range RolesForPod(m) {
 		if err := eng.Pull(ctx, ImageRef(m, role)); err != nil {
 			return fmt.Errorf("update: pull %s: %w", role, err)
 		}
 	}
+	report("pull", "images updated", 100, true)
 	// Recreate containers by stopping + removing + re-running. Volumes
 	// preserved (DB data on the named volume; mount binds untouched).
 	if err := Stop(ctx, eng, m.Project.Name); err != nil {

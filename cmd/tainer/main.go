@@ -43,6 +43,7 @@ import (
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 	"github.com/cyber5-io/tainer/pkg/tainer/networkcmd"
 	"github.com/cyber5-io/tainer/pkg/tainer/pod"
+	"github.com/cyber5-io/tainer/pkg/tainer/progress"
 	"github.com/cyber5-io/tainer/pkg/tainer/registry"
 	"github.com/cyber5-io/tainer/pkg/tainer/router"
 	"github.com/cyber5-io/tainer/pkg/tainer/runtime"
@@ -1121,6 +1122,7 @@ func runInitStyled(opts initcmd.Options) {
 		os.Exit(1)
 	}
 
+	reportInitScaffolded(res.ProjectName)
 	tui.Bookend(res.ProjectName, "init")
 	muted := lipgloss.NewStyle().Foreground(tui.Colors().Muted)
 	for _, s := range res.Steps {
@@ -1163,6 +1165,7 @@ func runInitPlain(opts initcmd.Options) {
 	if err != nil {
 		must(err)
 	}
+	reportInitScaffolded(res.ProjectName)
 	for _, s := range res.Steps {
 		switch s.Kind {
 		case initcmd.KindRegistry:
@@ -1189,7 +1192,12 @@ func runInitJSON(opts initcmd.Options) {
 	if err != nil {
 		must(withCode("init-failed", err))
 	}
+	reportInitScaffolded(res.ProjectName)
 	emitInitJSON(res.ProjectName, res.ManifestPath, res.Steps)
+}
+
+func reportInitScaffolded(project string) {
+	progress.Reporter(context.Background(), "init", project)("scaffold", "project scaffolded", 100, true)
 }
 
 func emitInitJSON(projectName, manifestPath string, steps []initcmd.Step) {
