@@ -23,3 +23,15 @@ func TestEngineManagedCopy(t *testing.T) {
 		}
 	}
 }
+
+func TestSpawnRefusedVocabulary(t *testing.T) {
+	msg := spawnRefused(ErrUnsupportedOS).Error()
+	if !strings.Contains(msg, "cannot start the tainer stack") {
+		t.Errorf("got %q", msg)
+	}
+	for _, banned := range []string{"engine", "podman", "docker"} {
+		if strings.Contains(strings.ToLower(msg), banned) {
+			t.Errorf("%q must not mention %q", msg, banned)
+		}
+	}
+}

@@ -170,12 +170,17 @@ func DaemonArgs(socket string, mode network.Mode, dnsPort int) []string {
 	}
 }
 
+// spawnRefused is the user-facing error for a host that cannot spawn the daemon.
+func spawnRefused(err error) error {
+	return fmt.Errorf("cannot start the tainer stack: %w", err)
+}
+
 func startDaemon(opts Options, socket string) error {
 	if err := canSpawnDaemon(); err != nil {
 		if errors.Is(err, ErrEngineManaged) {
 			return err
 		}
-		return fmt.Errorf("cannot start the tainer engine: %w", err)
+		return spawnRefused(err)
 	}
 	bin, err := resolveBinary(opts)
 	if err != nil {
