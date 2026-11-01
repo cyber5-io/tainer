@@ -646,7 +646,7 @@ func collectStatus(ctx context.Context) statusSnapshot {
 	if err != nil {
 		return snap
 	}
-	for _, p := range pods {
+	for _, p := range visiblePods(pods) {
 		ps := podStatus{Name: p.Name, PodID: p.PodID, State: string(p.State())}
 		// Try to fetch the pod's manifest via container labels so we can
 		// show the public URL + service ports. Best-effort — a pod
@@ -1001,6 +1001,7 @@ func doctorHasPodResults(rep doctor.Report) bool {
 // place and reported as such instead of re-created, so the user can re-
 // init without losing their data.
 func cmdInit(args []string) {
+	pinnedOverride, args := stripPinnedOverride(args)
 	flags, rest := tui.ParseOutputFlags(args)
 	mode := resolveMode(flags, false)
 
@@ -1046,6 +1047,7 @@ func cmdInit(args []string) {
 	if len(rest) >= 2 {
 		opts.Name = rest[1]
 	}
+	must(guardInitName(effectiveInitName(opts.Name), pinnedOverride))
 	switch mode {
 	case tui.ModeJSON:
 		runInitJSON(opts)
@@ -1079,6 +1081,7 @@ func runInitWizard() {
 		return
 	}
 
+	must(guardInitName(res.Name, false))
 	opts := initcmd.Options{
 		Type:     res.Type,
 		Name:     res.Name,
@@ -1540,6 +1543,7 @@ func cmdRestart(args []string) {
 }
 
 func cmdStop(args []string) {
+	pinnedOverride, args := stripPinnedOverride(args)
 	flags, rest := tui.ParseOutputFlags(args)
 	mode := resolveMode(flags, false)
 
@@ -1551,6 +1555,7 @@ func cmdStop(args []string) {
 	m, err := manifest.Load(manifestPath)
 	must(withCode("manifest-invalid", err))
 	projectName := m.Project.Name
+	must(guardPinned(projectName, pinnedOverride))
 
 	switch mode {
 	case tui.ModeJSON:
@@ -1637,6 +1642,7 @@ func cmdDestroy(args []string) {
 	// Pull our output flags first so they can sit anywhere on the
 	// command line; everything else flows to the destroy-specific
 	// flag.FlagSet.
+	pinnedOverride, args := stripPinnedOverride(args)
 	flags, rest := tui.ParseOutputFlags(args)
 	mode := resolveMode(flags, false)
 
@@ -1661,6 +1667,7 @@ func cmdDestroy(args []string) {
 	m, err := manifest.Load(manifestPath)
 	must(withCode("manifest-invalid", err))
 	projectName := m.Project.Name
+	must(guardPinned(projectName, pinnedOverride))
 
 	// Only --nuke prompts (data loss is irreversible). --clean is
 	// recoverable from version control + a re-init; default just
@@ -2380,7 +2387,7 @@ func cmdList(args []string) {
 	mode := resolveMode(flags, true) // list has a TUI implementation
 
 	// Registry walk — always cheap, never touches the engine.
-	all := registry.All()
+	all := visibleProjects(registry.All())
 
 	switch mode {
 	case tui.ModeJSON:
@@ -3483,4 +3490,17 @@ func emitNetworkSetJSON(res *networkcmd.SwitchResult, err error, elapsed time.Du
 	}
 	out.Switched = !out.NoChange
 	jsonDoc(out)
+}
+
+// effectiveInitName is the project name init will use: the given one, or the
+// working directory's base name when none was given.
+func effectiveInitName(name string) string {
+	if name != "" {
+		return name
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return filepath.Base(cwd)
 }
