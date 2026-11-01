@@ -1,14 +1,15 @@
-// Derives the menu app's tainer lockup rasters from the authentic source artwork.
-//   swift scripts/make-tainer-logos.swift <source.png> <resources-dir>
-// light: clean downscale to 60px tall (@2x of a 30pt header). dark: dark, low-chroma pixels
+// Derives a lockup's light and dark rasters from its authentic source artwork.
+//   swift scripts/make-logos.swift <source.png> <resources-dir> <name> <height-px>
+//   e.g. ... logo-tainer-source.png Sources/TainerMenu/Resources logo-tainer 60
+//        ... logo-cyber5-source.png Sources/TainerMenu/Resources logo-cyber5 28
+// light: clean downscale to <height-px> tall (writes <name>-light@2x.png). dark: dark, low-chroma pixels
 // (the near-black navy wordmark; HSV saturation is high for it, so chroma is used) are remapped to near-white; coloured pixels are left untouched.
 import AppKit
 
 let args = CommandLine.arguments
-guard args.count == 3, let src = NSBitmapImageRep(data: try Data(contentsOf: URL(fileURLWithPath: args[1]))) else {
-    FileHandle.standardError.write(Data("usage: make-tainer-logos.swift <source.png> <resources-dir>\n".utf8)); exit(1)
+guard args.count == 5, let outH = Int(args[4]), let src = NSBitmapImageRep(data: try Data(contentsOf: URL(fileURLWithPath: args[1]))) else {
+    FileHandle.standardError.write(Data("usage: make-logos.swift <source.png> <resources-dir> <name> <height-px>\n".utf8)); exit(1)
 }
-let outH = 60
 let outW = Int((Double(src.pixelsWide) / Double(src.pixelsHigh) * Double(outH)).rounded())
 
 func render() -> NSBitmapImageRep {
@@ -28,7 +29,7 @@ func save(_ rep: NSBitmapImageRep, _ name: String) throws {
 }
 
 let light = render()
-try save(light, "logo-tainer-light@2x.png")
+try save(light, "\(args[3])-light@2x.png")
 
 // Remap on the downscaled raster; premultiplied-safe via colorAt/setColor.
 let dark = render()
@@ -43,5 +44,5 @@ for y in 0..<outH { for x in 0..<outW {
         dark.setColor(white.withAlphaComponent(c.alphaComponent), atX: x, y: y)
     }
 } }
-try save(dark, "logo-tainer-dark@2x.png")
+try save(dark, "\(args[3])-dark@2x.png")
 print("wrote \(outW)x\(outH) light + dark")

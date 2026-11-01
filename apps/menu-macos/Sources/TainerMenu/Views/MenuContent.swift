@@ -101,23 +101,13 @@ struct MenuItem: View {
     }
 }
 
-/// There is no dark cyber5 raster: light mode shows the full lockup; dark mode keeps the
-/// coloured mark (cropped from the lockup) and sets the wordmark as light text.
 struct Cyber5Mark: View {
     let palette: MenuPalette
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         Group {
-            if scheme == .dark {
-                HStack(spacing: 4) {
-                    if let logo = AppBundle.image("logo-cyber5-light", height: 14) {
-                        Image(nsImage: logo).resizable().scaledToFill()
-                            .frame(width: 15, height: 14, alignment: .leading).clipped()
-                    }
-                    Text("cyber5").font(.system(size: 11, weight: .semibold, design: .monospaced)).foregroundStyle(palette.text)
-                }
-            } else if let logo = AppBundle.image("logo-cyber5-light", height: 14) {
+            if let logo = AppBundle.image(scheme == .dark ? "logo-cyber5-dark" : "logo-cyber5-light", height: 14) {
                 Image(nsImage: logo)
             } else {
                 Text("cyber5").font(.system(size: 11, weight: .semibold, design: .monospaced)).foregroundStyle(palette.text)
