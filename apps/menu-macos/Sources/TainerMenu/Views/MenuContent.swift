@@ -61,27 +61,29 @@ struct MenuContent: View {
     }
 
     private func pager(_ palette: MenuPalette) -> some View {
-        HStack(spacing: 4) {
-            Text(state.pageLabel).font(.system(size: 11)).foregroundStyle(palette.secondaryText)
-            Spacer()
-            IconButton(symbol: "chevron.left", label: "Previous page", palette: palette) { state.previousPage() }
-                .disabled(!state.canGoPrevious)
-                .keyboardShortcut(.leftArrow, modifiers: [])
-            IconButton(symbol: "chevron.right", label: "Next page", palette: palette) { state.nextPage() }
-                .disabled(!state.canGoNext)
-                .keyboardShortcut(.rightArrow, modifiers: [])
+        VStack(spacing: 0) {
+            Rectangle().fill(palette.divider).frame(height: 1).padding(.horizontal, 10).padding(.top, 4)
+            HStack(spacing: 0) {
+                PagerButton(symbol: "chevron.left", label: "Previous page", palette: palette) { state.previousPage() }
+                    .disabled(!state.canGoPrevious)
+                    .keyboardShortcut(.leftArrow, modifiers: [])
+                Spacer(minLength: 8)
+                Text(state.pageLabel)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(palette.secondaryText)
+                Spacer(minLength: 8)
+                PagerButton(symbol: "chevron.right", label: "Next page", palette: palette) { state.nextPage() }
+                    .disabled(!state.canGoNext)
+                    .keyboardShortcut(.rightArrow, modifiers: [])
+            }
+            .padding(.horizontal, 10).padding(.top, 3)
         }
-        .padding(.horizontal, 14).padding(.top, 2)
     }
 
     private func footer(_ palette: MenuPalette) -> some View {
         HStack(spacing: 8) {
             Button { openURL(MenuLinks.cyber5) } label: { Cyber5Mark(palette: palette) }
                 .buttonStyle(.plain)
-            Button { openURL(MenuLinks.tainer) } label: {
-                Text("tainer is a Cyber5 product").font(.system(size: 10.5)).foregroundStyle(palette.tertiaryText)
-            }
-            .buttonStyle(.plain)
             Spacer()
         }
         .padding(.horizontal, 14).padding(.top, 8).padding(.bottom, 6)

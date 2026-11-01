@@ -24,12 +24,39 @@ struct IconButton: View {
     }
 }
 
+/// Pager chevron: a bigger, bordered sibling of IconButton so the control reads as one.
+struct PagerButton: View {
+    let symbol: String
+    let label: String
+    let palette: MenuPalette
+    let action: () -> Void
+    @Environment(\.isEnabled) private var enabled
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(enabled ? (hovering ? palette.iconHover : palette.icon) : palette.stoppedIcon.opacity(0.5))
+                .frame(width: 44, height: 24)
+                .background(RoundedRectangle(cornerRadius: 6).fill(hovering && enabled ? palette.hoverFill.opacity(2) : palette.chipFill))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
+        .onHover { hovering = $0 && enabled }
+    }
+}
+
 struct PodRow: View {
     let model: PodRowModel
     let palette: MenuPalette
     let onAction: (PodAction, String?) -> Void
     @Environment(\.openURL) private var openURL
     @State private var hovering = false
+    @State private var tipVisible = false
+    @State private var tipTask: Task<Void, Never>?
 
     var body: some View {
         let pod = model.pod
@@ -60,7 +87,38 @@ struct PodRow: View {
         .opacity(model.isActive ? 1 : 0.75)
         .padding(.horizontal, 6)
         .help(model.tooltip)
-        .onHover { hovering = $0 }
+        // .help() tooltips rarely surface inside menu-bar panels, so draw our own bubble.
+        .overlay(alignment: .topLeading) {
+            if tipVisible {
+                Text(model.tooltip)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(palette.text)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(palette.background)
+                            .shadow(color: .black.opacity(0.35), radius: 6, y: 2)
+                    )
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(palette.divider))
+                    .fixedSize()
+                    .offset(x: 30, y: -20)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+        }
+        .zIndex(tipVisible ? 1 : 0)
+        .onHover { over in
+            hovering = over
+            tipTask?.cancel()
+            if over && model.showsTooltip {
+                tipTask = Task {
+                    try? await Task.sleep(for: .milliseconds(600))
+                    if !Task.isCancelled { withAnimation(.easeIn(duration: 0.12)) { tipVisible = true } }
+                }
+            } else {
+                tipVisible = false
+            }
+        }
     }
 
     private func tint(_ action: PodAction) -> Color? {

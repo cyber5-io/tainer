@@ -136,3 +136,9 @@ private func hasRedPixel(_ image: NSImage) -> Bool {
 @Test func brandHeaderLogoLinksToTainerSite() {
     #expect(BrandHeader.linkURL.absoluteString == "https://tainer.dev/go/tainerapp")
 }
+
+@Test func tooltipShownOnlyWhenItAddsInformation() {
+    #expect(PodRowModel(pod: pod("ops", .running), busy: false).showsTooltip)
+    let bare = PodRowModel(pod: Pod(name: "x", domain: "", state: .stopped, running: 0, total: 0), busy: false)
+    #expect(!bare.showsTooltip)
+}

@@ -10,6 +10,8 @@ struct PodRowModel {
 
     var title: String { pod.domain.isEmpty ? pod.name : pod.domain }
     var tooltip: String { pod.name }
+    /// The hover bubble only earns its place when the name isn't already on screen.
+    var showsTooltip: Bool { tooltip != title }
     var isActive: Bool { pod.isActive }
     var showsSpinner: Bool { busy }
 
