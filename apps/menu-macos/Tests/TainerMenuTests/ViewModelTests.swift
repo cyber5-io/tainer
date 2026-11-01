@@ -139,6 +139,22 @@ private func hasRedPixel(_ image: NSImage) -> Bool {
 
 @Test func tooltipShownOnlyWhenItAddsInformation() {
     #expect(PodRowModel(pod: pod("ops", .running), busy: false).showsTooltip)
-    let bare = PodRowModel(pod: Pod(name: "x", domain: "", state: .stopped, running: 0, total: 0), busy: false)
-    #expect(!bare.showsTooltip)
+    // A stopped pod always has a start hint to show, even with its name on screen.
+    let bareStopped = PodRowModel(pod: Pod(name: "x", domain: "", state: .stopped, running: 0, total: 0), busy: false)
+    #expect(bareStopped.showsTooltip)
+    // A running pod whose name is already the title has nothing to add.
+    let bareRunning = PodRowModel(pod: Pod(name: "x", domain: "", state: .running, running: 1, total: 1), busy: false)
+    #expect(!bareRunning.showsTooltip)
+}
+
+@Test func stoppedRowsTellQuickRestartsFromFirstTimeSetups() {
+    let ready = PodRowModel(pod: Pod(name: "a", domain: "a.tainer.me", state: .stopped, running: 0, total: 2), busy: false)
+    #expect(ready.symbol == "shippingbox.fill")
+    #expect(ready.startHint == "Starts in seconds")
+    let fresh = PodRowModel(pod: Pod(name: "b", domain: "b.tainer.me", state: .stopped, running: 0, total: 0), busy: false)
+    #expect(fresh.symbol == "shippingbox")
+    #expect(fresh.startHint == "First start takes a little longer")
+    let running = PodRowModel(pod: pod("c", .running), busy: false)
+    #expect(running.symbol == "shippingbox")
+    #expect(running.startHint == nil)
 }

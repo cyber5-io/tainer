@@ -11,7 +11,18 @@ struct PodRowModel {
     var title: String { pod.domain.isEmpty ? pod.name : pod.domain }
     var tooltip: String { pod.name }
     /// The hover bubble only earns its place when the name isn't already on screen.
-    var showsTooltip: Bool { tooltip != title }
+    var showsTooltip: Bool { tooltip != title || startHint != nil }
+
+    /// A stopped pod with its parts in place restarts fast and shows a filled box;
+    /// one that exists only in the registry needs its first full setup (outline box).
+    var symbol: String {
+        pod.state == .stopped && pod.total > 0 ? "shippingbox.fill" : "shippingbox"
+    }
+
+    var startHint: String? {
+        guard pod.state == .stopped else { return nil }
+        return pod.total > 0 ? "Starts in seconds" : "First start takes a little longer"
+    }
     var isActive: Bool { pod.isActive }
     var showsSpinner: Bool { busy }
 

@@ -61,7 +61,7 @@ struct PodRow: View {
     var body: some View {
         let pod = model.pod
         HStack(spacing: 10) {
-            Image(systemName: "shippingbox")
+            Image(systemName: model.symbol)
                 .font(.system(size: 12, weight: .regular))
                 .foregroundStyle(model.isActive ? palette.teal : palette.stoppedIcon)
                 .frame(width: 14)
@@ -90,10 +90,15 @@ struct PodRow: View {
         // .help() tooltips rarely surface inside menu-bar panels, so draw our own bubble.
         .overlay(alignment: .topLeading) {
             if tipVisible {
-                Text(model.tooltip)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(palette.text)
-                    .padding(.horizontal, 8).padding(.vertical, 4)
+                VStack(alignment: .leading, spacing: 1) {
+                    if model.tooltip != model.title {
+                        Text(model.tooltip).font(.system(size: 11, weight: .medium)).foregroundStyle(palette.text)
+                    }
+                    if let hint = model.startHint {
+                        Text(hint).font(.system(size: 10)).foregroundStyle(palette.secondaryText)
+                    }
+                }
+                .padding(.horizontal, 8).padding(.vertical, 4)
                     .background(
                         RoundedRectangle(cornerRadius: 6)
                             .fill(palette.background)
