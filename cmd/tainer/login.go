@@ -18,25 +18,50 @@ import (
 )
 
 // accountsDir is the directory holding the signed-in account (account.json):
-// ~/.cyberstack of the invoking user, or TAINER_ACCOUNTS_DIR when set.
-func accountsDir() string {
+// ~/.cyberstack of the invoking user, or TAINER_ACCOUNTS_DIR when set. It
+// fails rather than fall back to a relative path.
+func accountsDir() (string, error) {
 	if dir := os.Getenv("TAINER_ACCOUNTS_DIR"); dir != "" {
-		return dir
+		return dir, nil
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".cyberstack")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", errors.New("cannot determine home directory; set TAINER_ACCOUNTS_DIR")
+	}
+	return filepath.Join(home, ".cyberstack"), nil
+}
+
+// withAccountsDir resolves the accounts directory for an account command and
+// runs fn with it, reporting a failure in the mode the args select.
+func withAccountsDir(args []string, fn func(dir string) int) {
+	dir, err := accountsDir()
+	if err != nil {
+		flags, _ := tui.ParseOutputFlags(args)
+		if flags.JSON {
+			jsonActive = true
+		}
+		exitFn(accountFailTo(os.Stdout, flags.JSON, "internal-error", err.Error()))
+		return
+	}
+	exitFn(fn(dir))
 }
 
 func cmdLogin(args []string) {
-	exitFn(runLogin(args, os.Stdin, os.Stdout, accountsDir(), accounts.NewClient()))
+	withAccountsDir(args, func(dir string) int {
+		return runLogin(args, os.Stdin, os.Stdout, dir, accounts.NewClient())
+	})
 }
 
 func cmdLogout(args []string) {
-	exitFn(runLogout(args, os.Stdout, accountsDir(), accounts.NewClient()))
+	withAccountsDir(args, func(dir string) int {
+		return runLogout(args, os.Stdout, dir, accounts.NewClient())
+	})
 }
 
 func cmdWhoami(args []string) {
-	exitFn(runWhoami(args, os.Stdout, accountsDir(), accounts.NewClient()))
+	withAccountsDir(args, func(dir string) int {
+		return runWhoami(args, os.Stdout, dir, accounts.NewClient())
+	})
 }
 
 // accountFailure converts an accounts client error into an envelope slug and a

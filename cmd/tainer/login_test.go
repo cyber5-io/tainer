@@ -322,7 +322,8 @@ func TestAccountsDirDefaultsToHomeCyberstack(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("TAINER_ACCOUNTS_DIR", "")
-	if got, want := accountsDir(), filepath.Join(home, ".cyberstack"); got != want {
+	got, err := accountsDir()
+	if want := filepath.Join(home, ".cyberstack"); err != nil || got != want {
 		t.Errorf("got %q want %q", got, want)
 	}
 }
@@ -331,7 +332,28 @@ func TestAccountsDirEnvOverrideWins(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	override := t.TempDir()
 	t.Setenv("TAINER_ACCOUNTS_DIR", override)
-	if got := accountsDir(); got != override {
+	if got, err := accountsDir(); err != nil || got != override {
 		t.Errorf("got %q want %q", got, override)
+	}
+}
+
+func TestAccountCommandsFailLoudlyWithoutHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("TAINER_ACCOUNTS_DIR", "")
+	for name, run := range map[string]func([]string){"whoami": cmdWhoami, "logout": cmdLogout, "login": cmdLogin} {
+		exit := -1
+		orig := exitFn
+		exitFn = func(c int) { exit = c }
+		out := captureStdout(t, func() { run([]string{"--json"}) })
+		exitFn = orig
+		if exit != 1 {
+			t.Errorf("%s: exit %d, want 1", name, exit)
+		}
+		var env struct {
+			Error struct{ Code, Message string }
+		}
+		if err := json.Unmarshal(out, &env); err != nil || env.Error.Code != "internal-error" || env.Error.Message != "cannot determine home directory; set TAINER_ACCOUNTS_DIR" {
+			t.Errorf("%s: got %s", name, out)
+		}
 	}
 }
