@@ -7,6 +7,8 @@ Native SwiftUI `MenuBarExtra` app (no dock icon), bundle id `io.cyber5.tainer.me
     scripts/make-app.sh           # assembles build/Tainer Menu.app
     scripts/make-app.sh --check   # same, then asserts bundle structure without launching
 
+The bundle version is stamped from `VERSION` in the repo-root `Makefile` (fails loudly if it can't be read); the pkg pipeline passes `--app-version $(VERSION)` explicitly.
+
 Brand rasters in `Sources/TainerMenu/Resources/` are generated from `packaging/brand/` with
 `swift packaging/brand/svg2png.swift <in.svg> <out.png> <height-px>`.
 
@@ -19,7 +21,7 @@ The shipping menu app is still the Go `cmd/tainer-menu`. The Makefile target `me
 That line, under the comment `# Menu-bar app in /Applications + a login agent to start it.`, is the insertion point. To ship the SwiftUI app, `menu-app` (or a sibling target it depends on) must:
 
 1. Run `apps/menu-macos/scripts/make-app.sh` and take `apps/menu-macos/build/Tainer Menu.app` as `$(MENU_APP)`, instead of the `go build` and `install` steps.
-2. Stamp the version into the bundle's `Contents/Info.plist` (the Go flow does this with `sed 's/@VERSION@/$(VERSION)/g'` on `packaging/menu/Info.plist`; `Resources/Info.plist` here has no `@VERSION@` placeholder yet and needs the same treatment).
+2. Pass `--app-version $(VERSION)` so the bundle's `Info.plist` carries tainer's version (make-app.sh does the stamping).
 3. Sign the finished bundle with the existing `codesign $(SIGN_FLAGS_BASE) --sign "$(SIGN_IDENTITY)"` line (`--force --options runtime --timestamp`).
 
 Things that must change together with that swap:
