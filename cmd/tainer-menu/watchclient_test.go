@@ -63,6 +63,48 @@ sleep 30
 	}
 }
 
+func TestWatchClientEscalatesToFailedThenRecovers(t *testing.T) {
+	oldB, oldF := backoffBase, failAfter
+	backoffBase, failAfter = 30*time.Millisecond, 250*time.Millisecond
+	defer func() { backoffBase, failAfter = oldB, oldF }()
+
+	flag := filepath.Join(t.TempDir(), "up")
+	cli := fakeCLI(t, `if [ -e `+flag+` ]; then
+echo '{"v":1,"ts":"2026-10-31T12:00:00.000Z","type":"hello","data":{"engine":{"state":"healthy","since":"x","detail":"ok"},"pods":[]}}'
+sleep 30
+fi
+exit 1
+`)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events := make(chan Event, 256)
+	go func() { _ = runWatch(ctx, cli, func(e Event) { events <- e }) }()
+
+	waitFor := func(match func(Event) bool) {
+		t.Helper()
+		deadline := time.After(5 * time.Second)
+		for {
+			select {
+			case e := <-events:
+				if match(e) {
+					return
+				}
+			case <-deadline:
+				t.Fatal("timed out waiting for event")
+			}
+		}
+	}
+	isEngine := func(state string) func(Event) bool {
+		return func(e Event) bool { return e.Type == "engine" && e.Engine != nil && e.Engine.State == state }
+	}
+	waitFor(isEngine("recovering"))
+	waitFor(isEngine("failed"))
+	if err := os.WriteFile(flag, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(func(e Event) bool { return e.Type == "hello" && e.Hello != nil && e.Hello.Engine.State == "healthy" })
+}
+
 func TestWatchClientRespawnBackoff(t *testing.T) {
 	old := backoffBase
 	backoffBase = 150 * time.Millisecond

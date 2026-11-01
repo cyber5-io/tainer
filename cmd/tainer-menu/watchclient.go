@@ -51,6 +51,11 @@ const backoffCap = 30 * time.Second
 // backoffBase is the first respawn delay; it doubles up to backoffCap.
 var backoffBase = time.Second
 
+// failAfter is how long respawns may fail continuously before the client
+// reports the engine as failed itself: a dead daemon cannot report its own
+// death. It mirrors the daemon's own recovering-to-failed threshold.
+var failAfter = 60 * time.Second
+
 func decodeEvent(line []byte) (Event, bool) {
 	var e Event
 	if err := json.Unmarshal(line, &e); err != nil || e.Type == "" {
@@ -75,14 +80,18 @@ func decodeEvent(line []byte) (Event, bool) {
 	return e, true
 }
 
-func recoveringEvent(detail string) Event {
+func engineEvent(state, detail string) Event {
 	return Event{
 		V:      1,
 		TS:     time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
 		Type:   "engine",
-		Engine: &EngineData{State: "recovering", Detail: detail},
+		Engine: &EngineData{State: state, Detail: detail},
 	}
 }
+
+func recoveringEvent(detail string) Event { return engineEvent("recovering", detail) }
+
+func failedEvent() Event { return engineEvent("failed", "stack unreachable") }
 
 // runWatch keeps `<cli> watch --json` running and feeds its events to
 // onEvent until ctx is cancelled. Whenever the process ends (daemon
@@ -92,6 +101,7 @@ func recoveringEvent(detail string) Event {
 // ctx's error.
 func runWatch(ctx context.Context, cli string, onEvent func(Event)) error {
 	delay := backoffBase
+	var outageStart time.Time
 	for {
 		gotHello, detail := watchOnce(ctx, cli, onEvent)
 		if ctx.Err() != nil {
@@ -99,8 +109,16 @@ func runWatch(ctx context.Context, cli string, onEvent func(Event)) error {
 		}
 		if gotHello {
 			delay = backoffBase
+			outageStart = time.Time{}
 		}
-		onEvent(recoveringEvent(detail))
+		if outageStart.IsZero() {
+			outageStart = time.Now()
+		}
+		if time.Since(outageStart) >= failAfter {
+			onEvent(failedEvent())
+		} else {
+			onEvent(recoveringEvent(detail))
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
