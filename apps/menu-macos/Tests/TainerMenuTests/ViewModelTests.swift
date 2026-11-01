@@ -68,3 +68,23 @@ private func pod(_ name: String, _ state: PodState) -> Pod {
     #expect(!PodListLayout.scrolls(rowCount: 12))
     #expect(PodListLayout.scrolls(rowCount: 13))
 }
+
+@Test func shouldPulseOnlyWhileRecovering() {
+    #expect(PulseDriver.shouldPulse(.recovering))
+    #expect(!PulseDriver.shouldPulse(.healthy(runningPods: 1)))
+    #expect(!PulseDriver.shouldPulse(.idle))
+    #expect(!PulseDriver.shouldPulse(.unreachable))
+}
+
+@Test @MainActor func pulseTaskExistsOnlyWhileRecovering() {
+    let pulse = PulseDriver()
+    #expect(!pulse.isActive)
+    pulse.sync(.recovering)
+    #expect(pulse.isActive)
+    pulse.sync(.healthy(runningPods: 2))
+    #expect(!pulse.isActive)
+    pulse.sync(.recovering)
+    pulse.sync(.unreachable)
+    #expect(!pulse.isActive)
+    #expect(pulse.high)
+}

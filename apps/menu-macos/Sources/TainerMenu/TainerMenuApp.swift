@@ -8,7 +8,7 @@ struct TainerMenuApp: App {
         MenuBarExtra {
             MenuContent(state: model.state, onAction: { model.onAction($0, $1) }, onQuit: model.quit)
         } label: {
-            BarIcon(health: model.state.engine, pulseHigh: model.pulseHigh)
+            BarIcon(health: model.state.engine, pulseHigh: model.pulse.high)
         }
         .menuBarExtraStyle(.window)
     }
