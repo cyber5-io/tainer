@@ -361,6 +361,7 @@ func startContainer(
 	envs := buildEnv(m, role, pctx)
 	mounts := buildMounts(m, opts.ProjectDir, role)
 	gwMounts, gwEnv := gatewayInjection(m.Project.Name, role, engine.StateDir())
+	ensureGatewayDirs(gwMounts)
 	mounts = append(mounts, gwMounts...)
 	envs = append(envs, gwEnv...)
 

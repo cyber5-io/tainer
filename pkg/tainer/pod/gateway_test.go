@@ -1,6 +1,12 @@
 package pod
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/cyber5-io/tainer/pkg/tainer/engine"
+)
 
 func TestControlPodGetsGatewayMounts(t *testing.T) {
 	mounts, env := gatewayInjection("control", RoleApp, "/home/u/.cyberstack")
@@ -8,12 +14,12 @@ func TestControlPodGetsGatewayMounts(t *testing.T) {
 		t.Fatalf("want 1 mount, got %+v", mounts)
 	}
 	mt := mounts[0]
-	if mt.Source != "/home/u/.cyberstack" || mt.Target != "/run/tainer/state" || !mt.ReadOnly || mt.Volume {
+	if mt.Source != "/home/u/.cyberstack/control" || mt.Target != "/run/tainer/control" || !mt.ReadOnly || mt.Volume {
 		t.Errorf("bad state mount: %+v", mt)
 	}
 	want := map[string]bool{
-		"TAINER_GATEWAY_ADDR_FILE=/run/tainer/state/control.addr":   false,
-		"TAINER_CONTROL_TOKEN_FILE=/run/tainer/state/control.token": false,
+		"TAINER_GATEWAY_ADDR_FILE=/run/tainer/control/control.addr":   false,
+		"TAINER_CONTROL_TOKEN_FILE=/run/tainer/control/control.token": false,
 	}
 	for _, e := range env {
 		if _, ok := want[e]; ok {
@@ -38,5 +44,23 @@ func TestGatewayInjectionSkipped(t *testing.T) {
 		if len(mounts) != 0 || len(env) != 0 {
 			t.Errorf("%+v: expected no injection, got %+v %v", c, mounts, env)
 		}
+	}
+}
+
+func TestGatewayNeverMountsStateRoot(t *testing.T) {
+	mounts, _ := gatewayInjection("control", RoleApp, "/home/u/.cyberstack")
+	for _, mt := range mounts {
+		if mt.Source == "/home/u/.cyberstack" {
+			t.Errorf("state directory root must never be mounted: %+v", mt)
+		}
+	}
+}
+
+func TestEnsureGatewayDirs(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "control")
+	ensureGatewayDirs([]engine.Mount{{Source: dir}})
+	fi, err := os.Stat(dir)
+	if err != nil || !fi.IsDir() || fi.Mode().Perm() != 0o700 {
+		t.Fatalf("want 0700 dir, got %v %v", fi, err)
 	}
 }
