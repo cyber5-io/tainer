@@ -13,7 +13,7 @@ private let healthy = EngineState(state: .healthy, since: t0, detail: "")
     s.apply(.event(.hello(engine: healthy, pods: [pod("b", .running, running: 1), pod("a", .stopped)])))
     #expect(s.engine == .healthy(runningPods: 1))
     #expect(s.pods.map(\.name) == ["b", "a"])
-    #expect(s.statusLine.pill == "Running")
+    #expect(s.statusLine.pill == "HEALTHY")
     #expect(s.statusLine.counts == "1 of 2 pods running")
 }
 
@@ -21,7 +21,8 @@ private let healthy = EngineState(state: .healthy, since: t0, detail: "")
     let s = StackState()
     s.apply(.event(.hello(engine: healthy, pods: [pod("a", .stopped)])))
     #expect(s.engine == .idle)
-    #expect(s.statusLine.pill == "Idle")
+    #expect(s.statusLine.pill == "HEALTHY")
+    #expect(s.statusLine.counts == "0 of 1 pods running")
 }
 
 @MainActor @Test func podOrderIsRunningFirstThenName() {
@@ -61,4 +62,30 @@ private let healthy = EngineState(state: .healthy, since: t0, detail: "")
     s.apply(.event(.hello(engine: healthy, pods: [pod("a", .stopped)])))
     s.apply(.event(.progress(Progress(op: "start", pod: "a", step: "pull", message: "", percent: -1, done: false))))
     #expect(s.pods.count == 1)
+}
+
+@MainActor @Test func noPodsKeepsHealthyPillWithFriendlyCounts() {
+    let s = StackState()
+    s.apply(.event(.hello(engine: healthy, pods: [])))
+    #expect(s.engine == .idle)
+    #expect(s.statusLine.pill == "HEALTHY")
+    #expect(s.statusLine.counts == "No pods yet")
+}
+
+@MainActor @Test func partialPodCountsAsRunning() {
+    let s = StackState()
+    s.apply(.event(.hello(engine: healthy, pods: [pod("a", .stopped), pod("b", .partial, running: 1, total: 2)])))
+    #expect(s.engine == .healthy(runningPods: 1))
+    #expect(s.pods.map(\.name) == ["b", "a"])
+    #expect(s.statusLine.counts == "1 of 2 pods running")
+    s.apply(.event(.hello(engine: healthy, pods: [pod("b", .partial, running: 1, total: 2)])))
+    #expect(s.statusLine.counts == "1 of 1 pods running")
+}
+
+@MainActor @Test func recoveringAndUnreachablePills() {
+    let s = StackState()
+    s.apply(.recovering(hint: nil))
+    #expect(s.statusLine.pill == "RECOVERING")
+    s.apply(.unreachable)
+    #expect(s.statusLine.pill == "UNREACHABLE")
 }

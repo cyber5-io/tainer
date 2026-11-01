@@ -39,6 +39,7 @@ final class WatchClient: @unchecked Sendable {
     private var loop: Task<Void, Never>?
     private var escalation: Task<Void, Never>?
     private var stopped = false
+    private var epoch = 0
 
     init(executable: String, runner: any ProcessRunner = SubprocessRunner(), clock: any WatchClock = SystemClock(), sink: @escaping Sink) {
         self.executable = executable
@@ -58,6 +59,7 @@ final class WatchClient: @unchecked Sendable {
     func stop() {
         lock.lock()
         stopped = true
+        epoch += 1
         let l = loop, e = escalation
         escalation = nil
         lock.unlock()
@@ -70,13 +72,10 @@ final class WatchClient: @unchecked Sendable {
     private final class Stream: @unchecked Sendable {
         private let lock = NSLock()
         private var _hello = false, _lines = false
-        private var _envelope: String?
         var gotHello: Bool { lock.withLock { _hello } }
         var gotLines: Bool { lock.withLock { _lines } }
-        var envelopeCode: String? { lock.withLock { _envelope } }
         func sawLine() { lock.withLock { _lines = true } }
         func sawHello() { lock.withLock { _hello = true } }
-        func sawEnvelope(_ code: String) { lock.withLock { _envelope = code } }
     }
 
     private func run() async {
@@ -107,22 +106,36 @@ final class WatchClient: @unchecked Sendable {
         switch StreamLine.parse(line) {
         case .invalid:
             return
-        case .errorEnvelope(let code, _):
+        case .errorEnvelope:
             stream.sawLine()
-            stream.sawEnvelope(code)
         case .event(let event):
             stream.sawLine()
             if case .hello = event {
                 stream.sawHello()
                 endEpisode()
             }
-            guard !isStopped else { return }
-            await sink(.event(event))
+            await deliver(.event(event))
         }
+    }
+
+    /// Applies on the main actor, dropping the update if the client was stopped
+    /// or (for `epoch`-tagged updates) a hello superseded it in the meantime.
+    private func deliver(_ update: StackUpdate, epoch expected: Int? = nil) async {
+        await MainActor.run {
+            let ok = lock.withLock { !stopped && (expected == nil || expected == epoch) }
+            if ok { sink(update) }
+        }
+    }
+
+    var currentEpoch: Int { lock.withLock { epoch } }
+
+    func fireEscalation(epoch: Int) async {
+        await deliver(.unreachable, epoch: epoch)
     }
 
     private func endEpisode() {
         let e = lock.withLock { () -> Task<Void, Never>? in
+            epoch += 1
             defer { escalation = nil }
             return escalation
         }
@@ -132,14 +145,14 @@ final class WatchClient: @unchecked Sendable {
     private func beginEpisodeIfNeeded(hint: String?) async {
         let began = lock.withLock { () -> Bool in
             guard escalation == nil, !stopped else { return false }
+            let captured = epoch
             escalation = Task {
                 do { try await self.clock.sleep(seconds: Self.escalationDelay) } catch { return }
-                guard !Task.isCancelled else { return }
-                await self.sink(.unreachable)
+                await self.fireEscalation(epoch: captured)
             }
             return true
         }
-        if began { await sink(.recovering(hint: hint)) }
+        if began { await deliver(.recovering(hint: hint)) }
     }
 }
 
@@ -150,6 +163,9 @@ struct SubprocessRunner: ProcessRunner {
         init(_ p: Process) { process = p }
         func terminate() { if process.isRunning { process.terminate() } }
     }
+
+    /// Only the tail of stderr is kept; a watch child can run for hours.
+    static let stderrLimit = 4096
 
     func run(executable: String, arguments: [String], onLine: @Sendable (String) async -> Void) async throws -> ProcessResult {
         let process = Process()
@@ -163,7 +179,15 @@ struct SubprocessRunner: ProcessRunner {
         let handle = Handle(process)
 
         return await withTaskCancellationHandler {
-            let stderrTask = Task.detached { (try? err.fileHandleForReading.readToEnd()) ?? Data() }
+            let stderrTask = Task.detached { () -> Data in
+                var tail = Data()
+                let reader = err.fileHandleForReading
+                while case let chunk = reader.availableData, !chunk.isEmpty {
+                    tail.append(chunk)
+                    if tail.count > Self.stderrLimit { tail = tail.suffix(Self.stderrLimit) }
+                }
+                return tail
+            }
             do {
                 for try await line in out.fileHandleForReading.bytes.lines { await onLine(line) }
             } catch {}

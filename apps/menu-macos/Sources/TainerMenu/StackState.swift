@@ -25,18 +25,21 @@ final class StackState {
 
     private var engineHealthy = false
 
+    /// Pill reflects stack health; an idle stack is still healthy (only the bar icon dims).
     var statusLine: (pill: String, counts: String) {
         switch engine {
-        case .healthy(let running):
-            return ("Running", "\(running) of \(pods.count) pods running")
-        case .idle:
-            return ("Idle", pods.isEmpty ? "No pods yet" : "0 of \(pods.count) pods running")
+        case .healthy, .idle:
+            let counts = pods.isEmpty ? "No pods yet" : "\(activeCount) of \(pods.count) pods running"
+            return ("HEALTHY", counts)
         case .recovering:
-            return ("Recovering", hint ?? "Tainer is getting ready")
+            return ("RECOVERING", hint ?? "Tainer is getting ready")
         case .unreachable:
-            return ("Unreachable", hint ?? "Tainer is not responding")
+            return ("UNREACHABLE", hint ?? "Tainer is not responding")
         }
     }
+
+    /// A partial pod has containers up, so it counts as running.
+    private var activeCount: Int { pods.filter { $0.isActive }.count }
 
     func apply(_ update: StackUpdate) {
         switch update {
@@ -87,14 +90,18 @@ final class StackState {
 
     private func refreshBar() {
         guard engineHealthy else { return }
-        let running = pods.filter { $0.state == .running }.count
+        let running = activeCount
         engine = running > 0 ? .healthy(runningPods: running) : .idle
     }
 
     private static func ordered(_ pods: [Pod]) -> [Pod] {
         pods.sorted {
-            let a = $0.state == .running, b = $1.state == .running
+            let a = $0.isActive, b = $1.isActive
             return a != b ? a : $0.name < $1.name
         }
     }
+}
+
+extension Pod {
+    var isActive: Bool { state == .running || state == .partial }
 }

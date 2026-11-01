@@ -130,3 +130,25 @@ private struct Harness {
     #expect(h.clock.backoffs.isEmpty)
     #expect(h.state.engine == .recovering || h.state.engine == .idle)
 }
+
+@MainActor @Test func staleEscalationAfterHelloIsDropped() async {
+    let h = Harness([.stream(lines: [unreachableLine]), .streamThenBlock(lines: [helloLine])])
+    h.client.start()
+    await settle { h.clock.pendingBackoff != nil }
+    let staleEpoch = h.client.currentEpoch
+    await h.elapseBackoff()
+    await settle { h.state.pods.count == 2 }
+    await h.client.fireEscalation(epoch: staleEpoch)
+    #expect(h.state.engine == .healthy(runningPods: 1))
+    h.client.stop()
+}
+
+@MainActor @Test func updatesAfterStopAreDropped() async {
+    let h = Harness([.blockUntilCancelled])
+    h.client.start()
+    await settle { h.runner.spawnCount == 1 }
+    let epoch = h.client.currentEpoch
+    h.client.stop()
+    await h.client.fireEscalation(epoch: epoch)
+    #expect(h.state.engine != .unreachable)
+}
