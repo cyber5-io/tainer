@@ -108,15 +108,19 @@ struct Cyber5Mark: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let logo = Image("logo-cyber5-light", bundle: AppBundle.resources).resizable()
         Group {
             if scheme == .dark {
                 HStack(spacing: 4) {
-                    logo.scaledToFill().frame(width: 15, height: 14, alignment: .leading).clipped()
+                    if let logo = AppBundle.image("logo-cyber5-light", height: 14) {
+                        Image(nsImage: logo).resizable().scaledToFill()
+                            .frame(width: 15, height: 14, alignment: .leading).clipped()
+                    }
                     Text("cyber5").font(.system(size: 11, weight: .semibold, design: .monospaced)).foregroundStyle(palette.text)
                 }
+            } else if let logo = AppBundle.image("logo-cyber5-light", height: 14) {
+                Image(nsImage: logo)
             } else {
-                logo.scaledToFit().frame(height: 14)
+                Text("cyber5").font(.system(size: 11, weight: .semibold, design: .monospaced)).foregroundStyle(palette.text)
             }
         }
         .accessibilityLabel("Cyber5")

@@ -10,9 +10,14 @@ struct BrandHeader: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(scheme == .dark ? "logo-tainer-dark" : "logo-tainer-light", bundle: AppBundle.resources)
-                .resizable().scaledToFit().frame(height: 30)
-                .accessibilityLabel("tainer")
+            Group {
+                if let logo = AppBundle.image(scheme == .dark ? "logo-tainer-dark" : "logo-tainer-light", height: 30) {
+                    Image(nsImage: logo)
+                } else {
+                    Text("tainer").font(.system(size: 20, weight: .semibold, design: .rounded))
+                }
+            }
+            .accessibilityLabel("tainer")
             Spacer()
             Text(Self.versionText)
                 .font(.system(size: 10.5, weight: .semibold))
