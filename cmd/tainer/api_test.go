@@ -58,6 +58,7 @@ func TestAPIDocMatchesGolden(t *testing.T) {
 		t.Error("docs/api/cli-json-v1.md does not contain the tainer api golden verbatim")
 	}
 	for _, line := range []string{
+		"`status` exits 1 only when `daemon.reachable` is false",
 		`{"v":1,"error":{"code":"confirmation-required","message":"destroy --nuke requires --yes in --json mode"}}`,
 		`{"v":1,"error":{"code":"update-failed","message":"pull failed"}}`,
 	} {

@@ -58,6 +58,8 @@ An output is an error if and only if it has a top-level `"error"` object. Nothin
 
 Report commands, which are `status`, `doctor` and `update --all`, are different on one point. When they ran but found bad content (an unhealthy doctor run, an `update --all` where some pods failed), they print their normal document and exit 1. That is not a transport failure and not an error envelope. Read the document; do not treat the exit status alone as "the command failed to run". The error envelope is reserved for runs that could not execute at all.
 
+`status` exits 1 only when `daemon.reachable` is false, and it still prints the full document. Read `daemon.reachable`, not the exit status; stopped pods and per-project `queryError` do not affect the exit code.
+
 `update <project>` is the single-target form: a failure there is an error envelope (`update-failed`). `update --all` is the report form: per-pod results, including failures, are inside the document (`pods[].updated` and `pods[].error`).
 
 Example of an error with a document-shaped command:
@@ -141,6 +143,8 @@ Consumers must tolerate slugs they do not know. New slugs are additive.
 {"v":1,"ts":"2026-10-31T12:00:00.000Z","type":"progress","data":{"op":"start","pod":"blog","step":"pull","percent":-1,"message":"pulling","done":false}}
 ```
 
+Progress `step` and `message` values are free text, not an enum: display them, never switch on them.
+
 `domain` is captured when the pod's containers were created, so a manifest domain change shows up only after the pod is recreated.
 
 ## 4. `tainer watch --json`
@@ -172,7 +176,7 @@ All documents below start with `"v":1` on the wire; the examples omit it only wh
 
 ### `status`
 
-`status` (all projects) and `status <project>` are report commands. Project form:
+`status` (all projects) and `status <project>` are report commands. `status` exits 1 only when `daemon.reachable` is false, and it still prints the full document. Read `daemon.reachable`, not the exit status; stopped pods and per-project `queryError` do not affect the exit code. Project form:
 
 ```json
 {
@@ -273,7 +277,7 @@ When the mode is already set: `"switched": false, "noChange": true` and no `rest
 
 ### `doctor`
 
-A report command. It exits 1 when any check is not ok-or-warn, and still prints this document. `status` is `ok`, `warn` or `fail`; a check that was skipped because an earlier layer failed is reported as `fail`, and its `hint` then reads `skipped: <reason>` (never empty). `detail` and `fixed` appear only when set. The top-level `fixed` array is present only when `--fix` was given (it may be empty). `stoppedPods` appears only when non-zero.
+A report command. It exits 1 when any check is not ok-or-warn, and still prints this document. `status` is `ok`, `warn` or `fail`; a check that was skipped because an earlier layer failed is reported as `fail`, and a skipped check with no hint of its own gets `skipped: <detail>` as its hint (an existing hint wins), so a failing check is never unexplained. `detail` and `fixed` appear only when set. The top-level `fixed` array is present only when `--fix` was given (it may be empty). `stoppedPods` appears only when non-zero.
 
 ```json
 {
@@ -283,10 +287,13 @@ A report command. It exits 1 when any check is not ok-or-warn, and still prints 
     {"name": "pods", "status": "fail", "detail": "blog down", "hint": "tainer restart blog", "fixed": true},
     {"name": "agent", "status": "fail", "detail": "daemon is down", "hint": "skipped: daemon is down"}
   ],
+  "fixed": ["pods"],
   "stoppedPods": 2,
   "healthy": false
 }
 ```
+
+The `fixed` array above appears because the example was run with `--fix`.
 
 ### `config`
 
@@ -353,6 +360,8 @@ For tools running in a pod (the control webapp), CyberStack exposes the CLI over
 Every request needs `Authorization: Bearer <token>`. The token is minted fresh each time the daemon boots and written (mode 0600) to `control.token` in the daemon's state directory. A bad or missing token gets `401` with `{"v":1,"error":{"code":"unauthorized",...}}` before any routing, so paths cannot be probed.
 
 The token file exists only after the listener is up, and is removed when the daemon stops. A client must wait for the file (and re-read it after a daemon restart); it must not assume it exists when a pod is created.
+
+The gateway can be permanently absent: with backend none, an unknown network mode, no state directory, or no host address found, it is skipped and no token file ever appears. Clients must therefore bound their wait with a timeout. In vmnet-helper mode the daemon polls up to 60 seconds for the VM's address before binding, so allow a minute or more before giving up.
 
 ### Address and port
 
