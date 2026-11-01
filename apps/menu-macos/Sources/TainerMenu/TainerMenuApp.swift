@@ -2,12 +2,13 @@ import SwiftUI
 
 @main
 struct TainerMenuApp: App {
+    @State private var model = AppModel()
+
     var body: some Scene {
         MenuBarExtra {
-            Text("Tainer is starting up")
-                .padding()
+            MenuContent(state: model.state, onAction: { model.onAction($0, $1) }, onQuit: model.quit)
         } label: {
-            Image("bar-mark", bundle: AppBundle.resources)
+            BarIcon(health: model.state.engine, pulseHigh: model.pulseHigh)
         }
         .menuBarExtraStyle(.window)
     }
