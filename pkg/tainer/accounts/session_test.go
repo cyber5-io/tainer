@@ -121,3 +121,18 @@ func TestEnsureInvalidTokenTwiceFails(t *testing.T) {
 		t.Fatalf("unchanged file must not be retried; calls=%d", calls)
 	}
 }
+
+func TestEnsureEmptyTokenPairDoesNotClobberSession(t *testing.T) {
+	dir := t.TempDir()
+	Save(dir, &Session{Email: "e", RefreshToken: "good", AccessToken: "a", AccessTokenExpiresAt: time.Now().Add(-time.Minute)})
+	var calls int32
+	c := tokenServer(t, &calls, func(string) (int, string) { return 200, `{}` })
+	s, err := Ensure(dir, c)
+	if err == nil || s != nil {
+		t.Fatalf("want error, got %+v %v", s, err)
+	}
+	got, _ := Load(dir)
+	if got == nil || got.RefreshToken != "good" || got.AccessToken != "a" {
+		t.Fatalf("session modified: %+v", got)
+	}
+}

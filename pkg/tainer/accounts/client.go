@@ -3,6 +3,7 @@ package accounts
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -35,6 +36,13 @@ type TokenPair struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+func (tp *TokenPair) validate() error {
+	if tp.AccessToken == "" || tp.RefreshToken == "" {
+		return errors.New("accounts service returned an incomplete token pair")
+	}
+	return nil
+}
+
 // User is the account returned by /v1/me.
 type User struct {
 	ID            string `json:"id"`
@@ -62,6 +70,9 @@ func (c *Client) Login(email, password, deviceName string) (*TokenPair, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := tp.validate(); err != nil {
+		return nil, err
+	}
 	return &tp, nil
 }
 
@@ -69,6 +80,9 @@ func (c *Client) Login(email, password, deviceName string) (*TokenPair, error) {
 func (c *Client) Refresh(refreshToken string) (*TokenPair, error) {
 	var tp TokenPair
 	if err := c.do("POST", "/v1/token", "", map[string]string{"refresh_token": refreshToken}, &tp); err != nil {
+		return nil, err
+	}
+	if err := tp.validate(); err != nil {
 		return nil, err
 	}
 	return &tp, nil

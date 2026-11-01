@@ -77,3 +77,31 @@ func TestNewClientBaseURL(t *testing.T) {
 		t.Fatal("override")
 	}
 }
+
+func TestClientNonJSONErrorBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+		w.Write([]byte("<html>boom</html>"))
+	}))
+	defer srv.Close()
+	c := &Client{BaseURL: srv.URL, HTTP: srv.Client()}
+	_, err := c.Refresh("r")
+	var ae *APIError
+	if !errors.As(err, &ae) || ae.Status != 500 || ae.Code != "" {
+		t.Fatalf("got %#v", err)
+	}
+}
+
+func TestClientRejectsEmptyTokenPair(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	c := &Client{BaseURL: srv.URL, HTTP: srv.Client()}
+	if tp, err := c.Login("a", "b", "c"); err == nil {
+		t.Fatalf("login accepted %+v", tp)
+	}
+	if tp, err := c.Refresh("r"); err == nil {
+		t.Fatalf("refresh accepted %+v", tp)
+	}
+}
