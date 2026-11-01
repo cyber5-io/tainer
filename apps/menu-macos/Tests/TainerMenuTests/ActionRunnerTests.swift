@@ -20,10 +20,12 @@ private func makeRunner(_ runner: FakeRunner, state: StackState = StackState(), 
 @MainActor
 @Test func successClearsBusyWithoutMutatingPods() async {
     let state = StackState()
+    state.apply(.event(.pod(Pod(name: "ops", domain: "ops.tainer.me", state: .running, running: 2, total: 2))))
     let sink = FakeSink()
     let fake = FakeRunner([.stream(lines: [podDoc], status: 0)])
     let runner = makeRunner(fake, state: state, sink: sink)
     let before = state.pods
+    #expect(before.count == 1)
     await runner.run(.stop, pod: "ops")
     #expect(state.busy.isEmpty)
     #expect(state.pods == before)
@@ -100,20 +102,74 @@ private func makeRunner(_ runner: FakeRunner, state: StackState = StackState(), 
     #expect(sink.posted == ["doctor: port 80 is in use"])
 }
 
+/// Blocks any spawn whose argv mentions `blockedArg` until cancelled; everything else succeeds at once.
+final class PerArgRunner: ProcessRunner, @unchecked Sendable {
+    private let lock = NSLock()
+    private var spawned: [[String]] = []
+    let blockedArg: String
+    init(blocking blockedArg: String) { self.blockedArg = blockedArg }
+    var arguments: [[String]] { lock.withLock { spawned } }
+
+    func run(executable: String, arguments: [String], onLine: @Sendable (String) async -> Void) async throws -> ProcessResult {
+        lock.withLock { spawned.append(arguments) }
+        if arguments.contains(blockedArg) {
+            while !Task.isCancelled { await Task.yield() }
+            return ProcessResult(status: 15, stderr: "")
+        }
+        await onLine(podDoc)
+        return ProcessResult(status: 0, stderr: "")
+    }
+}
+
 @MainActor
 @Test func concurrentActionOnSamePodRefused() async {
     let state = StackState()
-    let fake = FakeRunner([.blockUntilCancelled, .stream(lines: [podDoc], status: 0)])
-    let runner = makeRunner(fake, state: state)
+    let fake = PerArgRunner(blocking: "ops")
+    let runner = ActionRunner(state: state, runner: fake, sink: FakeSink(), locate: { "/bin/tainer" })
     let first = Task { await runner.run(.restart, pod: "ops") }
-    await settle { state.busy.contains("ops") }
+    await settle { fake.arguments.count == 1 }
     await runner.run(.stop, pod: "ops")
-    #expect(fake.spawnCount == 1)
+    #expect(fake.arguments.count == 1)
     await runner.run(.stop, pod: "other")
-    #expect(fake.spawnCount == 2)
+    #expect(fake.arguments.count == 2)
+    #expect(state.busy == ["ops"])
     first.cancel()
     await first.value
     #expect(state.busy.isEmpty)
+}
+
+@MainActor
+@Test func doctorResetsAfterRunAndConcurrentDoctorRefused() async {
+    let fake = PerArgRunner(blocking: "doctor")
+    let runner = ActionRunner(state: StackState(), runner: fake, sink: FakeSink(), locate: { "/bin/tainer" })
+    let first = Task { await runner.run(.doctor, pod: nil) }
+    await settle { fake.arguments.count == 1 }
+    await runner.run(.doctor, pod: nil)
+    #expect(fake.arguments.count == 1)
+    first.cancel()
+    await first.value
+
+    let seq = FakeRunner([.stream(lines: [podDoc], status: 0), .stream(lines: [podDoc], status: 0)])
+    let again = makeRunner(seq)
+    await again.run(.doctor, pod: nil)
+    await again.run(.doctor, pod: nil)
+    #expect(seq.spawnCount == 2)
+}
+
+@MainActor
+@Test func nonZeroExitWithPlainTextStdoutIsAFailure() async {
+    let sink = FakeSink()
+    let fake = FakeRunner([.stream(lines: ["Usage: tainer stop [pod]"], stderr: "unknown flag: --json", status: 1)])
+    await makeRunner(fake, sink: sink).run(.stop, pod: "ops")
+    #expect(sink.posted == ["ops: unknown flag: --json"])
+}
+
+@MainActor
+@Test func nonZeroExitWithPlainTextStdoutFailsDoctorToo() async {
+    let sink = FakeSink()
+    let fake = FakeRunner([.stream(lines: ["Usage: tainer doctor"], status: 1)])
+    await makeRunner(fake, sink: sink).run(.doctor, pod: nil)
+    #expect(sink.posted == ["doctor: tainer exited with status 1"])
 }
 
 @MainActor
