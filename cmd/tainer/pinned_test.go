@@ -156,3 +156,40 @@ func TestInitSizeFlag(t *testing.T) {
 		}
 	}
 }
+
+func TestStatusAllListsRegisteredProjects(t *testing.T) {
+	reg := map[string]registry.Project{
+		"blog":    {Type: "wordpress"},
+		"shop":    {Type: "nodejs"},
+		"alpha":   {Type: "php"},
+		"control": {Type: "svelte"},
+	}
+	engine := []podStatus{{Name: "blog", PodID: 7, State: "running", Domain: "blog.tainer.me"}}
+	got := withRegisteredProjects(engine, reg)
+	var names []string
+	for _, p := range got {
+		names = append(names, p.Name+":"+p.State)
+	}
+	want := []string{"blog:running", "alpha:stopped", "shop:stopped"}
+	if !reflect.DeepEqual(names, want) {
+		t.Errorf("got %v, want %v", names, want)
+	}
+	if got[0].PodID != 7 || got[0].Domain != "blog.tainer.me" {
+		t.Errorf("engine row altered: %+v", got[0])
+	}
+	if got[1].PodID != 0 {
+		t.Errorf("stopped row carries a pod id: %+v", got[1])
+	}
+}
+
+func TestStatusAllStoppedRowRendering(t *testing.T) {
+	snap := statusSnapshot{Daemon: daemonStatus{Reachable: true}, Pods: []podStatus{{Name: "shop", State: "stopped"}}}
+	out := string(captureStdout(t, func() { runStatusJSON(snap) }))
+	if !strings.Contains(out, `"name": "shop"`) || !strings.Contains(out, `"state": "stopped"`) || strings.Contains(out, "podId") {
+		t.Errorf("json: %s", out)
+	}
+	plain := string(captureStdout(t, func() { runStatusPlain(snap) }))
+	if !strings.Contains(plain, "shop   stopped") || strings.Contains(plain, "pod 0") {
+		t.Errorf("plain: %s", plain)
+	}
+}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/cyber5-io/tainer/pkg/tainer"
@@ -81,4 +82,26 @@ func parseInitSize(v string) (manifest.PodSize, error) {
 		names = append(names, string(s))
 	}
 	return "", withCode("invalid-arguments", fmt.Errorf("unknown pod size %q (one of: %s)", v, strings.Join(names, ", ")))
+}
+
+// withRegisteredProjects completes an engine-derived pod list with a stopped
+// row for every registered project that has no pod, so all-projects status
+// agrees with `list`. Pinned projects stay out; the added rows follow the
+// engine rows in name order.
+func withRegisteredProjects(pods []podStatus, reg map[string]registry.Project) []podStatus {
+	seen := make(map[string]bool, len(pods))
+	for _, p := range pods {
+		seen[p.Name] = true
+	}
+	var missing []string
+	for name := range visibleProjects(reg) {
+		if !seen[name] {
+			missing = append(missing, name)
+		}
+	}
+	sort.Strings(missing)
+	for _, name := range missing {
+		pods = append(pods, podStatus{Name: name, State: string(pod.StateStopped)})
+	}
+	return pods
 }

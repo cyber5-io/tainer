@@ -665,6 +665,7 @@ func collectStatus(ctx context.Context) statusSnapshot {
 		}
 		snap.Pods = append(snap.Pods, ps)
 	}
+	snap.Pods = withRegisteredProjects(snap.Pods, registry.All())
 	return snap
 }
 
@@ -691,7 +692,7 @@ func runStatusStyled(s statusSnapshot) {
 	if len(s.Pods) == 0 {
 		fmt.Println()
 		fmt.Println("  " + muted.Render("Pods"))
-		fmt.Println("    " + tui.MarkInfo() + "no pods running. Run `tainer start` from a project dir to bring one up.")
+		fmt.Println("    " + tui.MarkInfo() + "no projects yet. Run `tainer init` in a project dir to create one.")
 		fmt.Println()
 		tui.BookendClose(0, "Healthy", "0 pods")
 		return
@@ -726,7 +727,11 @@ func renderPodStatusStyled(p podStatus, muted lipgloss.Style) {
 		mark = tui.MarkInfo()
 	}
 	bold := lipgloss.NewStyle().Bold(true)
-	header := mark + bold.Render(p.Name) + "  " + muted.Render(fmt.Sprintf("pod %d · %s", p.PodID, p.State))
+	detail := p.State
+	if p.PodID != 0 {
+		detail = fmt.Sprintf("pod %d · %s", p.PodID, p.State)
+	}
+	header := mark + bold.Render(p.Name) + "  " + muted.Render(detail)
 	fmt.Println("    " + header)
 	if p.Domain != "" {
 		fmt.Println("      " + tui.MarkInfo() + "https://" + p.Domain)
@@ -766,6 +771,10 @@ func runStatusPlain(s statusSnapshot) {
 	fmt.Printf("reachable: %v\n", s.Daemon.Reachable)
 	for _, p := range s.Pods {
 		fmt.Println()
+		if p.PodID == 0 {
+			fmt.Printf("%s   %s\n", p.Name, p.State)
+			continue
+		}
 		if p.Domain == "" {
 			fmt.Printf("%s   pod %d   %s\n", p.Name, p.PodID, p.State)
 			continue
@@ -782,7 +791,7 @@ func runStatusPlain(s statusSnapshot) {
 func runStatusJSON(s statusSnapshot) {
 	type jsonPod struct {
 		Name   string               `json:"name"`
-		PodID  int                  `json:"podId"`
+		PodID  int                  `json:"podId,omitempty"`
 		State  string               `json:"state"`
 		Domain string               `json:"domain,omitempty"`
 		Ports  []manifest.PortEntry `json:"ports,omitempty"`

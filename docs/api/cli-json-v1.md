@@ -197,7 +197,7 @@ All documents below start with `"v":1` on the wire; the examples omit it only wh
 }
 ```
 
-All-projects form: `daemon` plus `pods` (each with `name`, `podId`, `state`, and when running `domain` and `ports`). A project whose state could not be queried carries `queryError`. Note the `ports` entries use capitalised keys (`Role`, `Container`, `Protocol`, `HostPort`); this is frozen for v1.
+All-projects form: `daemon` plus `pods` (each with `name`, `podId`, `state`, and when running `domain` and `ports`). It lists every registered project, as `list` does: a project with no engine presence has `state` `stopped` and no `podId` (the key is absent). A project whose state could not be queried carries `queryError`. Note the `ports` entries use capitalised keys (`Role`, `Container`, `Protocol`, `HostPort`); this is frozen for v1.
 
 The reserved pinned project `control` (the control dashboard) never appears in `list` or in the all-projects `status` document. `status control`, `logs`, `exec` and `config` still accept it by name, while `stop control` and `destroy control` fail with the `pod-pinned` error.
 
