@@ -107,6 +107,8 @@ func main() {
 		cmdUpdate(os.Args[2:])
 	case "watch":
 		cmdWatch(os.Args[2:])
+	case "api":
+		cmdAPI(os.Args[2:])
 	case "network":
 		cmdNetwork(os.Args[2:])
 	default:
