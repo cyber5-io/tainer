@@ -9,7 +9,7 @@ import (
 )
 
 func TestControlPodGetsGatewayMounts(t *testing.T) {
-	mounts, env := gatewayInjection("control", RoleApp, "/home/u/.cyberstack")
+	mounts, env := gatewayInjection("control", RoleApp, "/home/u/.cyberstack", "/p/control")
 	if len(mounts) != 1 {
 		t.Fatalf("want 1 mount, got %+v", mounts)
 	}
@@ -21,6 +21,12 @@ func TestControlPodGetsGatewayMounts(t *testing.T) {
 		"TAINER_GATEWAY_ADDR_FILE=/run/tainer/control/control.addr":   false,
 		"TAINER_CONTROL_TOKEN_FILE=/run/tainer/control/control.token": false,
 	}
+	for _, e := range env {
+		if _, ok := want[e]; ok {
+			want[e] = true
+		}
+	}
+	want["TAINER_PROJECT_PATH=/p/control"] = false
 	for _, e := range env {
 		if _, ok := want[e]; ok {
 			want[e] = true
@@ -40,7 +46,7 @@ func TestGatewayInjectionSkipped(t *testing.T) {
 		{"control", RoleApp, ""},
 	}
 	for _, c := range cases {
-		mounts, env := gatewayInjection(c.project, c.role, c.dir)
+		mounts, env := gatewayInjection(c.project, c.role, c.dir, "/p/x")
 		if len(mounts) != 0 || len(env) != 0 {
 			t.Errorf("%+v: expected no injection, got %+v %v", c, mounts, env)
 		}
@@ -48,7 +54,7 @@ func TestGatewayInjectionSkipped(t *testing.T) {
 }
 
 func TestGatewayNeverMountsStateRoot(t *testing.T) {
-	mounts, _ := gatewayInjection("control", RoleApp, "/home/u/.cyberstack")
+	mounts, _ := gatewayInjection("control", RoleApp, "/home/u/.cyberstack", "/p/control")
 	for _, mt := range mounts {
 		if mt.Source == "/home/u/.cyberstack" {
 			t.Errorf("state directory root must never be mounted: %+v", mt)

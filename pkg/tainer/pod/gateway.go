@@ -18,9 +18,11 @@ const gatewayTarget = "/run/tainer/control"
 
 // gatewayInjection returns the mounts and env that hand the control pod's app
 // container the gateway address and bearer token. Ordinary projects, other
-// roles, and an unknown state directory get nothing; the webapp then renders
+// roles, and an unknown state directory get nothing; TAINER_PROJECT_PATH is the
+// control project's own host directory, which the webapp hands to the CLI for
+// db-import file paths; the webapp then renders
 // its gateway-unreachable state.
-func gatewayInjection(project, role, stateDir string) ([]engine.Mount, []string) {
+func gatewayInjection(project, role, stateDir, projectDir string) ([]engine.Mount, []string) {
 	if !tainer.IsPinnedProject(project) || role != RoleApp || stateDir == "" {
 		return nil, nil
 	}
@@ -28,6 +30,7 @@ func gatewayInjection(project, role, stateDir string) ([]engine.Mount, []string)
 		[]string{
 			"TAINER_GATEWAY_ADDR_FILE=" + gatewayTarget + "/control.addr",
 			"TAINER_CONTROL_TOKEN_FILE=" + gatewayTarget + "/control.token",
+			"TAINER_PROJECT_PATH=" + projectDir,
 		}
 }
 
