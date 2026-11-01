@@ -34,6 +34,9 @@ var apiCommands = []apiCommand{
 	{"config", true, false},
 	{"api", true, false},
 	{"watch", true, true},
+	{"login", true, false},
+	{"logout", true, false},
+	{"whoami", true, false},
 }
 
 // cmdAPI implements `tainer api --json`: the machine-readable command index.

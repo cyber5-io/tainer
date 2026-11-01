@@ -88,6 +88,11 @@ func (c *Client) Refresh(refreshToken string) (*TokenPair, error) {
 	return &tp, nil
 }
 
+// Logout revokes the session behind a refresh token.
+func (c *Client) Logout(refreshToken string) error {
+	return c.do("POST", "/v1/logout", "", map[string]string{"refresh_token": refreshToken}, nil)
+}
+
 // Me returns the account behind an access token.
 func (c *Client) Me(accessToken string) (*User, error) {
 	var u User
@@ -137,6 +142,9 @@ func (c *Client) do(method, path, bearer string, body, out any) error {
 		}
 		_ = json.Unmarshal(data, &env)
 		return &APIError{Status: resp.StatusCode, Code: env.Error.Code}
+	}
+	if out == nil {
+		return nil
 	}
 	if err := json.Unmarshal(data, out); err != nil {
 		return fmt.Errorf("decode %s response: %w", path, err)

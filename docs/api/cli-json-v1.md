@@ -22,6 +22,7 @@ Examples are copied from the tests' own golden strings, so the page and the code
 | `doctor` document, skip hints | `TestDoctorJSONShape`, `TestDoctorJSONSkipCarriesReason` |
 | `config` document | `TestConfigJSONShape` |
 | `exec` lines | `TestExecJSONStreamShape`, `TestExecJSONRefusesTTY` |
+| `login`, `whoami`, `logout` documents | `TestLoginJSONReadsStdinAndStoresSession`, `TestWhoamiLoggedOutDocument`, `TestLogoutClearsStore` (`cmd/tainer/login_test.go`) |
 | Gateway behaviour | `internal/controlapi/server_test.go` in the CyberStack repo |
 
 ## 1. The envelope
@@ -37,7 +38,7 @@ Add `--json` to a command to get this output. The gateway (section 8) always add
 `tainer api --json` lists every command that accepts `--json`. `stream` is true for commands that emit NDJSON instead of one document.
 
 ```json
-{"v":1,"commands":[{"name":"status","json":true,"stream":false},{"name":"list","json":true,"stream":false},{"name":"init","json":true,"stream":false},{"name":"start","json":true,"stream":false},{"name":"stop","json":true,"stream":false},{"name":"restart","json":true,"stream":false},{"name":"destroy","json":true,"stream":false},{"name":"db","json":true,"stream":false},{"name":"update","json":true,"stream":false},{"name":"network","json":true,"stream":false},{"name":"doctor","json":true,"stream":false},{"name":"logs","json":true,"stream":true},{"name":"exec","json":true,"stream":true},{"name":"config","json":true,"stream":false},{"name":"api","json":true,"stream":false},{"name":"watch","json":true,"stream":true}]}
+{"v":1,"commands":[{"name":"status","json":true,"stream":false},{"name":"list","json":true,"stream":false},{"name":"init","json":true,"stream":false},{"name":"start","json":true,"stream":false},{"name":"stop","json":true,"stream":false},{"name":"restart","json":true,"stream":false},{"name":"destroy","json":true,"stream":false},{"name":"db","json":true,"stream":false},{"name":"update","json":true,"stream":false},{"name":"network","json":true,"stream":false},{"name":"doctor","json":true,"stream":false},{"name":"logs","json":true,"stream":true},{"name":"exec","json":true,"stream":true},{"name":"config","json":true,"stream":false},{"name":"api","json":true,"stream":false},{"name":"watch","json":true,"stream":true},{"name":"login","json":true,"stream":false},{"name":"logout","json":true,"stream":false},{"name":"whoami","json":true,"stream":false}]}
 ```
 
 Without `--json`, `tainer api` and `tainer watch` print a plain-text usage error on stderr and exit 1. They have no human mode.
@@ -101,6 +102,11 @@ Example of an error with a document-shaped command:
 | `exec-failed` | The command could not be started in the container. |
 | `role-not-found` | The project has no container with that role. |
 | `logs-unavailable` | Logs could not be read, or a line exceeded 4 MiB. |
+| `login-failed` | `login`: the email or password is wrong. |
+| `email-unverified` | `login`: the account's email address is not verified yet. |
+| `too-many-attempts` | `login`: too many failed attempts; try again later. |
+| `id-unreachable` | The tainer accounts service could not be reached, or answered with a server error. |
+| `pod-pinned` | The pod is pinned and cannot be stopped or destroyed. |
 | `watch-ended` | The event stream ended (see section 4). |
 | `internal-error` | A bug or an unrepresentable result. |
 | `command-failed` | Catch-all for failures that carry no more specific slug. Treat unknown slugs the same way. |
@@ -353,7 +359,7 @@ For tools running in a pod (the control webapp), CyberStack exposes the CLI over
 | `POST /v1/cli/{cmd}` | Body `{"args":["..."]}`. Runs `tainer {cmd} --json <args>` (argv exec, no shell) and relays stdout. `logs`, `exec` and `watch` stream as `application/x-ndjson`; the rest return `application/json`. |
 | `GET /v1/watch` | The event stream (section 3), same lines as `tainer watch --json`. |
 
-`{cmd}` must be one of: `status`, `list`, `init`, `start`, `stop`, `restart`, `destroy`, `db`, `update`, `network`, `doctor`, `logs`, `exec`, `config`, `api`, `watch`. Anything else (`ssh`, `menu`, ...) is refused. The gateway adds `--json` itself and drops any `--json` or `--json=...` in your args that comes before a bare `--`.
+`{cmd}` must be one of: `status`, `list`, `init`, `start`, `stop`, `restart`, `destroy`, `db`, `update`, `network`, `doctor`, `logs`, `exec`, `config`, `api`, `watch`, `login`, `logout`, `whoami`. The request body may also carry an optional `"stdin"` string, which the gateway writes to the CLI's standard input; it is permitted only for `login` (which reads its credentials there) and refused for every other command. Anything else (`ssh`, `menu`, ...) is refused. The gateway adds `--json` itself and drops any `--json` or `--json=...` in your args that comes before a bare `--`.
 
 ### Authentication
 
@@ -388,3 +394,63 @@ Port 7754. The address the pod uses depends on the network mode:
 - Additive changes keep `"v":1`: new keys in documents, new event types, new `progress` ops, new slugs. Consumers must ignore what they do not recognise.
 - A breaking change (removing or renaming a key, changing a type or meaning) bumps `v`. The release that introduces `v:2` keeps `v:1` available for one more minor release so consumers can move.
 - Daemons tolerate unknown fields in progress documents posted by the CLI, so CLI and daemon can be one minor version apart.
+
+## 10. Accounts
+
+`login`, `logout` and `whoami` manage the tainer account the CLI and the apps share. The signed-in session lives in `account.json` (mode 0600) in the daemon's state directory, next to `control.token`; the CLI refreshes and rotates it as needed. None of these commands runs against pods, and none needs the stack to be up.
+
+### `login`
+
+`tainer login --json` reads exactly one JSON object from stdin; `deviceName` is optional and defaults to `<hostname> · tainer`.
+
+```json
+{"email":"leni@example.com","password":"...","deviceName":"My Mac"}
+```
+
+Success never echoes tokens:
+
+```json
+{
+  "v": 1,
+  "loggedIn": true,
+  "userId": "u-1",
+  "email": "leni@example.com"
+}
+```
+
+Errors: `login-failed`, `email-unverified`, `too-many-attempts`, `id-unreachable`, and `invalid-arguments` (stdin is not one object, or the email or password is missing). Without `--json`, `login` prompts for the email and the password (typed without echo).
+
+### `whoami`
+
+`tainer whoami --json` always exits 0 for a document, signed in or not.
+
+```json
+{
+  "v": 1,
+  "loggedIn": false
+}
+```
+
+```json
+{
+  "v": 1,
+  "loggedIn": true,
+  "userId": "u-1",
+  "email": "leni@example.com",
+  "accessToken": "...",
+  "accessTokenExpiresAt": "2026-11-01T09:00:00.000Z"
+}
+```
+
+The access token is refreshed first when it has less than 60 seconds left. If the accounts service says the session has expired or been revoked, the stored session is removed and the answer is `loggedIn:false`. If the service cannot be reached but the stored access token has not expired, the document is returned with `"offline":true` added; if it has expired the result is the `id-unreachable` error and the stored session is kept.
+
+### `logout`
+
+`tainer logout --json` revokes the session at the accounts service on a best-effort basis, then always removes the local session, even when the service is unreachable or nobody was signed in.
+
+```json
+{
+  "v": 1,
+  "loggedOut": true
+}
+```

@@ -3,6 +3,7 @@ package accounts
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -103,5 +104,22 @@ func TestClientRejectsEmptyTokenPair(t *testing.T) {
 	}
 	if tp, err := c.Refresh("r"); err == nil {
 		t.Fatalf("refresh accepted %+v", tp)
+	}
+}
+
+func TestClientLogoutPostsRefreshToken(t *testing.T) {
+	var gotPath, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotPath, gotBody = r.URL.Path, string(b)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	c := &Client{BaseURL: srv.URL, HTTP: srv.Client()}
+	if err := c.Logout("rt-1"); err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/v1/logout" || gotBody != `{"refresh_token":"rt-1"}` {
+		t.Errorf("path %q body %q", gotPath, gotBody)
 	}
 }

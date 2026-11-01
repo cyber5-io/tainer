@@ -28,7 +28,10 @@ const apiGolden = `{"v":1,"commands":[` +
 	`{"name":"exec","json":true,"stream":true},` +
 	`{"name":"config","json":true,"stream":false},` +
 	`{"name":"api","json":true,"stream":false},` +
-	`{"name":"watch","json":true,"stream":true}` +
+	`{"name":"watch","json":true,"stream":true},` +
+	`{"name":"login","json":true,"stream":false},` +
+	`{"name":"logout","json":true,"stream":false},` +
+	`{"name":"whoami","json":true,"stream":false}` +
 	`]}` + "\n"
 
 func TestAPIListsAllJSONCommands(t *testing.T) {
@@ -39,7 +42,7 @@ func TestAPIListsAllJSONCommands(t *testing.T) {
 	if out.String() != apiGolden {
 		t.Errorf("api output drifted from the golden:\n got: %s\nwant: %s", out.String(), apiGolden)
 	}
-	for _, need := range []string{"watch", "logs", "exec", "config", "doctor"} {
+	for _, need := range []string{"watch", "logs", "exec", "config", "doctor", "login", "logout", "whoami"} {
 		if !strings.Contains(out.String(), `"name":"`+need+`"`) {
 			t.Errorf("missing %s", need)
 		}

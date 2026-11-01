@@ -109,6 +109,12 @@ func main() {
 		cmdWatch(os.Args[2:])
 	case "api":
 		cmdAPI(os.Args[2:])
+	case "login":
+		cmdLogin(os.Args[2:])
+	case "logout":
+		cmdLogout(os.Args[2:])
+	case "whoami":
+		cmdWhoami(os.Args[2:])
 	case "network":
 		cmdNetwork(os.Args[2:])
 	default:
@@ -147,6 +153,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  db import <project> <file>             restore database")
 	fmt.Fprintln(os.Stderr, "  update [project|--base <type>|--all]   refresh image(s)")
 	fmt.Fprintln(os.Stderr, "  network mode show|set <perf|compat>    inspect / switch network mode")
+	fmt.Fprintln(os.Stderr, "  login | logout | whoami                sign in to your tainer account")
 	fmt.Fprintln(os.Stderr, "  welcome                                show the quickstart screen")
 	fmt.Fprintln(os.Stderr, "  version                                print version")
 }
