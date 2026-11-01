@@ -52,7 +52,7 @@ Nothing in this directory signs or notarises. `make-app.sh` output is unsigned a
 | Brand header row opening tainer.dev | `BrandHeader` |
 | Status line with coloured dot (checking, healthy N pods, recovering with detail, healing failed) | `StatusHeader` pill (HEALTHY, RECOVERING, UNREACHABLE) with counts |
 | One row per pod: status dot, domain and name; running pods first, then alphabetical | `PodRow`, same ordering, status shown by icon tint and opacity |
-| Pod cap of 16 pre-created slots | No cap; list scrolls past `PodListLayout.maxVisibleRows` |
+| Pod cap of 16 pre-created slots | No cap; all registered projects (stream plus `tainer list --json`), pages of 10 with running pods first |
 | Submenu action: Open in browser | Inline icon button, opens the pod's domain |
 | Submenu actions: Restart, Stop (running pods) and Start (stopped pods) | Inline icon buttons by pod state, with a spinner while the command runs |
 | Action failure feedback (status line only, errors ignored) | User notification banner on failure (`ActionRunner`) |

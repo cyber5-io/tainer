@@ -9,6 +9,9 @@ final class AppModel {
     private var watch: WatchClient?
 
     private let actions: ActionRunner
+    private let lister: ListRefresher
+
+    func refreshList() async { await lister.refresh() }
 
     func onAction(_ action: PodAction, _ pod: String?) {
         let actions = self.actions
@@ -19,6 +22,7 @@ final class AppModel {
         let state = self.state
         let pulse = self.pulse
         actions = ActionRunner(state: state)
+        lister = ListRefresher(state: state)
         pulse.sync(state.engine)
         if let cli = CLILocator.find() {
             watch = WatchClient(executable: cli) { update in

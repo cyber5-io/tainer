@@ -35,18 +35,14 @@ struct PodRow: View {
         let pod = model.pod
         HStack(spacing: 10) {
             Image(systemName: "shippingbox")
-                .font(.system(size: 14, weight: .regular))
+                .font(.system(size: 12, weight: .regular))
                 .foregroundStyle(model.isActive ? palette.teal : palette.stoppedIcon)
-                .frame(width: 16)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(pod.name)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(model.isActive ? palette.text : palette.countsText)
-                Text(pod.domain)
-                    .font(.system(size: 11))
-                    .foregroundStyle(model.isActive ? palette.secondaryText : palette.tertiaryText)
-            }
-            .lineLimit(1)
+                .frame(width: 14)
+            Text(model.title)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(model.isActive ? palette.text : palette.countsText)
+                .lineLimit(1)
+                .truncationMode(.middle)
             Spacer(minLength: 4)
             if model.showsSpinner {
                 ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 24, height: 24)
@@ -59,10 +55,11 @@ struct PodRow: View {
             }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 7)
+        .padding(.vertical, 3)
         .background(RoundedRectangle(cornerRadius: 8).fill(hovering ? palette.hoverFill : .clear))
         .opacity(model.isActive ? 1 : 0.75)
         .padding(.horizontal, 6)
+        .help(model.tooltip)
         .onHover { hovering = $0 }
     }
 
