@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -314,5 +315,23 @@ func TestLogoutWhenLoggedOut(t *testing.T) {
 	}
 	if decodeDoc(t, &out)["loggedOut"] != true {
 		t.Errorf("got %s", out.String())
+	}
+}
+
+func TestAccountsDirDefaultsToHomeCyberstack(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("TAINER_ACCOUNTS_DIR", "")
+	if got, want := accountsDir(), filepath.Join(home, ".cyberstack"); got != want {
+		t.Errorf("got %q want %q", got, want)
+	}
+}
+
+func TestAccountsDirEnvOverrideWins(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	override := t.TempDir()
+	t.Setenv("TAINER_ACCOUNTS_DIR", override)
+	if got := accountsDir(); got != override {
+		t.Errorf("got %q want %q", got, override)
 	}
 }

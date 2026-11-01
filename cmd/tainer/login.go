@@ -14,20 +14,17 @@ import (
 	"golang.org/x/term"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/accounts"
-	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/tui"
 )
 
-// accountsDir is the directory holding the signed-in account (account.json).
-// It is the daemon's state directory, the one that also holds control.token,
-// which is the parent of the daemon socket. The Linux socket lives under the
-// root-owned /run/cyberstack, so there the per-user ~/.cyberstack is used.
+// accountsDir is the directory holding the signed-in account (account.json):
+// ~/.cyberstack of the invoking user, or TAINER_ACCOUNTS_DIR when set.
 func accountsDir() string {
-	dir := filepath.Dir(engine.DefaultSocketPath())
-	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(dir, "/run/") {
-		dir = filepath.Join(home, ".cyberstack")
+	if dir := os.Getenv("TAINER_ACCOUNTS_DIR"); dir != "" {
+		return dir
 	}
-	return dir
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".cyberstack")
 }
 
 func cmdLogin(args []string) {
