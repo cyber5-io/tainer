@@ -21,6 +21,9 @@ struct MenuContent: View {
                 .padding(.horizontal, 14).padding(.top, 8).padding(.bottom, 4)
             podList(palette)
             divider(palette, vertical: 6)
+            MenuItem(symbol: "plus.circle", title: "New Pod", color: palette.menuItemText, palette: palette) {
+                openURL(MenuLinks.newPod)
+            }
             MenuItem(symbol: "square.grid.2x2", title: "Open Control Dashboard", color: palette.teal, weight: .semibold, palette: palette) {
                 openURL(MenuLinks.dashboard)
             }

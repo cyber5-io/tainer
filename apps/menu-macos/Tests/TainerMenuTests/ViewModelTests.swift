@@ -158,3 +158,7 @@ private func hasRedPixel(_ image: NSImage) -> Bool {
     #expect(running.symbol == "shippingbox")
     #expect(running.startHint == nil)
 }
+
+@Test func newPodLinkOpensTheWizard() {
+    #expect(MenuLinks.newPod.absoluteString == "https://my.tainer.me/new")
+}

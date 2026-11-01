@@ -77,6 +77,7 @@ enum CountSegments {
 
 enum MenuLinks {
     static let dashboard = URL(string: "https://my.tainer.me")!
+    static let newPod = URL(string: "https://my.tainer.me/new")!
     static let cyber5 = URL(string: "https://cyber5.io/go/tainerapp")!
     static let tainer = URL(string: "https://tainer.dev/go/tainerapp")!
 
