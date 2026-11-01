@@ -7,7 +7,7 @@ struct TainerMenuApp: App {
             Text("Tainer is starting up")
                 .padding()
         } label: {
-            Image("bar-mark", bundle: .module)
+            Image("bar-mark", bundle: AppBundle.resources)
         }
         .menuBarExtraStyle(.window)
     }

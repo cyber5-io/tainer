@@ -11,3 +11,7 @@ import Testing
         #expect(Bundle.module.url(forResource: "\(name)@2x", withExtension: "png") != nil, "missing \(name)")
     }
 }
+
+@Test func appBundleResolvesResources() {
+    #expect(AppBundle.resources.url(forResource: "bar-mark@2x", withExtension: "png") != nil)
+}
