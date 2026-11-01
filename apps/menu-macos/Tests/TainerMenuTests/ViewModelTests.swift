@@ -118,7 +118,7 @@ private func hasRedPixel(_ image: NSImage) -> Bool {
 
 @Test func brandImagesLoadAtPointSize() throws {
     let expected: [(String, CGFloat, CGFloat)] = [
-        ("logo-tainer-light", 120, 30), ("logo-tainer-dark", 120, 30),
+        ("logo-tainer-light", 132, 30), ("logo-tainer-dark", 132, 30),
         ("logo-cyber5-light", 120, 21.5), ("bar-mark", 22.5, 18),
     ]
     for (name, w, h) in expected {
