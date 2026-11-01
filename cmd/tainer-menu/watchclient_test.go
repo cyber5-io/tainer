@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -175,6 +176,31 @@ func TestWatchClientWakeCutsBackoff(t *testing.T) {
 	case <-recovering: // a second gap means a second spawn happened
 	case <-time.After(3 * time.Second):
 		t.Fatal("wake did not cut the 30s backoff")
+	}
+}
+
+// The menu shows these strings to users, who never see the word "engine".
+func TestMenuCopyAvoidsEngineVocabulary(t *testing.T) {
+	details := []string{}
+	for _, cli := range []string{filepath.Join(t.TempDir(), "missing"), fakeCLI(t, "exit 1\n")} {
+		_, d := watchOnce(context.Background(), cli, func(Event) {})
+		details = append(details, d)
+	}
+	for _, d := range details {
+		if strings.Contains(strings.ToLower(d), "engine") {
+			t.Errorf("user-visible detail %q mentions the engine", d)
+		}
+	}
+	for _, f := range []string{"main.go", "watchclient.go"} {
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range regexp.MustCompile(`"[^"\n]*[Ee]ngine[^"\n]*"`).FindAllString(string(src), -1) {
+			if m != `"engine"` { // the wire event type
+				t.Errorf("%s: user-visible string %s mentions the engine", f, m)
+			}
+		}
 	}
 }
 

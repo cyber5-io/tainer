@@ -156,7 +156,7 @@ A verbatim relay of the stack's event stream, one line per event.
 - There is no automatic reconnect. Respawn the process, with backoff, to resubscribe. Each new process starts with a fresh `hello`.
 - On SIGINT or SIGTERM watch exits 0 and prints no envelope: a user-initiated stop is not an error.
 - If the daemon dies in the middle of writing a line, one truncated, invalid JSON line can be relayed just before `watch-ended`. Consumers must tolerate one possibly-invalid final line and skip it.
-- If the stack cannot be reached when watch starts, the first and only line is the error envelope (`stack-unreachable`), exit 1.
+- If the stack cannot be reached when watch starts, the first and only line is an error envelope with a `stack-*` slug (`stack-unreachable`, `stack-unavailable`, or `unsupported-os` depending on platform and state), exit 1.
 
 ## 5. Per-command shapes
 

@@ -149,10 +149,10 @@ func watchOnce(ctx context.Context, cli string, onEvent func(Event)) (gotHello b
 	cmd.WaitDelay = 2 * time.Second
 	out, err := cmd.StdoutPipe()
 	if err != nil {
-		return false, "engine not reachable"
+		return false, "stack not reachable"
 	}
 	if err := cmd.Start(); err != nil {
-		return false, "engine not reachable"
+		return false, "stack not reachable"
 	}
 	r := bufio.NewReaderSize(out, 64*1024)
 	for {
@@ -173,5 +173,5 @@ func watchOnce(ctx context.Context, cli string, onEvent func(Event)) (gotHello b
 		}
 	}
 	_ = cmd.Wait()
-	return gotHello, "reconnecting to the engine"
+	return gotHello, "reconnecting to the stack"
 }
