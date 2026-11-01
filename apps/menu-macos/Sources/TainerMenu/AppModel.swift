@@ -8,12 +8,17 @@ final class AppModel {
     let pulse = PulseDriver()
     private var watch: WatchClient?
 
-    /// Task 5 replaces this with the real command runner.
-    var onAction: (PodAction, String?) -> Void = { _, _ in }
+    private let actions: ActionRunner
+
+    func onAction(_ action: PodAction, _ pod: String?) {
+        let actions = self.actions
+        Task { await actions.run(action, pod: pod) }
+    }
 
     init() {
         let state = self.state
         let pulse = self.pulse
+        actions = ActionRunner(state: state)
         pulse.sync(state.engine)
         if let cli = CLILocator.find() {
             watch = WatchClient(executable: cli) { update in
