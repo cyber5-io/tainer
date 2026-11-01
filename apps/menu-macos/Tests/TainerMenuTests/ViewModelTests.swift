@@ -88,3 +88,30 @@ private func pod(_ name: String, _ state: PodState) -> Pod {
     #expect(!pulse.isActive)
     #expect(pulse.high)
 }
+
+import AppKit
+
+@MainActor
+private func hasRedPixel(_ image: NSImage) -> Bool {
+    let w = 90, h = 72
+    guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4,
+                                     hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+          let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return false }
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = ctx
+    image.draw(in: NSRect(x: 0, y: 0, width: w, height: h))
+    NSGraphicsContext.restoreGraphicsState()
+    for x in 0..<w { for y in 0..<h {
+        guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB), c.alphaComponent > 0.9 else { continue }
+        if c.redComponent > 1.5 * c.greenComponent && c.redComponent > 1.5 * c.blueComponent { return true }
+    } }
+    return false
+}
+
+@Test @MainActor func unreachableIconIsOneImageWithRedBadge() {
+    let error = BarIconRenderer.markImage(style: .error, pulseHigh: true)
+    #expect(hasRedPixel(error))
+    #expect(!error.isTemplate)
+    #expect(!hasRedPixel(BarIconRenderer.markImage(style: .full, pulseHigh: true)))
+    #expect(!hasRedPixel(BarIconRenderer.markImage(style: .dimmed, pulseHigh: true)))
+}
