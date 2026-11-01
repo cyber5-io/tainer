@@ -360,6 +360,9 @@ func startContainer(
 ) (started bool, err error) {
 	envs := buildEnv(m, role, pctx)
 	mounts := buildMounts(m, opts.ProjectDir, role)
+	gwMounts, gwEnv := gatewayInjection(m.Project.Name, role, engine.StateDir())
+	mounts = append(mounts, gwMounts...)
+	envs = append(envs, gwEnv...)
 
 	labels := map[string]string{
 		LabelPod:          m.Project.Name,

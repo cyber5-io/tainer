@@ -21,6 +21,17 @@ func DefaultSocketPath() string {
 	return socketPathFor(goruntime.GOOS, home)
 }
 
+// StateDir is the daemon's state directory, resolved the same way the socket
+// path is: the socket lives directly inside it. Empty when it cannot be
+// determined (no home directory on macOS).
+func StateDir() string {
+	sock := DefaultSocketPath()
+	if sock == "" {
+		return ""
+	}
+	return filepath.Dir(sock)
+}
+
 func socketPathFor(goos, home string) string {
 	if goos == "linux" {
 		return "/run/cyberstack/cyberstack.sock"

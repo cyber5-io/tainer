@@ -367,6 +367,8 @@ For tools running in a pod (the control webapp), CyberStack exposes the CLI over
 
 Every request needs `Authorization: Bearer <token>`. The token is minted fresh each time the daemon boots and written (mode 0600) to `control.token` in the daemon's state directory. A bad or missing token gets `401` with `{"v":1,"error":{"code":"unauthorized",...}}` before any routing, so paths cannot be probed.
 
+Inside the control pod, tainer mounts the daemon state directory read-only at `/run/tainer/state` and sets `TAINER_CONTROL_TOKEN_FILE` and `TAINER_GATEWAY_ADDR_FILE` to the token and address files within it (`control.addr` holds the base URL). Read the paths from those variables rather than assuming them.
+
 The token file exists only after the listener is up, and is removed when the daemon stops. A client must wait for the file (and re-read it after a daemon restart); it must not assume it exists when a pod is created.
 
 The gateway can be permanently absent: with backend none, an unknown network mode, no state directory, or no host address found, it is skipped and no token file ever appears. Clients must therefore bound their wait with a timeout. In vmnet-helper mode the daemon polls up to 60 seconds for the VM's address before binding, so allow a minute or more before giving up.
