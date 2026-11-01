@@ -1,0 +1,8 @@
+{
+  "Pod": "blog",
+  "PodID": 7,
+  "Domain": "",
+  "HTTPServices": [],
+  "TCPServices": [],
+  "AlreadyRunning": true
+}

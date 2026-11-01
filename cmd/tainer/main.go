@@ -20,7 +20,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -44,6 +43,7 @@ import (
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 	"github.com/cyber5-io/tainer/pkg/tainer/networkcmd"
 	"github.com/cyber5-io/tainer/pkg/tainer/pod"
+	"github.com/cyber5-io/tainer/pkg/tainer/progress"
 	"github.com/cyber5-io/tainer/pkg/tainer/registry"
 	"github.com/cyber5-io/tainer/pkg/tainer/router"
 	"github.com/cyber5-io/tainer/pkg/tainer/runtime"
@@ -93,6 +93,10 @@ func main() {
 		cmdDestroy(os.Args[2:])
 	case "exec":
 		cmdExec(os.Args[2:])
+	case "logs":
+		cmdLogs(os.Args[2:])
+	case "config":
+		cmdConfig(os.Args[2:])
 	case "ssh":
 		cmdSSH(os.Args[2:])
 	case "list", "ls":
@@ -101,6 +105,16 @@ func main() {
 		cmdDB(os.Args[2:])
 	case "update":
 		cmdUpdate(os.Args[2:])
+	case "watch":
+		cmdWatch(os.Args[2:])
+	case "api":
+		cmdAPI(os.Args[2:])
+	case "login":
+		cmdLogin(os.Args[2:])
+	case "logout":
+		cmdLogout(os.Args[2:])
+	case "whoami":
+		cmdWhoami(os.Args[2:])
 	case "network":
 		cmdNetwork(os.Args[2:])
 	default:
@@ -130,6 +144,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  exec <project> [<role>] -- <cmd...>    run a command in a container")
 	fmt.Fprintln(os.Stderr, "  wp|composer|artisan|php <args...>      run the tool in the current project")
 	fmt.Fprintln(os.Stderr, "  npm|yarn|pnpm|node <args...>           run the tool in the current project")
+	fmt.Fprintln(os.Stderr, "  logs [project] [role] [--follow]       stream container logs")
+	fmt.Fprintln(os.Stderr, "  config [project]                       show the project manifest")
 	fmt.Fprintln(os.Stderr, "  status                                 show pod state(s)")
 	fmt.Fprintln(os.Stderr, "  doctor [--fix]                         check every layer of the stack")
 	fmt.Fprintln(os.Stderr, "  list (ls)                              list all pods")
@@ -137,17 +153,23 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  db import <project> <file>             restore database")
 	fmt.Fprintln(os.Stderr, "  update [project|--base <type>|--all]   refresh image(s)")
 	fmt.Fprintln(os.Stderr, "  network mode show|set <perf|compat>    inspect / switch network mode")
+	fmt.Fprintln(os.Stderr, "  login | logout | whoami                sign in to your tainer account")
 	fmt.Fprintln(os.Stderr, "  welcome                                show the quickstart screen")
 	fmt.Fprintln(os.Stderr, "  version                                print version")
 }
 
-// must prints err to stderr and exits 1. No-op when err is nil.
+// must reports err and exits 1. No-op when err is nil. Under --json the report
+// is the error envelope on stdout; otherwise a line on stderr.
 func must(err error) {
 	if err == nil {
 		return
 	}
+	if jsonActive {
+		exitFn(jsonFail(errCode(err), err.Error()))
+		return
+	}
 	fmt.Fprintln(os.Stderr, "tainer:", err)
-	os.Exit(1)
+	exitFn(1)
 }
 
 // ctxWithTimeout is a convenience wrapper around context.WithTimeout.
@@ -176,7 +198,7 @@ func locateManifest(args []string) (manifestPath, projectDir string, err error) 
 		name := args[0]
 		p, ok := registry.Get(name)
 		if !ok || p.Path == "" {
-			return "", "", fmt.Errorf("unknown project %q (run `tainer list` to see registered projects)", name)
+			return "", "", withCode("project-not-found", fmt.Errorf("unknown project %q (run `tainer list` to see registered projects)", name))
 		}
 		projectDir = p.Path
 		manifestPath = filepath.Join(projectDir, manifest.FileName)
@@ -205,7 +227,7 @@ func findManifestUpward(d string) (manifestPath, projectDir string, err error) {
 		parent := filepath.Dir(cur)
 		if parent == cur {
 			// Hit the root without finding a manifest.
-			return "", "", fmt.Errorf("no tainer project found at or above %s (run from a project dir, or pass a project name: `tainer <verb> <name>`)", d)
+			return "", "", withCode("no-project-here", fmt.Errorf("no tainer project found at or above %s (run from a project dir, or pass a project name: `tainer <verb> <name>`)", d))
 		}
 		cur = parent
 	}
@@ -226,7 +248,7 @@ func findManifestUpward(d string) (manifestPath, projectDir string, err error) {
 // Exits non-zero when the daemon is unreachable.
 func cmdStatus() {
 	flags, rest := tui.ParseOutputFlags(os.Args[2:])
-	mode := flags.Resolve(false)
+	mode := resolveMode(flags, false)
 
 	// Parse --global out of rest (boolean, anywhere on the command
 	// line) so the positional project name still works after.
@@ -245,7 +267,7 @@ func cmdStatus() {
 
 	focus := resolveStatusFocus(global, posArgs)
 	if focus.errMsg != "" {
-		must(fmt.Errorf("%s", focus.errMsg))
+		must(withCode("invalid-arguments", fmt.Errorf("%s", focus.errMsg)))
 	}
 
 	if focus.project != "" {
@@ -577,9 +599,7 @@ func runStatusProjectJSON(s projectStatusSnapshot) {
 	if out.Containers == nil {
 		out.Containers = []containerStatus{}
 	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(out)
+	jsonDoc(out)
 }
 
 // statusSnapshot is the resolved view collectStatus returns. Splitting
@@ -626,7 +646,7 @@ func collectStatus(ctx context.Context) statusSnapshot {
 	if err != nil {
 		return snap
 	}
-	for _, p := range pods {
+	for _, p := range visiblePods(pods) {
 		ps := podStatus{Name: p.Name, PodID: p.PodID, State: string(p.State())}
 		// Try to fetch the pod's manifest via container labels so we can
 		// show the public URL + service ports. Best-effort — a pod
@@ -778,9 +798,7 @@ func runStatusJSON(s statusSnapshot) {
 		Daemon daemonStatus `json:"daemon"`
 		Pods   []jsonPod    `json:"pods"`
 	}{Daemon: s.Daemon, Pods: pods}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(out)
+	jsonDoc(out)
 }
 
 // cmdInit scaffolds a new tainer project into the current working directory.
@@ -801,7 +819,7 @@ func runStatusJSON(s statusSnapshot) {
 // scripts and CI can gate on it.
 func cmdDoctor(args []string) {
 	flags, rest := tui.ParseOutputFlags(args)
-	mode := flags.Resolve(false)
+	mode := resolveMode(flags, false)
 
 	opts := doctor.Options{}
 	for _, a := range rest {
@@ -823,15 +841,9 @@ func cmdDoctor(args []string) {
 	// JSON mode: run silently, emit the report as one document.
 	if mode == tui.ModeJSON {
 		rep := doctor.Run(ctx, opts)
-		out := struct {
-			doctor.Report
-			Healthy bool `json:"healthy"`
-		}{rep, rep.Healthy()}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(out)
-		if !rep.Healthy() {
-			os.Exit(1)
+		emitDoctorJSON(rep, opts.Fix)
+		if c := doctorExitCode(rep); c != 0 {
+			exitFn(c)
 		}
 		return
 	}
@@ -989,8 +1001,9 @@ func doctorHasPodResults(rep doctor.Report) bool {
 // place and reported as such instead of re-created, so the user can re-
 // init without losing their data.
 func cmdInit(args []string) {
+	pinnedOverride, args := stripPinnedOverride(args)
 	flags, rest := tui.ParseOutputFlags(args)
-	mode := flags.Resolve(false)
+	mode := resolveMode(flags, false)
 
 	// Version overrides: --php 8.2 / --node 22 (both forms). These
 	// fields existed on initcmd.Options since the start but were never
@@ -1027,13 +1040,14 @@ func cmdInit(args []string) {
 	rawType := rest[0]
 	canonical, ok := canonicalProjectType(rawType)
 	if !ok {
-		must(fmt.Errorf("unknown project type %q (one of: wordpress, php, nodejs, nextjs, nuxtjs, nestjs, react, svelte, sveltekit, kompozi — shortcuts: wp, node, next, nuxt, nest, kit)", rawType))
+		must(withCode("unknown-project-type", fmt.Errorf("unknown project type %q (one of: wordpress, php, nodejs, nextjs, nuxtjs, nestjs, react, svelte, sveltekit, kompozi — shortcuts: wp, node, next, nuxt, nest, kit)", rawType)))
 	}
 
 	opts := initcmd.Options{Type: canonical, PHP: phpVer, Node: nodeVer}
 	if len(rest) >= 2 {
 		opts.Name = rest[1]
 	}
+	must(guardInitName(effectiveInitName(opts.Name), pinnedOverride))
 	switch mode {
 	case tui.ModeJSON:
 		runInitJSON(opts)
@@ -1067,6 +1081,7 @@ func runInitWizard() {
 		return
 	}
 
+	must(guardInitName(res.Name, false))
 	opts := initcmd.Options{
 		Type:     res.Type,
 		Name:     res.Name,
@@ -1119,6 +1134,7 @@ func runInitStyled(opts initcmd.Options) {
 		os.Exit(1)
 	}
 
+	reportInitScaffolded(res.ProjectName)
 	tui.Bookend(res.ProjectName, "init")
 	muted := lipgloss.NewStyle().Foreground(tui.Colors().Muted)
 	for _, s := range res.Steps {
@@ -1161,6 +1177,7 @@ func runInitPlain(opts initcmd.Options) {
 	if err != nil {
 		must(err)
 	}
+	reportInitScaffolded(res.ProjectName)
 	for _, s := range res.Steps {
 		switch s.Kind {
 		case initcmd.KindRegistry:
@@ -1185,20 +1202,27 @@ func runInitPlain(opts initcmd.Options) {
 func runInitJSON(opts initcmd.Options) {
 	res, err := initcmd.Run(opts)
 	if err != nil {
-		must(err)
+		must(withCode("init-failed", err))
 	}
+	reportInitScaffolded(res.ProjectName)
+	emitInitJSON(res.ProjectName, res.ManifestPath, res.Steps)
+}
+
+func reportInitScaffolded(project string) {
+	progress.Reporter(context.Background(), "init", project)("scaffold", "project scaffolded", 100, true)
+}
+
+func emitInitJSON(projectName, manifestPath string, steps []initcmd.Step) {
 	out := struct {
 		ProjectName  string         `json:"projectName"`
 		ManifestPath string         `json:"manifestPath"`
 		Steps        []initcmd.Step `json:"steps"`
 	}{
-		ProjectName:  res.ProjectName,
-		ManifestPath: res.ManifestPath,
-		Steps:        res.Steps,
+		ProjectName:  projectName,
+		ManifestPath: manifestPath,
+		Steps:        steps,
 	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(out)
+	jsonDoc(out)
 }
 
 // cmdStart locates the manifest (cwd or ~/projects/<name>), starts
@@ -1212,7 +1236,7 @@ func resolveStartTarget(args []string) (manifestPath, projectDir, projectName st
 	manifestPath, projectDir, err = locateManifest(args)
 	must(err)
 	m, err := manifest.Load(manifestPath)
-	must(err)
+	must(withCode("manifest-invalid", err))
 	projectName = m.Project.Name
 
 	// Backfill the registry for cwd-resolved projects that reached start
@@ -1243,7 +1267,7 @@ func resolveStartTarget(args []string) (manifestPath, projectDir, projectName st
 
 func cmdStart(args []string) {
 	flags, rest := tui.ParseOutputFlags(args)
-	mode := flags.Resolve(false) // no TUI variant for start
+	mode := resolveMode(flags, false) // no TUI variant for start
 
 	// First-time pulls of multi-hundred-MB images plus VM cold-boot can
 	// run past 2 min easily — give it real headroom.
@@ -1331,13 +1355,13 @@ func runStartPlain(ctx context.Context, manifestPath, projectDir, projectName st
 	fmt.Printf("starting %s...\n", projectName)
 
 	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
-	must(err)
+	must(engineErr(err))
 	defer eng.Close()
 	res, err := pod.Start(ctx, eng, pod.StartOptions{
 		ManifestPath: manifestPath,
 		ProjectDir:   projectDir,
 	})
-	must(err)
+	must(withCode("start-failed", err))
 
 	if res.AlreadyRunning {
 		fmt.Printf("%s is already running   (pod %d)\n", res.Pod, res.PodID)
@@ -1374,22 +1398,24 @@ func runStartPlain(ctx context.Context, manifestPath, projectDir, projectName st
 // `null` (consumers have to special-case).
 func runStartJSON(ctx context.Context, manifestPath, projectDir string) {
 	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
-	must(err)
+	must(engineErr(err))
 	defer eng.Close()
 	res, err := pod.Start(ctx, eng, pod.StartOptions{
 		ManifestPath: manifestPath,
 		ProjectDir:   projectDir,
 	})
-	must(err)
+	must(withCode("start-failed", err))
+	emitStartJSON(res)
+}
+
+func emitStartJSON(res *pod.StartResult) {
 	if res.HTTPServices == nil {
 		res.HTTPServices = []pod.HTTPSvcResult{}
 	}
 	if res.TCPServices == nil {
 		res.TCPServices = []pod.TCPSvcResult{}
 	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(res)
+	jsonDoc(res)
 }
 
 // runStartWork captures pod.Start's result into the closure variable
@@ -1432,7 +1458,7 @@ func runStartWork(ctx context.Context, manifestPath, projectDir string, res **po
 	return func() error {
 		eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
 		if err != nil {
-			return err
+			return engineErr(err)
 		}
 		defer eng.Close()
 		r, e := pod.Start(ctx, eng, pod.StartOptions{
@@ -1460,7 +1486,7 @@ func runStartWork(ctx context.Context, manifestPath, projectDir string, res **po
 // common remedy for a misbehaving site and deserves one verb.
 func cmdRestart(args []string) {
 	flags, rest := tui.ParseOutputFlags(args)
-	mode := flags.Resolve(false)
+	mode := resolveMode(flags, false)
 
 	// Same generous deadline as start: the start half may pull images.
 	ctx, cancel := ctxWithTimeout(10 * time.Minute)
@@ -1471,21 +1497,17 @@ func cmdRestart(args []string) {
 	stop := func() error {
 		eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
 		if err != nil {
-			return err
+			return engineErr(err)
 		}
 		defer eng.Close()
-		return pod.Stop(ctx, eng, projectName)
+		return withCode("stop-failed", pod.Stop(ctx, eng, projectName))
 	}
 
 	switch mode {
 	case tui.ModeJSON:
 		// The restart's meaningful output is the start result; the stop
 		// half runs silently first.
-		if err := stop(); err != nil {
-			enc := json.NewEncoder(os.Stdout)
-			_ = enc.Encode(map[string]string{"error": err.Error()})
-			os.Exit(1)
-		}
+		must(stop())
 		runStartJSON(ctx, manifestPath, projectDir)
 	case tui.ModePlain:
 		fmt.Printf("stopping %s...\n", projectName)
@@ -1537,8 +1559,9 @@ func cmdRestart(args []string) {
 }
 
 func cmdStop(args []string) {
+	pinnedOverride, args := stripPinnedOverride(args)
 	flags, rest := tui.ParseOutputFlags(args)
-	mode := flags.Resolve(false)
+	mode := resolveMode(flags, false)
 
 	ctx, cancel := ctxWithTimeout(2 * time.Minute)
 	defer cancel()
@@ -1546,8 +1569,9 @@ func cmdStop(args []string) {
 	manifestPath, _, err := locateManifest(rest)
 	must(err)
 	m, err := manifest.Load(manifestPath)
-	must(err)
+	must(withCode("manifest-invalid", err))
 	projectName := m.Project.Name
+	must(guardPinned(projectName, pinnedOverride))
 
 	switch mode {
 	case tui.ModeJSON:
@@ -1566,7 +1590,7 @@ func runStopStyled(ctx context.Context, projectName string) {
 	err := tui.RunSpinner("stopping pod", func() error {
 		eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
 		if err != nil {
-			return err
+			return engineErr(err)
 		}
 		defer eng.Close()
 		return pod.Stop(ctx, eng, projectName)
@@ -1583,18 +1607,22 @@ func runStopPlain(ctx context.Context, projectName string) {
 	started := time.Now()
 	fmt.Printf("stopping %s...\n", projectName)
 	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
-	must(err)
+	must(engineErr(err))
 	defer eng.Close()
-	must(pod.Stop(ctx, eng, projectName))
+	must(withCode("stop-failed", pod.Stop(ctx, eng, projectName)))
 	fmt.Printf("stopped %s   (%.1fs)\n", projectName, time.Since(started).Seconds())
 }
 
 func runStopJSON(ctx context.Context, projectName string) {
 	started := time.Now()
 	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
-	must(err)
+	must(engineErr(err))
 	defer eng.Close()
-	must(pod.Stop(ctx, eng, projectName))
+	must(withCode("stop-failed", pod.Stop(ctx, eng, projectName)))
+	emitStopJSON(projectName, time.Since(started))
+}
+
+func emitStopJSON(projectName string, elapsed time.Duration) {
 	out := struct {
 		Pod       string `json:"pod"`
 		Stopped   bool   `json:"stopped"`
@@ -1602,11 +1630,9 @@ func runStopJSON(ctx context.Context, projectName string) {
 	}{
 		Pod:       projectName,
 		Stopped:   true,
-		ElapsedMs: time.Since(started).Milliseconds(),
+		ElapsedMs: elapsed.Milliseconds(),
 	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(out)
+	jsonDoc(out)
 }
 
 // cmdDestroy tears down a pod. Flags: --clean, --nuke.
@@ -1632,8 +1658,9 @@ func cmdDestroy(args []string) {
 	// Pull our output flags first so they can sit anywhere on the
 	// command line; everything else flows to the destroy-specific
 	// flag.FlagSet.
+	pinnedOverride, args := stripPinnedOverride(args)
 	flags, rest := tui.ParseOutputFlags(args)
-	mode := flags.Resolve(false)
+	mode := resolveMode(flags, false)
 
 	fs := flag.NewFlagSet("destroy", flag.ExitOnError)
 	doClean := fs.Bool("clean", false, "also remove tainer-managed files in project dir (data/ kept)")
@@ -1654,12 +1681,14 @@ func cmdDestroy(args []string) {
 	manifestPath, projectDir, err := locateManifest(fs.Args())
 	must(err)
 	m, err := manifest.Load(manifestPath)
-	must(err)
+	must(withCode("manifest-invalid", err))
 	projectName := m.Project.Name
+	must(guardPinned(projectName, pinnedOverride))
 
 	// Only --nuke prompts (data loss is irreversible). --clean is
 	// recoverable from version control + a re-init; default just
 	// removes containers and is reversible via `tainer start`.
+	requireNukeConfirmation(projectName, mode, destroyMode, *skipConfirm)
 	if destroyMode == pod.DestroyNuke && !*skipConfirm {
 		if !confirmNukeStyled(projectName, mode) {
 			runDestroyCancelled(projectName, mode)
@@ -1677,6 +1706,14 @@ func cmdDestroy(args []string) {
 		runDestroyPlain(ctx, projectName, projectDir, destroyMode, *keepImages)
 	default:
 		runDestroyStyled(ctx, projectName, projectDir, destroyMode, *keepImages)
+	}
+}
+
+// requireNukeConfirmation refuses an unconfirmed --nuke under --json: machine
+// mode never prompts, so the caller must pass --yes explicitly.
+func requireNukeConfirmation(projectName string, mode tui.OutputMode, destroyMode pod.DestroyMode, skipConfirm bool) {
+	if mode == tui.ModeJSON && destroyMode == pod.DestroyNuke && !skipConfirm {
+		exitFn(jsonFail("confirmation-required", "destroy --nuke requires --yes in --json mode"))
 	}
 }
 
@@ -1725,9 +1762,7 @@ func runDestroyCancelled(projectName string, outMode tui.OutputMode) {
 			Destroyed bool   `json:"destroyed"`
 			Cancelled bool   `json:"cancelled"`
 		}{Pod: projectName, Destroyed: false, Cancelled: true}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(out)
+		jsonDoc(out)
 	case tui.ModePlain:
 		fmt.Println("cancelled")
 	default:
@@ -1745,7 +1780,7 @@ func runDestroyStyled(ctx context.Context, projectName, projectDir string, destr
 	err := tui.RunSpinner("destroying pod", func() error {
 		eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
 		if err != nil {
-			return err
+			return engineErr(err)
 		}
 		defer eng.Close()
 		return pod.Destroy(ctx, eng, projectName, projectDir, destroyMode, alreadyConfirmedPrompt(projectName))
@@ -1767,9 +1802,9 @@ func runDestroyPlain(ctx context.Context, projectName, projectDir string, destro
 	started := time.Now()
 	fmt.Printf("destroying %s (%s)...\n", projectName, destroyModeLabel(destroyMode))
 	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
-	must(err)
+	must(engineErr(err))
 	defer eng.Close()
-	must(pod.Destroy(ctx, eng, projectName, projectDir, destroyMode, alreadyConfirmedPrompt(projectName)))
+	must(withCode("destroy-failed", pod.Destroy(ctx, eng, projectName, projectDir, destroyMode, alreadyConfirmedPrompt(projectName))))
 	fmt.Printf("destroyed %s   (%.1fs)\n", projectName, time.Since(started).Seconds())
 	_ = keepImages // queued for follow-up; flag-plumbing only
 }
@@ -1777,9 +1812,13 @@ func runDestroyPlain(ctx context.Context, projectName, projectDir string, destro
 func runDestroyJSON(ctx context.Context, projectName, projectDir string, destroyMode pod.DestroyMode, keepImages bool) {
 	started := time.Now()
 	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
-	must(err)
+	must(engineErr(err))
 	defer eng.Close()
-	must(pod.Destroy(ctx, eng, projectName, projectDir, destroyMode, alreadyConfirmedPrompt(projectName)))
+	must(withCode("destroy-failed", pod.Destroy(ctx, eng, projectName, projectDir, destroyMode, alreadyConfirmedPrompt(projectName))))
+	emitDestroyJSON(projectName, destroyMode, keepImages, time.Since(started))
+}
+
+func emitDestroyJSON(projectName string, destroyMode pod.DestroyMode, keepImages bool, elapsed time.Duration) {
 	out := struct {
 		Pod        string `json:"pod"`
 		Mode       string `json:"mode"` // "default" | "clean" | "nuke"
@@ -1791,11 +1830,9 @@ func runDestroyJSON(ctx context.Context, projectName, projectDir string, destroy
 		Mode:       destroyModeJSONLabel(destroyMode),
 		Destroyed:  true,
 		KeepImages: keepImages,
-		ElapsedMs:  time.Since(started).Milliseconds(),
+		ElapsedMs:  elapsed.Milliseconds(),
 	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(out)
+	jsonDoc(out)
 }
 
 func destroyModeJSONLabel(m pod.DestroyMode) string {
@@ -1849,11 +1886,26 @@ func alreadyConfirmedPrompt(podName string) func() string {
 // (piped, redirected, quick commands) prints the full open/close
 // bookends around the streamed output.
 func cmdExec(args []string) {
+	jsonOut, args := splitExecOutputFlags(args)
+	if jsonOut {
+		resolveMode(tui.OutputFlags{JSON: true}, false)
+	}
 	parsed, err := parseExecArgs(args)
+	if err != nil && jsonOut {
+		exitFn(jsonFail("invalid-arguments", err.Error()))
+		return
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "tainer:", err)
 		fmt.Fprintln(os.Stderr, "usage: tainer exec [project] [role] [flags] -- <cmd...>")
 		os.Exit(2)
+	}
+
+	if jsonOut {
+		if code, msg := execJSONRefusal(parsed); code != "" {
+			exitFn(jsonFail(code, msg))
+			return
+		}
 	}
 
 	// Resolve which project / role we're operating against. Project
@@ -1865,7 +1917,7 @@ func cmdExec(args []string) {
 	manifestPath, _, err := locateManifest(locator)
 	must(err)
 	m, err := manifest.Load(manifestPath)
-	must(err)
+	must(withCode("manifest-invalid", err))
 	projectName := m.Project.Name
 	role := pod.ResolveExecRole(m.Project.Type, parsed.role)
 
@@ -1897,6 +1949,9 @@ func cmdExec(args []string) {
 	if !parsed.ttyExplicit {
 		tty = tui.IsTTY(os.Stdin.Fd()) && tui.IsTTY(os.Stdout.Fd())
 	}
+	if jsonOut {
+		tty = false // non-interactive by contract
+	}
 
 	// Brand surface: one-liner header, always. On exit, closing
 	// bookend with exit code + elapsed. Interactive TTY mode skips
@@ -1913,9 +1968,11 @@ func cmdExec(args []string) {
 		display = strings.Join(parsed.cmd[1:], " ")
 	}
 	started := time.Now()
-	if tty {
+	switch {
+	case jsonOut:
+	case tty:
 		fmt.Println(tui.MarkBrand() + fmt.Sprintf("%s · %s · %s", projectName, verb, display))
-	} else {
+	default:
 		tui.Bookend(projectName, verb, display)
 	}
 
@@ -1926,7 +1983,7 @@ func cmdExec(args []string) {
 	defer cancel()
 
 	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
-	must(err)
+	must(engineErr(err))
 	defer eng.Close()
 
 	// If we're going to allocate a TTY on the container, put the local
@@ -1968,7 +2025,7 @@ func cmdExec(args []string) {
 	//
 	// -i / --interactive forces attach regardless.
 	var stdin io.Reader
-	if tty || parsed.interactive || !tui.IsTTY(os.Stdin.Fd()) {
+	if !jsonOut && (tty || parsed.interactive || !tui.IsTTY(os.Stdin.Fd())) {
 		stdin = os.Stdin
 	}
 
@@ -1985,16 +2042,16 @@ func cmdExec(args []string) {
 				}
 			}
 			doResize()
-			ch := make(chan os.Signal, 1)
-			signal.Notify(ch, syscall.SIGWINCH)
-			go func() { // leaks on exit by design — process lifetime
-				for range ch {
-					doResize()
-				}
-			}()
+			watchResize(doResize)
 		}
 	}
 
+	var jsonEm *execJSONEmitter
+	var stdout, stderr io.Writer = os.Stdout, os.Stderr
+	if jsonOut {
+		jsonEm = newExecJSONEmitter(os.Stdout)
+		stdout, stderr = jsonEm.Stdout(), jsonEm.Stderr()
+	}
 	code, err := pod.Exec(ctx, eng, projectName, role, pod.ExecOptions{
 		Cmd:        parsed.cmd,
 		User:       execUser,
@@ -2002,11 +2059,24 @@ func cmdExec(args []string) {
 		Env:        parsed.env,
 		Tty:        tty,
 		Stdin:      stdin,
-		Stdout:     os.Stdout,
-		Stderr:     os.Stderr,
+		Stdout:     stdout,
+		Stderr:     stderr,
 		OnAttached: onAttached,
 	})
 	elapsed := time.Since(started)
+
+	if jsonOut {
+		if err != nil {
+			exitFn(jsonFail(errCodeOr(err, "exec-failed"), err.Error()))
+			return
+		}
+		if werr := jsonEm.Exit(code); werr != nil {
+			exitFn(1)
+			return
+		}
+		exitFn(code)
+		return
+	}
 
 	// Restore terminal BEFORE we print anything else. Doing it here as
 	// well as via defer guarantees the restore runs before the os.Exit
@@ -2118,7 +2188,7 @@ func cmdExecWrapper(tool string, args []string) {
 	manifestPath, _, err := locateManifest(nil)
 	must(err)
 	m, err := manifest.Load(manifestPath)
-	must(err)
+	must(withCode("manifest-invalid", err))
 	match := false
 	for _, t := range manifest.ToolTypes(tool) {
 		if m.Project.Type == t {
@@ -2330,10 +2400,10 @@ func makeStdinRaw() (func(), error) {
 // machine with no running engine still works.
 func cmdList(args []string) {
 	flags, _ := tui.ParseOutputFlags(args)
-	mode := flags.Resolve(true) // list has a TUI implementation
+	mode := resolveMode(flags, true) // list has a TUI implementation
 
 	// Registry walk — always cheap, never touches the engine.
-	all := registry.All()
+	all := visibleProjects(registry.All())
 
 	switch mode {
 	case tui.ModeJSON:
@@ -2363,25 +2433,35 @@ func listAsJSON(all map[string]registry.Project) {
 		}
 	}
 
-	type row struct {
-		Name   string `json:"name"`
-		Type   string `json:"type"`
-		Domain string `json:"domain"`
-		Path   string `json:"path"`
-		Status string `json:"status"`
-	}
-	out := make([]row, 0, len(all))
+	out := make([]listRow, 0, len(all))
 	for name, p := range all {
 		st := string(pod.StateStopped)
 		if s, ok := pods[name]; ok {
 			st = string(s)
 		}
-		out = append(out, row{Name: name, Type: p.Type, Domain: p.Domain, Path: p.Path, Status: st})
+		out = append(out, listRow{Name: name, Type: p.Type, Domain: p.Domain, Path: p.Path, Status: st})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(out)
+	emitListJSON(out)
+}
+
+type listRow struct {
+	Name   string `json:"name"`
+	Type   string `json:"type"`
+	Domain string `json:"domain"`
+	Path   string `json:"path"`
+	Status string `json:"status"`
+}
+
+// emitListJSON wraps the rows in {"v":1,"projects":[...]}: v cannot be added to
+// the bare array this command used to print.
+func emitListJSON(rows []listRow) {
+	if rows == nil {
+		rows = []listRow{}
+	}
+	jsonDoc(struct {
+		Projects []listRow `json:"projects"`
+	}{rows})
 }
 
 // listAsPlain emits a space-aligned table with no colors or box drawing.
@@ -2664,7 +2744,7 @@ func resolveDBExportArgs(positional []string, outputFlag string) (*dbExportArgs,
 	}
 	m, err := manifest.Load(manifestPath)
 	if err != nil {
-		return nil, fmt.Errorf("reading manifest: %w", err)
+		return nil, withCode("manifest-invalid", fmt.Errorf("reading manifest: %w", err))
 	}
 	out := outputFlag
 	if out == "" && len(positional) >= 2 {
@@ -2680,7 +2760,7 @@ func resolveDBExportArgs(positional []string, outputFlag string) (*dbExportArgs,
 
 func cmdDBExport(args []string) {
 	flags, rest := tui.ParseOutputFlags(args)
-	mode := flags.Resolve(false)
+	mode := resolveMode(flags, false)
 
 	fs := flag.NewFlagSet("db export", flag.ExitOnError)
 	outputFlag := fs.String("output", "", "write dump to this path (default: <project>-<timestamp>.sql in cwd)")
@@ -2711,7 +2791,7 @@ func runDBExportStyled(projectName string, r *dbExportArgs) {
 		defer cancel()
 		eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
 		if err != nil {
-			return err
+			return engineErr(err)
 		}
 		defer eng.Close()
 		return pod.DBExport(ctx, eng, projectName, r.manifest, r.outPath)
@@ -2739,9 +2819,9 @@ func runDBExportPlain(projectName string, r *dbExportArgs) {
 	ctx, cancel := ctxWithTimeout(5 * time.Minute)
 	defer cancel()
 	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
-	must(err)
+	must(engineErr(err))
 	defer eng.Close()
-	must(pod.DBExport(ctx, eng, projectName, r.manifest, r.outPath))
+	must(withCode("db-export-failed", pod.DBExport(ctx, eng, projectName, r.manifest, r.outPath)))
 	fmt.Printf("exported %s → %s   (%.1fs)\n", projectName, r.outPath, time.Since(started).Seconds())
 }
 
@@ -2750,11 +2830,16 @@ func runDBExportJSON(projectName string, r *dbExportArgs) {
 	ctx, cancel := ctxWithTimeout(5 * time.Minute)
 	defer cancel()
 	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
-	must(err)
+	must(engineErr(err))
 	defer eng.Close()
-	must(pod.DBExport(ctx, eng, projectName, r.manifest, r.outPath))
+	must(withCode("db-export-failed", pod.DBExport(ctx, eng, projectName, r.manifest, r.outPath)))
 	abs := absPath(r.outPath)
 	size, _ := fileSizeBytes(abs)
+	emitDBFileJSON(projectName, abs, size, time.Since(started))
+}
+
+// emitDBFileJSON is the shared result document for db export and db import.
+func emitDBFileJSON(projectName, file string, bytes int64, elapsed time.Duration) {
 	out := struct {
 		Pod       string `json:"pod"`
 		File      string `json:"file"`
@@ -2762,13 +2847,11 @@ func runDBExportJSON(projectName string, r *dbExportArgs) {
 		ElapsedMs int64  `json:"elapsedMs"`
 	}{
 		Pod:       projectName,
-		File:      abs,
-		Bytes:     size,
-		ElapsedMs: time.Since(started).Milliseconds(),
+		File:      file,
+		Bytes:     bytes,
+		ElapsedMs: elapsed.Milliseconds(),
 	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(out)
+	jsonDoc(out)
 }
 
 // dbImportArgs captures the resolved arguments for an import run.
@@ -2786,7 +2869,7 @@ type dbImportArgs struct {
 func resolveDBImportArgs(positional []string) (*dbImportArgs, error) {
 	switch len(positional) {
 	case 0:
-		return nil, fmt.Errorf("missing input file (usage: tainer db import [project] <file>)")
+		return nil, withCode("missing-input-file", fmt.Errorf("missing input file (usage: tainer db import [project] <file>)"))
 	case 1:
 		// File only — cwd resolves the project.
 		manifestPath, _, err := locateManifest(nil)
@@ -2795,7 +2878,7 @@ func resolveDBImportArgs(positional []string) (*dbImportArgs, error) {
 		}
 		m, err := manifest.Load(manifestPath)
 		if err != nil {
-			return nil, fmt.Errorf("reading manifest: %w", err)
+			return nil, withCode("manifest-invalid", fmt.Errorf("reading manifest: %w", err))
 		}
 		return &dbImportArgs{manifestPath: manifestPath, manifest: m, inPath: positional[0]}, nil
 	default:
@@ -2806,7 +2889,7 @@ func resolveDBImportArgs(positional []string) (*dbImportArgs, error) {
 		}
 		m, err := manifest.Load(manifestPath)
 		if err != nil {
-			return nil, fmt.Errorf("reading manifest: %w", err)
+			return nil, withCode("manifest-invalid", fmt.Errorf("reading manifest: %w", err))
 		}
 		return &dbImportArgs{manifestPath: manifestPath, manifest: m, inPath: positional[1]}, nil
 	}
@@ -2814,7 +2897,7 @@ func resolveDBImportArgs(positional []string) (*dbImportArgs, error) {
 
 func cmdDBImport(args []string) {
 	flags, rest := tui.ParseOutputFlags(args)
-	mode := flags.Resolve(false)
+	mode := resolveMode(flags, false)
 
 	resolved, err := resolveDBImportArgs(rest)
 	must(err)
@@ -2823,7 +2906,7 @@ func cmdDBImport(args []string) {
 	// absolute target the import will read from.
 	abs := absPath(resolved.inPath)
 	if _, err := os.Stat(abs); err != nil {
-		must(fmt.Errorf("input file not readable: %w", err))
+		must(withCode("input-unreadable", fmt.Errorf("input file not readable: %w", err)))
 	}
 	resolved.inPath = abs
 
@@ -2856,7 +2939,7 @@ func runDBImportStyled(projectName string, r *dbImportArgs) {
 		defer cancel()
 		eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
 		if err != nil {
-			return err
+			return engineErr(err)
 		}
 		defer eng.Close()
 		return pod.DBImport(ctx, eng, projectName, r.manifest, r.inPath)
@@ -2876,9 +2959,9 @@ func runDBImportPlain(projectName string, r *dbImportArgs) {
 	ctx, cancel := ctxWithTimeout(5 * time.Minute)
 	defer cancel()
 	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
-	must(err)
+	must(engineErr(err))
 	defer eng.Close()
-	must(pod.DBImport(ctx, eng, projectName, r.manifest, r.inPath))
+	must(withCode("db-import-failed", pod.DBImport(ctx, eng, projectName, r.manifest, r.inPath)))
 	fmt.Printf("imported %s ← %s   (%.1fs)\n", projectName, r.inPath, time.Since(started).Seconds())
 }
 
@@ -2887,24 +2970,11 @@ func runDBImportJSON(projectName string, r *dbImportArgs) {
 	ctx, cancel := ctxWithTimeout(5 * time.Minute)
 	defer cancel()
 	eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
-	must(err)
+	must(engineErr(err))
 	defer eng.Close()
-	must(pod.DBImport(ctx, eng, projectName, r.manifest, r.inPath))
+	must(withCode("db-import-failed", pod.DBImport(ctx, eng, projectName, r.manifest, r.inPath)))
 	size, _ := fileSizeBytes(r.inPath)
-	out := struct {
-		Pod       string `json:"pod"`
-		File      string `json:"file"`
-		Bytes     int64  `json:"bytes"`
-		ElapsedMs int64  `json:"elapsedMs"`
-	}{
-		Pod:       projectName,
-		File:      r.inPath,
-		Bytes:     size,
-		ElapsedMs: time.Since(started).Milliseconds(),
-	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(out)
+	emitDBFileJSON(projectName, r.inPath, size, time.Since(started))
 }
 
 // absPath returns an absolute version of p. Falls back to p unchanged
@@ -2967,7 +3037,7 @@ func fileSizeHuman(p string) (string, bool) {
 // pod failed so scripts can branch on it.
 func cmdUpdate(args []string) {
 	flags, rest := tui.ParseOutputFlags(args)
-	mode := flags.Resolve(false)
+	mode := resolveMode(flags, false)
 
 	fs := flag.NewFlagSet("update", flag.ExitOnError)
 	baseType := fs.String("base", "", "refresh base image for project type (skips pod-level update)")
@@ -2991,7 +3061,7 @@ func cmdUpdate(args []string) {
 func runUpdateBase(outMode tui.OutputMode, rawType string) {
 	canonical, ok := canonicalProjectType(rawType)
 	if !ok {
-		must(fmt.Errorf("unknown project type %q (one of: wordpress, php, nodejs, nextjs, nuxtjs, nestjs, react, svelte, sveltekit, kompozi)", rawType))
+		must(withCode("unknown-project-type", fmt.Errorf("unknown project type %q (one of: wordpress, php, nodejs, nextjs, nuxtjs, nestjs, react, svelte, sveltekit, kompozi)", rawType)))
 	}
 	started := time.Now()
 	label := "refreshing base image for " + string(canonical)
@@ -3001,7 +3071,7 @@ func runUpdateBase(outMode tui.OutputMode, rawType string) {
 		defer cancel()
 		eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
 		if err != nil {
-			return err
+			return engineErr(err)
 		}
 		defer eng.Close()
 		return pod.Update(ctx, eng, pod.StartOptions{}, pod.UpdateOptions{
@@ -3032,25 +3102,25 @@ func runUpdateBase(outMode tui.OutputMode, rawType string) {
 	}
 }
 
+// emitUpdateBaseJSON prints the result document, or the error envelope when
+// err is set; the caller exits 1 in that case.
 func emitUpdateBaseJSON(baseType string, err error, elapsed time.Duration) {
+	if err != nil {
+		jsonFail(errCodeOr(err, "update-failed"), err.Error())
+		return
+	}
 	out := struct {
 		Mode      string `json:"mode"`
 		BaseType  string `json:"baseType"`
 		Updated   bool   `json:"updated"`
-		Error     string `json:"error,omitempty"`
 		ElapsedMs int64  `json:"elapsedMs"`
 	}{
 		Mode:      "base",
 		BaseType:  baseType,
-		Updated:   err == nil,
+		Updated:   true,
 		ElapsedMs: elapsed.Milliseconds(),
 	}
-	if err != nil {
-		out.Error = err.Error()
-	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(out)
+	jsonDoc(out)
 }
 
 // runUpdateSingle refreshes the images for one specific pod.
@@ -3060,7 +3130,7 @@ func runUpdateSingle(outMode tui.OutputMode, positional []string) {
 	manifestPath, projectDir, err := locateManifest(positional)
 	must(err)
 	m, err := manifest.Load(manifestPath)
-	must(err)
+	must(withCode("manifest-invalid", err))
 	projectName := m.Project.Name
 
 	started := time.Now()
@@ -3071,7 +3141,7 @@ func runUpdateSingle(outMode tui.OutputMode, positional []string) {
 		defer cancel()
 		eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
 		if err != nil {
-			return err
+			return engineErr(err)
 		}
 		defer eng.Close()
 		return pod.Update(ctx, eng,
@@ -3101,25 +3171,25 @@ func runUpdateSingle(outMode tui.OutputMode, positional []string) {
 	}
 }
 
+// emitUpdateSingleJSON prints the result document, or the error envelope when
+// err is set; the caller exits 1 in that case.
 func emitUpdateSingleJSON(projectName string, err error, elapsed time.Duration) {
+	if err != nil {
+		jsonFail(errCodeOr(err, "update-failed"), err.Error())
+		return
+	}
 	out := struct {
 		Mode      string `json:"mode"`
 		Pod       string `json:"pod"`
 		Updated   bool   `json:"updated"`
-		Error     string `json:"error,omitempty"`
 		ElapsedMs int64  `json:"elapsedMs"`
 	}{
 		Mode:      "project",
 		Pod:       projectName,
-		Updated:   err == nil,
+		Updated:   true,
 		ElapsedMs: elapsed.Milliseconds(),
 	}
-	if err != nil {
-		out.Error = err.Error()
-	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(out)
+	jsonDoc(out)
 }
 
 // updateAllPodResult is one row in the --all summary; same shape used
@@ -3140,7 +3210,7 @@ func runUpdateAll(outMode tui.OutputMode) {
 	if len(all) == 0 {
 		switch outMode {
 		case tui.ModeJSON:
-			fmt.Println(`{"mode":"all","pods":[],"totalElapsedMs":0}`)
+			emitUpdateAllJSON(nil, 0)
 		case tui.ModePlain:
 			fmt.Println("no projects registered")
 		default:
@@ -3191,7 +3261,7 @@ func runUpdateAll(outMode tui.OutputMode) {
 			defer cancel()
 			eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
 			if err != nil {
-				return err
+				return engineErr(err)
 			}
 			defer eng.Close()
 			return pod.Update(ctx, eng,
@@ -3233,18 +3303,7 @@ func runUpdateAll(outMode tui.OutputMode) {
 	totalElapsed := time.Since(overallStarted)
 	switch outMode {
 	case tui.ModeJSON:
-		out := struct {
-			Mode           string               `json:"mode"`
-			Pods           []updateAllPodResult `json:"pods"`
-			TotalElapsedMs int64                `json:"totalElapsedMs"`
-		}{
-			Mode:           "all",
-			Pods:           results,
-			TotalElapsedMs: totalElapsed.Milliseconds(),
-		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(out)
+		emitUpdateAllJSON(results, totalElapsed)
 	case tui.ModeStyled:
 		updated := 0
 		for _, r := range results {
@@ -3267,6 +3326,22 @@ func runUpdateAll(outMode tui.OutputMode) {
 	if anyFailed {
 		os.Exit(1)
 	}
+}
+
+func emitUpdateAllJSON(results []updateAllPodResult, total time.Duration) {
+	if results == nil {
+		results = []updateAllPodResult{}
+	}
+	out := struct {
+		Mode           string               `json:"mode"`
+		Pods           []updateAllPodResult `json:"pods"`
+		TotalElapsedMs int64                `json:"totalElapsedMs"`
+	}{
+		Mode:           "all",
+		Pods:           results,
+		TotalElapsedMs: total.Milliseconds(),
+	}
+	jsonDoc(out)
 }
 
 // renderUpdateAllLine prints a single failure line for the cases where
@@ -3292,7 +3367,7 @@ func renderUpdateAllLine(outMode tui.OutputMode, res updateAllPodResult) {
 // Output flags: --plain (auto when piped), --json, --no-color.
 func cmdNetwork(args []string) {
 	flags, rest := tui.ParseOutputFlags(args)
-	mode := flags.Resolve(false)
+	mode := resolveMode(flags, false)
 
 	if len(rest) < 2 || rest[0] != "mode" {
 		fmt.Fprintln(os.Stderr, "usage: tainer network mode show|set <perf|compat|hybrid>")
@@ -3318,13 +3393,7 @@ func runNetworkShow(outMode tui.OutputMode) {
 	must(err)
 	switch outMode {
 	case tui.ModeJSON:
-		out := struct {
-			Mode    string `json:"mode"`
-			Display string `json:"display"`
-		}{Mode: string(cur), Display: cur.Display()}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		_ = enc.Encode(out)
+		emitNetworkShowJSON(string(cur), cur.Display())
 	case tui.ModePlain:
 		fmt.Printf("network mode: %s\n", cur.Display())
 	default:
@@ -3333,6 +3402,14 @@ func runNetworkShow(outMode tui.OutputMode) {
 		fmt.Println()
 		tui.BookendClose(0, "OK")
 	}
+}
+
+func emitNetworkShowJSON(mode, display string) {
+	out := struct {
+		Mode    string `json:"mode"`
+		Display string `json:"display"`
+	}{Mode: mode, Display: display}
+	jsonDoc(out)
 }
 
 func runNetworkSet(outMode tui.OutputMode, raw string) {
@@ -3404,7 +3481,13 @@ func runNetworkSet(outMode tui.OutputMode, raw string) {
 	}
 }
 
+// emitNetworkSetJSON prints the result document, or the error envelope when err
+// is set; the caller exits 1 in that case.
 func emitNetworkSetJSON(res *networkcmd.SwitchResult, err error, elapsed time.Duration) {
+	if err != nil {
+		jsonFail(errCodeOr(err, "network-switch-failed"), err.Error())
+		return
+	}
 	out := struct {
 		Switched  bool     `json:"switched"`
 		NoChange  bool     `json:"noChange"`
@@ -3412,7 +3495,6 @@ func emitNetworkSetJSON(res *networkcmd.SwitchResult, err error, elapsed time.Du
 		New       string   `json:"new,omitempty"`
 		Restarted []string `json:"restarted,omitempty"`
 		Failed    []string `json:"failed,omitempty"`
-		Error     string   `json:"error,omitempty"`
 		ElapsedMs int64    `json:"elapsedMs"`
 	}{ElapsedMs: elapsed.Milliseconds()}
 	if res != nil {
@@ -3422,13 +3504,19 @@ func emitNetworkSetJSON(res *networkcmd.SwitchResult, err error, elapsed time.Du
 		out.Restarted = res.Restarted
 		out.Failed = res.Failed
 	}
-	if err != nil {
-		out.Error = err.Error()
-		out.Switched = false
-	} else {
-		out.Switched = !out.NoChange
+	out.Switched = !out.NoChange
+	jsonDoc(out)
+}
+
+// effectiveInitName is the project name init will use: the given one, or the
+// working directory's base name when none was given.
+func effectiveInitName(name string) string {
+	if name != "" {
+		return name
 	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(out)
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return filepath.Base(cwd)
 }

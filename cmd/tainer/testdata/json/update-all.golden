@@ -1,0 +1,17 @@
+{
+  "mode": "all",
+  "pods": [
+    {
+      "name": "blog",
+      "updated": true,
+      "elapsedMs": 100
+    },
+    {
+      "name": "shop",
+      "updated": false,
+      "error": "manifest missing: x",
+      "elapsedMs": 0
+    }
+  ],
+  "totalElapsedMs": 3000
+}

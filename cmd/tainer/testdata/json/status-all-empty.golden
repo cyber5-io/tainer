@@ -1,0 +1,8 @@
+{
+  "daemon": {
+    "socket": "",
+    "running": false,
+    "reachable": false
+  },
+  "pods": []
+}

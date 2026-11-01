@@ -10,8 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/docker/docker/api/types/container"
@@ -20,16 +20,6 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 )
-
-// DefaultSocketPath is where cyberstackd listens by default. It mirrors
-// cmd/cyberstackd/main.go's defaultPath("cyberstack.sock").
-func DefaultSocketPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".cyberstack", "cyberstack.sock")
-}
 
 // Client is a thin wrapper around the official Docker Go SDK pinned to
 // cyberstackd's Unix socket. The wrapper exists so higher layers don't
@@ -126,6 +116,25 @@ func (c *Client) Logs(ctx context.Context, name string, follow bool) (io.ReadClo
 		ShowStderr: true,
 		Follow:     follow,
 	})
+}
+
+// EventsStream opens the stack's NDJSON event stream (GET /cyberstack/events).
+// The body stays open until the daemon stops or the caller closes it or
+// cancels ctx.
+func (c *Client) EventsStream(ctx context.Context) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://cyberstack/cyberstack/events", nil)
+	if err != nil {
+		return nil, fmt.Errorf("engine: events: %w", err)
+	}
+	resp, err := c.api.HTTPClient().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("engine: events: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("engine: events: unexpected status %s", resp.Status)
+	}
+	return resp.Body, nil
 }
 
 // LabelFilter builds a Docker label filter that matches "<key>=<value>"

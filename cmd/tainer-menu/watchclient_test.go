@@ -1,0 +1,240 @@
+package main
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"syscall"
+	"testing"
+	"time"
+)
+
+func fakeCLI(t *testing.T, body string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "fake-tainer")
+	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestWatchClientDecodesAndDispatches(t *testing.T) {
+	cli := fakeCLI(t, `[ "$1" = watch ] && [ "$2" = --json ] || exit 2
+echo '{"v":1,"ts":"2026-10-31T12:00:00.000Z","type":"hello","data":{"engine":{"state":"healthy","since":"2026-10-31T12:00:00.000Z","detail":"ok"},"pods":[{"name":"blog","domain":"blog.tainer.me","state":"partial","running":1,"total":2}]}}'
+echo '{"v":1,"ts":"2026-10-31T12:00:01.000Z","type":"pod","data":{"name":"blog","domain":"blog.tainer.me","state":"running","running":2,"total":2}}'
+echo '{"v":1,"ts":"2026-10-31T12:00:01.000Z","type":"mystery","data":{}}'
+printf '{"v":1,"ts":"trunc'
+exit 1
+`)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var mu sync.Mutex
+	var got []Event
+	done := make(chan struct{})
+	stopped := make(chan struct{})
+	defer func() { cancel(); <-stopped }()
+	go func() {
+		defer close(stopped)
+		_ = runWatch(ctx, cli, func(e Event) {
+			mu.Lock()
+			got = append(got, e)
+			n := len(got)
+			mu.Unlock()
+			if n == 3 {
+				close(done)
+			}
+		})
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for events")
+	}
+	cancel()
+	mu.Lock()
+	defer mu.Unlock()
+	if got[0].Type != "hello" || got[0].Hello == nil || got[0].Hello.Engine.State != "healthy" ||
+		len(got[0].Hello.Pods) != 1 || got[0].Hello.Pods[0].Name != "blog" || got[0].Hello.Pods[0].Running != 1 {
+		t.Fatalf("bad hello: %+v", got[0])
+	}
+	if got[1].Type != "pod" || got[1].Pod == nil || got[1].Pod.State != "running" || got[1].Pod.Total != 2 {
+		t.Fatalf("bad pod: %+v", got[1])
+	}
+	if got[2].Type != "mystery" {
+		t.Fatalf("unknown types must pass through: %+v", got[2])
+	}
+}
+
+func TestWatchClientEscalatesToFailedThenRecovers(t *testing.T) {
+	oldB, oldF := backoffBase, failAfter
+	backoffBase, failAfter = 30*time.Millisecond, 250*time.Millisecond
+	defer func() { backoffBase, failAfter = oldB, oldF }()
+
+	flag := filepath.Join(t.TempDir(), "up")
+	cli := fakeCLI(t, `if [ -e `+flag+` ]; then
+echo '{"v":1,"ts":"2026-10-31T12:00:00.000Z","type":"hello","data":{"engine":{"state":"healthy","since":"x","detail":"ok"},"pods":[]}}'
+exec sleep 30
+fi
+exit 1
+`)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events := make(chan Event, 256)
+	stopped := make(chan struct{})
+	defer func() { cancel(); <-stopped }()
+	go func() {
+		defer close(stopped)
+		_ = runWatch(ctx, cli, func(e Event) { events <- e })
+	}()
+
+	waitFor := func(match func(Event) bool) {
+		t.Helper()
+		deadline := time.After(5 * time.Second)
+		for {
+			select {
+			case e := <-events:
+				if match(e) {
+					return
+				}
+			case <-deadline:
+				t.Fatal("timed out waiting for event")
+			}
+		}
+	}
+	isEngine := func(state string) func(Event) bool {
+		return func(e Event) bool { return e.Type == "engine" && e.Engine != nil && e.Engine.State == state }
+	}
+	waitFor(isEngine("recovering"))
+	waitFor(isEngine("failed"))
+	if err := os.WriteFile(flag, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(func(e Event) bool { return e.Type == "hello" && e.Hello != nil && e.Hello.Engine.State == "healthy" })
+}
+
+func TestWatchClientCancelKillsChild(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	cli := fakeCLI(t, "echo $$ > "+pidFile+"\nexec sleep 30\n")
+	ctx, cancel := context.WithCancel(context.Background())
+	returned := make(chan struct{})
+	go func() {
+		_ = runWatch(ctx, cli, func(Event) {})
+		close(returned)
+	}()
+	var pid int
+	for i := 0; i < 100 && pid == 0; i++ {
+		if b, err := os.ReadFile(pidFile); err == nil {
+			pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if pid == 0 {
+		t.Fatal("child never started")
+	}
+	cancel()
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("runWatch did not return after cancel")
+	}
+	if err := syscall.Kill(pid, 0); err == nil {
+		t.Fatalf("child %d still alive after cancel", pid)
+	}
+}
+
+func TestWatchClientWakeCutsBackoff(t *testing.T) {
+	old := backoffBase
+	backoffBase = 30 * time.Second
+	defer func() { backoffBase = old }()
+
+	counter := filepath.Join(t.TempDir(), "spawns")
+	cli := fakeCLI(t, "echo spawn >> "+counter+"\nexit 1\n")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	recovering := make(chan struct{}, 8)
+	stopped := make(chan struct{})
+	defer func() { cancel(); <-stopped }()
+	go func() {
+		defer close(stopped)
+		_ = runWatch(ctx, cli, func(e Event) {
+			if e.Type == "engine" {
+				recovering <- struct{}{}
+			}
+		})
+	}()
+	select {
+	case <-recovering:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no first gap")
+	}
+	wakeWatch()
+	select {
+	case <-recovering: // a second gap means a second spawn happened
+	case <-time.After(3 * time.Second):
+		t.Fatal("wake did not cut the 30s backoff")
+	}
+}
+
+// The menu shows these strings to users, who never see the word "engine".
+func TestMenuCopyAvoidsEngineVocabulary(t *testing.T) {
+	details := []string{}
+	for _, cli := range []string{filepath.Join(t.TempDir(), "missing"), fakeCLI(t, "exit 1\n")} {
+		_, d := watchOnce(context.Background(), cli, func(Event) {})
+		details = append(details, d)
+	}
+	for _, d := range details {
+		if strings.Contains(strings.ToLower(d), "engine") {
+			t.Errorf("user-visible detail %q mentions the engine", d)
+		}
+	}
+	for _, f := range []string{"main.go", "watchclient.go"} {
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range regexp.MustCompile(`"[^"\n]*[Ee]ngine[^"\n]*"`).FindAllString(string(src), -1) {
+			if m != `"engine"` { // the wire event type
+				t.Errorf("%s: user-visible string %s mentions the engine", f, m)
+			}
+		}
+	}
+}
+
+func TestWatchClientRespawnBackoff(t *testing.T) {
+	old := backoffBase
+	backoffBase = 150 * time.Millisecond
+	defer func() { backoffBase = old }()
+
+	counter := filepath.Join(t.TempDir(), "spawns")
+	cli := fakeCLI(t, "echo spawn >> "+counter+"\nexit 1\n")
+	ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
+	defer cancel()
+	var mu sync.Mutex
+	var recovering int
+	err := runWatch(ctx, cli, func(e Event) {
+		if e.Type == "engine" && e.Engine != nil && e.Engine.State == "recovering" {
+			mu.Lock()
+			recovering++
+			mu.Unlock()
+		}
+	})
+	if err == nil {
+		t.Fatal("expected context error")
+	}
+	b, _ := os.ReadFile(counter)
+	spawns := len(strings.Fields(string(b)))
+	// 150ms, 300ms backoffs inside a 700ms window: more than one spawn
+	// (respawn happened) but far fewer than a hot loop.
+	if spawns < 2 || spawns > 4 {
+		t.Fatalf("want 2-4 spawns with backoff, got %d", spawns)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if recovering < 2 {
+		t.Fatalf("gap must surface recovering state, got %d", recovering)
+	}
+}

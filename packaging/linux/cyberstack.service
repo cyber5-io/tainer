@@ -1,0 +1,14 @@
+[Unit]
+Description=CyberStack engine (tainer)
+Requires=cyberstack.socket
+After=cyberstack.socket network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/tainer/bin/cyberstackd -backend native
+Delegate=yes
+Restart=on-failure
+RestartSec=2
+
+# Socket-activated only: no [Install] section, so pods do not resurrect at boot.

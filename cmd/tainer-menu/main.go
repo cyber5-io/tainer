@@ -1,7 +1,8 @@
 // tainer-menu — the menu bar face of the tainer stack.
 //
-// A tiny systray app that watches the same signals `tainer doctor`
-// checks and renders them as the brand mark in the macOS menu bar:
+// A tiny systray app that consumes the `tainer watch --json` event
+// stream (the daemon owns the recovering/failed timing) and renders it
+// as the brand mark in the macOS menu bar:
 //
 //	full colour       healthy, one or more pods running
 //	dimmed            healthy, nothing running
@@ -23,14 +24,10 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"sync"
 	"time"
 
 	"fyne.io/systray"
-
-	"github.com/cyber5-io/tainer/pkg/tainer/engine"
-	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
-	"github.com/cyber5-io/tainer/pkg/tainer/pod"
-	"github.com/cyber5-io/tainer/pkg/tainer/runtime"
 )
 
 // Full brand logos on a translucent white pill so they pop on any
@@ -46,8 +43,6 @@ var tainerLogo []byte
 var cyber5Logo []byte
 
 const (
-	pollEvery    = 5 * time.Second
-	failedAfter  = 60 * time.Second // unreachable this long → red ✗
 	spinnerFrame = 160 * time.Millisecond
 	maxPodSlots  = 16 // pre-created menu slots (systray can't remove items)
 
@@ -76,7 +71,7 @@ const (
 	stateIdle       appState = iota // healthy, no pods running
 	stateActive                     // healthy, pods running
 	stateRecovering                 // stack unreachable, watchdogs at work
-	stateFailed                     // unreachable beyond failedAfter
+	stateFailed                     // daemon reports healing failed
 )
 
 type podInfo struct {
@@ -106,17 +101,32 @@ type app struct {
 	quit   *systray.MenuItem
 	maker  *systray.MenuItem
 
+	mu          sync.Mutex // guards state, engine, pods, stopSpinner
 	state       appState
-	downSince   time.Time
+	engine      EngineData // last engine state seen
 	pods        []podInfo
 	stopSpinner chan struct{}
 }
 
 func main() {
-	systray.Run(onReady, func() {})
+	ctx, cancel := context.WithCancel(context.Background())
+	systray.Run(func() { onReady(ctx) }, cancel)
+	// the watch child is reaped by runWatch's cancel path; give it a
+	// moment so it is gone before the process exits.
+	time.Sleep(200 * time.Millisecond)
 }
 
-func onReady() {
+// afterAction restores the status line an action overwrote (the stream
+// emits nothing when the action changed nothing) and cuts any respawn
+// backoff short.
+func (a *app) afterAction() {
+	a.mu.Lock()
+	a.applyEngine()
+	a.mu.Unlock()
+	wakeWatch()
+}
+
+func onReady(ctx context.Context) {
 	a := &app{
 		icons:    buildIconsStyle(os.Getenv("TAINER_MENU_ICON")),
 		dotGreen: renderDot(dotGreen),
@@ -171,7 +181,9 @@ func onReady() {
 		systray.Quit()
 	}()
 
-	go a.pollLoop()
+	go func() {
+		_ = runWatch(ctx, tainerCLI, a.onEvent)
+	}()
 }
 
 // setBarIcon routes through SetTemplateIcon for monochrome styles so
@@ -190,8 +202,11 @@ func openURL(u string) {
 
 func (a *app) slotClicks(i int, s *podSlot) {
 	pod := func() *podInfo {
+		a.mu.Lock()
+		defer a.mu.Unlock()
 		if i < len(a.pods) {
-			return &a.pods[i]
+			p := a.pods[i]
+			return &p
 		}
 		return nil
 	}
@@ -209,7 +224,7 @@ func (a *app) slotClicks(i int, s *podSlot) {
 				name := p.Name
 				go func() {
 					_ = exec.Command(tainerCLI, verb, name, "--plain").Run()
-					a.poll()
+					a.afterAction()
 				}()
 			}
 		}
@@ -219,78 +234,80 @@ func (a *app) slotClicks(i int, s *podSlot) {
 	go action(s.restart.ClickedCh, "restart")
 }
 
-func (a *app) pollLoop() {
-	a.poll() // immediate first sample
-	t := time.NewTicker(pollEvery)
-	defer t.Stop()
-	for range t.C {
-		a.poll()
-	}
-}
-
-// poll samples the stack exactly the way doctor does: socket ping,
-// then a container list through the daemon→agent chain.
-func (a *app) poll() {
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-	defer cancel()
-
-	st := runtime.CurrentStatus(ctx, runtime.Options{})
-	if !st.Reachable {
-		a.setUnreachable("engine not reachable")
-		return
-	}
-	eng, err := engine.New()
-	if err != nil {
-		a.setUnreachable("engine: " + err.Error())
-		return
-	}
-	defer eng.Close()
-
-	pods, err := pod.List(ctx, eng)
-	if err != nil {
-		a.setUnreachable("agent not answering")
-		return
-	}
-
-	var infos []podInfo
-	running := 0
-	for _, p := range pods {
-		info := podInfo{Name: p.Name, Running: p.State() == pod.StateRunning}
-		if info.Running {
-			running++
+// onEvent folds one watch event into the app state and re-renders.
+// hello carries the full pod list (and resyncs after any reconnect);
+// pod events are deltas for a single row.
+func (a *app) onEvent(e Event) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	switch {
+	case e.Hello != nil:
+		a.pods = a.pods[:0]
+		for _, p := range e.Hello.Pods {
+			a.pods = append(a.pods, podFromData(p))
 		}
-		for _, c := range p.Containers {
-			if insp, ierr := eng.Inspect(ctx, c.Name); ierr == nil && insp.Config != nil {
-				if mp := insp.Config.Labels[pod.LabelManifestPath]; mp != "" {
-					if m, merr := manifest.Load(mp); merr == nil {
-						info.Domain = m.Project.Domain
-					}
-					break
-				}
+		a.engine = e.Hello.Engine
+	case e.Engine != nil:
+		a.engine = *e.Engine
+	case e.Pod != nil:
+		np := podFromData(*e.Pod)
+		found := false
+		for i := range a.pods {
+			if a.pods[i].Name == np.Name {
+				a.pods[i] = np
+				found = true
+				break
 			}
 		}
-		infos = append(infos, info)
+		if !found {
+			a.pods = append(a.pods, np)
+		}
+	default:
+		return
 	}
 	// running pods first, then alphabetical
-	sort.Slice(infos, func(i, j int) bool {
-		if infos[i].Running != infos[j].Running {
-			return infos[i].Running
+	sort.Slice(a.pods, func(i, j int) bool {
+		if a.pods[i].Running != a.pods[j].Running {
+			return a.pods[i].Running
 		}
-		return infos[i].Name < infos[j].Name
+		return a.pods[i].Name < a.pods[j].Name
 	})
-
-	a.downSince = time.Time{}
-	a.pods = infos
-	if running > 0 {
-		a.setState(stateActive)
-		a.status.SetIcon(a.dotGreen)
-		a.status.SetTitle(fmt.Sprintf("healthy — %d pod%s running", running, plural(running)))
-	} else {
-		a.setState(stateIdle)
-		a.status.SetIcon(a.dotGreen)
-		a.status.SetTitle("healthy — no pods running")
-	}
+	a.applyEngine()
 	a.renderPodSlots()
+}
+
+func podFromData(p PodData) podInfo {
+	return podInfo{Name: p.Name, Domain: p.Domain, Running: p.State == "running"}
+}
+
+// applyEngine renders the bar icon and status line from the last engine
+// state and pod table. Caller holds a.mu.
+func (a *app) applyEngine() {
+	switch a.engine.State {
+	case "recovering":
+		a.setState(stateRecovering)
+		a.status.SetIcon(a.dotAmber)
+		a.status.SetTitle("recovering — " + a.engine.Detail)
+	case "failed":
+		a.setState(stateFailed)
+		a.status.SetIcon(a.dotRed)
+		a.status.SetTitle("stack unreachable — healing failed")
+	default:
+		running := 0
+		for _, p := range a.pods {
+			if p.Running {
+				running++
+			}
+		}
+		a.status.SetIcon(a.dotGreen)
+		if running > 0 {
+			a.setState(stateActive)
+			a.status.SetTitle(fmt.Sprintf("healthy — %d pod%s running", running, plural(running)))
+		} else {
+			a.setState(stateIdle)
+			a.status.SetTitle("healthy — no pods running")
+		}
+	}
 }
 
 func plural(n int) string {
@@ -298,22 +315,6 @@ func plural(n int) string {
 		return ""
 	}
 	return "s"
-}
-
-func (a *app) setUnreachable(why string) {
-	if a.downSince.IsZero() {
-		a.downSince = time.Now()
-	}
-	if time.Since(a.downSince) > failedAfter {
-		a.setState(stateFailed)
-		a.status.SetIcon(a.dotRed)
-		a.status.SetTitle("stack unreachable — healing failed")
-	} else {
-		a.setState(stateRecovering)
-		a.status.SetIcon(a.dotAmber)
-		a.status.SetTitle("recovering — " + why)
-	}
-	a.renderPodSlots()
 }
 
 func (a *app) renderPodSlots() {
@@ -346,7 +347,7 @@ func (a *app) renderPodSlots() {
 }
 
 // setState swaps the menu bar icon, managing the spinner goroutine
-// for the recovering state.
+// for the recovering state. Caller holds a.mu.
 func (a *app) setState(s appState) {
 	if s == a.state {
 		return
@@ -391,6 +392,6 @@ func (a *app) runDoctorFix() {
 	go func() {
 		cmd := exec.Command(tainerCLI, "doctor", "--fix", "--plain")
 		_ = cmd.Run()
-		a.poll()
+		a.afterAction()
 	}()
 }

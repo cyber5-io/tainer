@@ -1,0 +1,35 @@
+name: tainer
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+section: devel
+priority: optional
+maintainer: Cyber5 IO <hello@cyber5.io>
+description: Local-first container dev tool (tainer CLI + CyberStack engine).
+homepage: https://tainer.dev
+license: BSL-1.1
+depends:
+  - crun
+  - nftables
+contents:
+  - src: dist/linux-stage/tainer
+    dst: /opt/tainer/bin/tainer
+    file_info:
+      mode: 0755
+  - src: dist/linux-stage/cyberstackd
+    dst: /opt/tainer/bin/cyberstackd
+    file_info:
+      mode: 0755
+  - src: /opt/tainer/bin/tainer
+    dst: /usr/local/bin/tainer
+    type: symlink
+  - src: packaging/linux/cyberstack.socket
+    dst: /usr/lib/systemd/system/cyberstack.socket
+    file_info:
+      mode: 0644
+  - src: packaging/linux/cyberstack.service
+    dst: /usr/lib/systemd/system/cyberstack.service
+    file_info:
+      mode: 0644
+scripts:
+  postinstall: packaging/linux/postinst.sh

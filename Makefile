@@ -1,4 +1,4 @@
-.PHONY: build sign menu-app verify-signatures test clean \
+.PHONY: build sign menu-app verify-signatures test cross clean linux-dist \
         pkg-only-root pkg-only pkg-only-signed pkg-only-notarised \
         pkg-full-root pkg-full pkg-full-signed pkg-full-notarised \
         pkg-dist pkg-dist-signed pkg-dist-notarised \
@@ -46,6 +46,16 @@ FORCE:
 
 test:
 	go test ./...
+
+# Cross-compilation gate: every supported GOOS/GOARCH must compile.
+# Explicit target list — cmd/tainer-menu is darwin-only (vendored systray)
+# and excluded by design. Build-only (no artifacts kept): -o /dev/null
+# works per-binary, but pkg/... is a compile check, so plain `go build`.
+cross:
+	GOOS=darwin GOARCH=arm64 go build ./cmd/tainer ./pkg/...
+	GOOS=linux GOARCH=amd64 go build ./cmd/tainer ./pkg/...
+	GOOS=linux GOARCH=arm64 go build ./cmd/tainer ./pkg/...
+	GOOS=windows GOARCH=amd64 go build ./cmd/tainer ./pkg/...
 
 clean:
 	rm -rf $(BIN_DIR) $(DIST_DIR)
@@ -303,3 +313,37 @@ verify-pkg-full:
 	@spctl --assess --type install --verbose=2 $(PKG_FULL_OUT) 2>&1 || true
 	@echo
 	@pkgutil --payload-files $(PKG_FULL_OUT) | sort
+
+# ---------------------------------------------------------------------------
+# Linux .deb (amd64 + arm64) via nfpm.
+#
+# cyberstackd is built here from $(CYBERSTACK_REPO) with explicit `go build -o`
+# because cyber-stack's `make cross` is a compile gate that discards binaries.
+# Prereq: run `make -C $(CYBERSTACK_REPO) cross` first so a broken engine tree
+# fails before packaging. First run needs network (nfpm is fetched by `go run`
+# at a pinned version).
+# ---------------------------------------------------------------------------
+NFPM_VERSION := v2.41.3
+LINUX_ARCHES := amd64 arm64
+LINUX_STAGE  := $(DIST_DIR)/linux-stage
+
+linux-dist:
+	@if [ ! -f "$(CYBERSTACK_REPO)/cmd/cyberstackd/main.go" ]; then \
+		echo "linux-dist: CYBERSTACK_REPO=$(CYBERSTACK_REPO) is not a cyber-stack checkout" >&2; \
+		echo "  set CS_REPO=/abs/path/to/cyber-stack and run 'make -C <that path> cross' first" >&2; \
+		exit 1; \
+	fi
+	rm -rf $(LINUX_STAGE)
+	@for arch in $(LINUX_ARCHES); do \
+		set -e; \
+		echo "==> linux/$$arch"; \
+		mkdir -p $(LINUX_STAGE); \
+		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch go build -ldflags '$(LDFLAGS)' -o $(LINUX_STAGE)/tainer ./cmd/tainer; \
+		( cd $(CYBERSTACK_REPO) && GOOS=linux GOARCH=$$arch go build -tags containers_image_openpgp -o $(CURDIR)/$(LINUX_STAGE)/cyberstackd ./cmd/cyberstackd ); \
+		test -s $(LINUX_STAGE)/cyberstackd || { echo "linux-dist: cyberstackd build for $$arch produced no binary" >&2; exit 1; }; \
+		ARCH=$$arch VERSION=$(VERSION) \
+			go run github.com/goreleaser/nfpm/v2/cmd/nfpm@$(NFPM_VERSION) package \
+			--packager deb --config packaging/linux/nfpm.yaml \
+			--target $(DIST_DIR)/tainer_$(VERSION)_$$arch.deb; \
+	done
+	@ls -l $(DIST_DIR)/tainer_$(VERSION)_*.deb

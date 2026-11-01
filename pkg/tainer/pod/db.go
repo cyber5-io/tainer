@@ -8,6 +8,7 @@ import (
 
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
+	"github.com/cyber5-io/tainer/pkg/tainer/progress"
 )
 
 // DBExport dumps the pod's database to outPath. Uses mariadb-dump for
@@ -20,6 +21,8 @@ func DBExport(ctx context.Context, eng *engine.Client, podName string, m *manife
 	if err != nil {
 		return fmt.Errorf("load secrets for %s: %w", podName, err)
 	}
+	report := progress.Reporter(ctx, "db-export", podName)
+	report("dump", "dumping database", -1, false)
 	cmd := dumpCmd(m, secrets)
 	res, err := eng.Exec(ctx, ContainerName(podName, RoleDB), cmd)
 	if err != nil {
@@ -28,7 +31,11 @@ func DBExport(ctx context.Context, eng *engine.Client, podName string, m *manife
 	if res.ExitCode != 0 {
 		return fmt.Errorf("dump exited %d: %s", res.ExitCode, res.Stderr)
 	}
-	return os.WriteFile(outPath, res.Stdout, 0644)
+	if err := os.WriteFile(outPath, res.Stdout, 0644); err != nil {
+		return err
+	}
+	report("dump", "database exported", 100, true)
+	return nil
 }
 
 // DBImport reads a dump from inPath and pipes it into the pod's
@@ -49,6 +56,8 @@ func DBImport(ctx context.Context, eng *engine.Client, podName string, m *manife
 	if err != nil {
 		return err
 	}
+	report := progress.Reporter(ctx, "db-import", podName)
+	report("restore", "restoring database", -1, false)
 	cmd := restoreCmd(m, secrets)
 	res, err := eng.ExecWithStdin(ctx, ContainerName(podName, RoleDB), cmd, data)
 	if err != nil {
@@ -57,6 +66,7 @@ func DBImport(ctx context.Context, eng *engine.Client, podName string, m *manife
 	if res.ExitCode != 0 {
 		return fmt.Errorf("restore exited %d: %s", res.ExitCode, res.Stderr)
 	}
+	report("restore", "database imported", 100, true)
 	return nil
 }
 

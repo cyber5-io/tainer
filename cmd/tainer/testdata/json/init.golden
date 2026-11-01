@@ -1,0 +1,11 @@
+{
+  "projectName": "blog",
+  "manifestPath": "/p/blog/tainer.yaml",
+  "steps": [
+    {
+      "action": "created",
+      "kind": "file",
+      "path": "tainer.yaml"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "daemon": {
+    "socket": "/run/cyberstack.sock",
+    "running": true,
+    "pid": 42,
+    "reachable": true
+  },
+  "pods": [
+    {
+      "name": "blog",
+      "podId": 7,
+      "state": "running",
+      "domain": "blog.tainer.me",
+      "ports": [
+        {
+          "Role": "web",
+          "Container": 80,
+          "Protocol": "",
+          "HostPort": 0
+        }
+      ]
+    },
+    {
+      "name": "shop",
+      "podId": 8,
+      "state": "stopped"
+    }
+  ]
+}

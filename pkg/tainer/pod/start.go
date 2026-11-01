@@ -13,6 +13,7 @@ import (
 	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
+	"github.com/cyber5-io/tainer/pkg/tainer/progress"
 	"github.com/cyber5-io/tainer/pkg/tainer/router"
 	"github.com/cyber5-io/tainer/pkg/tainer/ssh"
 	"github.com/docker/docker/api/types/container"
@@ -202,6 +203,8 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 	// when the image is already local. Without this, Create fails with
 	// "image not known" because the engine API doesn't auto-pull on create
 	// (only the docker CLI does).
+	report := progress.Reporter(ctx, "start", m.Project.Name)
+	report("pull", "pulling images", -1, false)
 	for _, role := range RolesForPod(m) {
 		if err := eng.Pull(ctx, ImageRef(m, role)); err != nil {
 			return nil, fmt.Errorf("pod start: pull %s: %w", role, err)
@@ -258,6 +261,7 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 		}
 	}
 
+	report("start", "starting containers", -1, false)
 	anyWork := false
 	for i, role := range roles {
 		var bindings []engine.PortMap
@@ -296,6 +300,7 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 		return nil, err
 	}
 
+	report("start", "pod started", 100, true)
 	res := makeStartResult(m, podID)
 	res.AlreadyRunning = !anyWork
 	return res, nil
@@ -355,6 +360,10 @@ func startContainer(
 ) (started bool, err error) {
 	envs := buildEnv(m, role, pctx)
 	mounts := buildMounts(m, opts.ProjectDir, role)
+	gwMounts, gwEnv := gatewayInjection(m.Project.Name, role, engine.StateDir(), opts.ProjectDir)
+	ensureGatewayDirs(gwMounts)
+	mounts = append(mounts, gwMounts...)
+	envs = append(envs, gwEnv...)
 
 	labels := map[string]string{
 		LabelPod:          m.Project.Name,

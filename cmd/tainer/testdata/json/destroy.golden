@@ -1,0 +1,7 @@
+{
+  "pod": "blog",
+  "mode": "clean",
+  "destroyed": true,
+  "keepImages": true,
+  "elapsedMs": 1500
+}
