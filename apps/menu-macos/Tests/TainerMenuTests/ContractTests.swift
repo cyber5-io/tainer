@@ -77,3 +77,20 @@ private let blog = Pod(name: "blog", domain: "blog.tainer.me", state: .partial, 
 @Test func podIdentityIsName() {
     #expect(blog.id == "blog")
 }
+
+@Test func errorWithoutMessageIsStillAnEnvelope() {
+    #expect(StreamLine.parse(#"{"v":1,"error":{"code":"watch-ended"}}"#) == .errorEnvelope(code: "watch-ended", message: ""))
+}
+
+@Test func emptyErrorObjectIsStillAnEnvelope() {
+    #expect(StreamLine.parse(#"{"v":1,"error":{}}"#) == .errorEnvelope(code: "", message: ""))
+}
+
+@Test func errorWithNonStringFieldsDefaultsToEmpty() {
+    #expect(StreamLine.parse(#"{"v":1,"error":{"code":7,"message":null}}"#) == .errorEnvelope(code: "", message: ""))
+}
+
+@Test func errorObjectWinsOverEventShape() {
+    let line = #"{"v":1,"ts":"2026-10-31T12:00:00.000Z","type":"pod","data":{"name":"blog","domain":"d","state":"running","running":1,"total":1},"error":{"code":"x","message":"y"}}"#
+    #expect(StreamLine.parse(line) == .errorEnvelope(code: "x", message: "y"))
+}

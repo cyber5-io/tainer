@@ -29,7 +29,18 @@ enum StreamLine: Equatable {
     case invalid
 
     private struct ErrorEnvelope: Decodable {
-        struct Body: Decodable { var code: String; var message: String }
+        struct Body: Decodable {
+            var code: String
+            var message: String
+
+            private enum Key: String, CodingKey { case code, message }
+
+            init(from decoder: any Decoder) throws {
+                let c = try decoder.container(keyedBy: Key.self)
+                code = (try? c.decode(String.self, forKey: .code)) ?? ""
+                message = (try? c.decode(String.self, forKey: .message)) ?? ""
+            }
+        }
         var error: Body?
     }
 
