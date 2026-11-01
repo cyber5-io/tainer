@@ -30,3 +30,25 @@ private final class Lines: @unchecked Sendable {
     let result = try? await task.value
     #expect(result?.status == 15)
 }
+
+/// A long-lived silent child must not stall other children's stdout: Foundation's
+/// FileHandle.AsyncBytes serialises every read on one shared IO queue, so the
+/// runner has to read pipes itself. This deadlocked the menu's list refresh
+/// whenever the watch stream was connected.
+@Test func quickChildCompletesWhileSilentChildStreams() async throws {
+    let idle = Task { try await SubprocessRunner().run(executable: "/bin/sh", arguments: ["-c", "sleep 30"]) { _ in } }
+    try await Task.sleep(for: .milliseconds(150))
+    let lines = Lines()
+    let quick = Task { try await SubprocessRunner().run(executable: "/bin/echo", arguments: ["pong"]) { lines.add($0) } }
+    let winner = await withTaskGroup(of: Bool.self) { group in
+        group.addTask { (try? await quick.value) != nil }
+        group.addTask { try? await Task.sleep(for: .seconds(5)); return false }
+        let first = await group.next() ?? false
+        group.cancelAll()
+        return first
+    }
+    idle.cancel()
+    _ = try? await idle.value
+    #expect(winner, "quick child stalled behind the idle child's stdout read")
+    #expect(lines.all == ["pong"])
+}

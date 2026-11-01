@@ -8,7 +8,7 @@ struct ProcessResult: Sendable, Equatable {
 /// Runs a child to completion, feeding each stdout line to `onLine`.
 /// Cancelling the calling task must terminate the child. Throws only if the child cannot be spawned.
 protocol ProcessRunner: Sendable {
-    func run(executable: String, arguments: [String], onLine: @Sendable (String) async -> Void) async throws -> ProcessResult
+    func run(executable: String, arguments: [String], onLine: @escaping @Sendable (String) async -> Void) async throws -> ProcessResult
 }
 
 protocol WatchClock: Sendable {
@@ -167,7 +167,7 @@ struct SubprocessRunner: ProcessRunner {
     /// Only the tail of stderr is kept; a watch child can run for hours.
     static let stderrLimit = 4096
 
-    func run(executable: String, arguments: [String], onLine: @Sendable (String) async -> Void) async throws -> ProcessResult {
+    func run(executable: String, arguments: [String], onLine: @escaping @Sendable (String) async -> Void) async throws -> ProcessResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
@@ -188,9 +188,23 @@ struct SubprocessRunner: ProcessRunner {
                 }
                 return tail
             }
-            do {
-                for try await line in out.fileHandleForReading.bytes.lines { await onLine(line) }
-            } catch {}
+            // Read stdout ourselves: FileHandle.AsyncBytes funnels every consumer
+            // through one shared serial IO queue, so a long-lived silent child
+            // (the watch stream) would stall every other child's output.
+            await Task.detached {
+                let reader = out.fileHandleForReading
+                var buffer = Data()
+                while case let chunk = reader.availableData, !chunk.isEmpty {
+                    buffer.append(chunk)
+                    while let nl = buffer.firstIndex(of: UInt8(ascii: "\n")) {
+                        var lineData = buffer.prefix(upTo: nl)
+                        if lineData.last == UInt8(ascii: "\r") { lineData = lineData.dropLast() }
+                        buffer.removeSubrange(buffer.startIndex...nl)
+                        await onLine(String(decoding: lineData, as: UTF8.self))
+                    }
+                }
+                if !buffer.isEmpty { await onLine(String(decoding: buffer, as: UTF8.self)) }
+            }.value
             let stderrData = await stderrTask.value
             let status = await Task.detached { () -> Int32 in
                 process.waitUntilExit()

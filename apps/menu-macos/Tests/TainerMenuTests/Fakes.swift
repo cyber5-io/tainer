@@ -88,7 +88,7 @@ final class FakeRunner: ProcessRunner, @unchecked Sendable {
     var terminations: Int { lock.withLock { cancelled } }
     var arguments: [[String]] { lock.withLock { args } }
 
-    func run(executable: String, arguments: [String], onLine: @Sendable (String) async -> Void) async throws -> ProcessResult {
+    func run(executable: String, arguments: [String], onLine: @escaping @Sendable (String) async -> Void) async throws -> ProcessResult {
         let step = lock.withLock { () -> Step in
             spawns += 1
             args.append(arguments)

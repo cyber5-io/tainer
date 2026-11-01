@@ -110,7 +110,7 @@ final class PerArgRunner: ProcessRunner, @unchecked Sendable {
     init(blocking blockedArg: String) { self.blockedArg = blockedArg }
     var arguments: [[String]] { lock.withLock { spawned } }
 
-    func run(executable: String, arguments: [String], onLine: @Sendable (String) async -> Void) async throws -> ProcessResult {
+    func run(executable: String, arguments: [String], onLine: @escaping @Sendable (String) async -> Void) async throws -> ProcessResult {
         lock.withLock { spawned.append(arguments) }
         if arguments.contains(blockedArg) {
             while !Task.isCancelled { await Task.yield() }

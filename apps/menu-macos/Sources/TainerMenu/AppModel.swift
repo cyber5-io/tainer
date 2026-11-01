@@ -10,6 +10,7 @@ final class AppModel {
 
     private let actions: ActionRunner
     private let lister: ListRefresher
+    private var listLoop: Task<Void, Never>?
 
     func refreshList() async { await lister.refresh() }
 
@@ -24,6 +25,15 @@ final class AppModel {
         actions = ActionRunner(state: state)
         lister = ListRefresher(state: state)
         pulse.sync(state.engine)
+        // The menu's own .task is unreliable inside MenuBarExtra windows, so the
+        // registry merge runs from here: once at launch, then every minute.
+        let lister = self.lister
+        listLoop = Task {
+            while !Task.isCancelled {
+                await lister.refresh()
+                try? await Task.sleep(for: .seconds(60))
+            }
+        }
         if let cli = CLILocator.find() {
             watch = WatchClient(executable: cli) { update in
                 state.apply(update)
@@ -37,6 +47,7 @@ final class AppModel {
     }
 
     func quit() {
+        listLoop?.cancel()
         watch?.stop()
         pulse.stop()
         NSApplication.shared.terminate(nil)
