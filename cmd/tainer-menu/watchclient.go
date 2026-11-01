@@ -56,6 +56,17 @@ var backoffBase = time.Second
 // death. It mirrors the daemon's own recovering-to-failed threshold.
 var failAfter = 60 * time.Second
 
+var wake = make(chan struct{}, 1)
+
+// wakeWatch cuts the current respawn backoff short, so a user who just
+// ran an action is not left waiting out the remaining delay.
+func wakeWatch() {
+	select {
+	case wake <- struct{}{}:
+	default:
+	}
+}
+
 func decodeEvent(line []byte) (Event, bool) {
 	var e Event
 	if err := json.Unmarshal(line, &e); err != nil || e.Type == "" {
@@ -123,6 +134,7 @@ func runWatch(ctx context.Context, cli string, onEvent func(Event)) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(delay):
+		case <-wake:
 		}
 		if delay *= 2; delay > backoffCap {
 			delay = backoffCap

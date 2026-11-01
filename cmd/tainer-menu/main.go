@@ -109,10 +109,24 @@ type app struct {
 }
 
 func main() {
-	systray.Run(onReady, func() {})
+	ctx, cancel := context.WithCancel(context.Background())
+	systray.Run(func() { onReady(ctx) }, cancel)
+	// the watch child is reaped by runWatch's cancel path; give it a
+	// moment so it is gone before the process exits.
+	time.Sleep(200 * time.Millisecond)
 }
 
-func onReady() {
+// afterAction restores the status line an action overwrote (the stream
+// emits nothing when the action changed nothing) and cuts any respawn
+// backoff short.
+func (a *app) afterAction() {
+	a.mu.Lock()
+	a.applyEngine()
+	a.mu.Unlock()
+	wakeWatch()
+}
+
+func onReady(ctx context.Context) {
 	a := &app{
 		icons:    buildIconsStyle(os.Getenv("TAINER_MENU_ICON")),
 		dotGreen: renderDot(dotGreen),
@@ -168,7 +182,7 @@ func onReady() {
 	}()
 
 	go func() {
-		_ = runWatch(context.Background(), tainerCLI, a.onEvent)
+		_ = runWatch(ctx, tainerCLI, a.onEvent)
 	}()
 }
 
@@ -210,6 +224,7 @@ func (a *app) slotClicks(i int, s *podSlot) {
 				name := p.Name
 				go func() {
 					_ = exec.Command(tainerCLI, verb, name, "--plain").Run()
+					a.afterAction()
 				}()
 			}
 		}
@@ -377,5 +392,6 @@ func (a *app) runDoctorFix() {
 	go func() {
 		cmd := exec.Command(tainerCLI, "doctor", "--fix", "--plain")
 		_ = cmd.Run()
+		a.afterAction()
 	}()
 }

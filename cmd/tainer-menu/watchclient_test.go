@@ -4,8 +4,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -25,14 +27,17 @@ echo '{"v":1,"ts":"2026-10-31T12:00:00.000Z","type":"hello","data":{"engine":{"s
 echo '{"v":1,"ts":"2026-10-31T12:00:01.000Z","type":"pod","data":{"name":"blog","domain":"blog.tainer.me","state":"running","running":2,"total":2}}'
 echo '{"v":1,"ts":"2026-10-31T12:00:01.000Z","type":"mystery","data":{}}'
 printf '{"v":1,"ts":"trunc'
-sleep 30
+exit 1
 `)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var mu sync.Mutex
 	var got []Event
 	done := make(chan struct{})
+	stopped := make(chan struct{})
+	defer func() { cancel(); <-stopped }()
 	go func() {
+		defer close(stopped)
 		_ = runWatch(ctx, cli, func(e Event) {
 			mu.Lock()
 			got = append(got, e)
@@ -71,14 +76,19 @@ func TestWatchClientEscalatesToFailedThenRecovers(t *testing.T) {
 	flag := filepath.Join(t.TempDir(), "up")
 	cli := fakeCLI(t, `if [ -e `+flag+` ]; then
 echo '{"v":1,"ts":"2026-10-31T12:00:00.000Z","type":"hello","data":{"engine":{"state":"healthy","since":"x","detail":"ok"},"pods":[]}}'
-sleep 30
+exec sleep 30
 fi
 exit 1
 `)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	events := make(chan Event, 256)
-	go func() { _ = runWatch(ctx, cli, func(e Event) { events <- e }) }()
+	stopped := make(chan struct{})
+	defer func() { cancel(); <-stopped }()
+	go func() {
+		defer close(stopped)
+		_ = runWatch(ctx, cli, func(e Event) { events <- e })
+	}()
 
 	waitFor := func(match func(Event) bool) {
 		t.Helper()
@@ -103,6 +113,69 @@ exit 1
 		t.Fatal(err)
 	}
 	waitFor(func(e Event) bool { return e.Type == "hello" && e.Hello != nil && e.Hello.Engine.State == "healthy" })
+}
+
+func TestWatchClientCancelKillsChild(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	cli := fakeCLI(t, "echo $$ > "+pidFile+"\nexec sleep 30\n")
+	ctx, cancel := context.WithCancel(context.Background())
+	returned := make(chan struct{})
+	go func() {
+		_ = runWatch(ctx, cli, func(Event) {})
+		close(returned)
+	}()
+	var pid int
+	for i := 0; i < 100 && pid == 0; i++ {
+		if b, err := os.ReadFile(pidFile); err == nil {
+			pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if pid == 0 {
+		t.Fatal("child never started")
+	}
+	cancel()
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("runWatch did not return after cancel")
+	}
+	if err := syscall.Kill(pid, 0); err == nil {
+		t.Fatalf("child %d still alive after cancel", pid)
+	}
+}
+
+func TestWatchClientWakeCutsBackoff(t *testing.T) {
+	old := backoffBase
+	backoffBase = 30 * time.Second
+	defer func() { backoffBase = old }()
+
+	counter := filepath.Join(t.TempDir(), "spawns")
+	cli := fakeCLI(t, "echo spawn >> "+counter+"\nexit 1\n")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	recovering := make(chan struct{}, 8)
+	stopped := make(chan struct{})
+	defer func() { cancel(); <-stopped }()
+	go func() {
+		defer close(stopped)
+		_ = runWatch(ctx, cli, func(e Event) {
+			if e.Type == "engine" {
+				recovering <- struct{}{}
+			}
+		})
+	}()
+	select {
+	case <-recovering:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no first gap")
+	}
+	wakeWatch()
+	select {
+	case <-recovering: // a second gap means a second spawn happened
+	case <-time.After(3 * time.Second):
+		t.Fatal("wake did not cut the 30s backoff")
+	}
 }
 
 func TestWatchClientRespawnBackoff(t *testing.T) {
