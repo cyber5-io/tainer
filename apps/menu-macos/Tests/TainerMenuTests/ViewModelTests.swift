@@ -6,6 +6,14 @@ private func pod(_ name: String, _ state: PodState) -> Pod {
     Pod(name: name, domain: "\(name).tainer.me", state: state, running: 1, total: 1)
 }
 
+@Test func rowShowsDomainWithNameAsTooltip() {
+    let m = PodRowModel(pod: pod("ops", .running), busy: false)
+    #expect(m.title == "ops.tainer.me")
+    #expect(m.tooltip == "ops")
+    let bare = PodRowModel(pod: Pod(name: "x", domain: "", state: .stopped, running: 0, total: 0), busy: false)
+    #expect(bare.title == "x")
+}
+
 @Test func runningRowActions() {
     #expect(PodRowModel(pod: pod("ops", .running), busy: false).actions == [.open, .restart, .stop, .manage])
     #expect(PodRowModel(pod: pod("ops", .partial), busy: false).actions == [.open, .restart, .stop, .manage])
@@ -64,10 +72,6 @@ private func pod(_ name: String, _ state: PodState) -> Pod {
     #expect(BarIconStyle(.unreachable) == .error)
 }
 
-@Test func podListScrollsBeyondTwelveRows() {
-    #expect(!PodListLayout.scrolls(rowCount: 12))
-    #expect(PodListLayout.scrolls(rowCount: 13))
-}
 
 @Test func shouldPulseOnlyWhileRecovering() {
     #expect(PulseDriver.shouldPulse(.recovering))

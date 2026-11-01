@@ -22,6 +22,10 @@ final class StackState {
     private(set) var pods: [Pod] = []
     private(set) var hint: String?
     var busy: Set<String> = []
+    private(set) var listed: [ListedProject] = []
+    private(set) var page = 1
+
+    static let pageSize = 10
 
     private var engineHealthy = false
 
@@ -29,7 +33,7 @@ final class StackState {
     var statusLine: (pill: String, counts: String) {
         switch engine {
         case .healthy, .idle:
-            let counts = pods.isEmpty ? "No pods yet" : "\(activeCount) of \(pods.count) pods running"
+            let counts = allPods.isEmpty ? "No pods yet" : "\(activeCount) of \(allPods.count) pods running"
             return ("HEALTHY", counts)
         case .recovering:
             return ("RECOVERING", hint ?? "Tainer is getting ready")
@@ -39,7 +43,42 @@ final class StackState {
     }
 
     /// A partial pod has containers up, so it counts as running.
-    private var activeCount: Int { pods.filter { $0.isActive }.count }
+    private var activeCount: Int { allPods.filter { $0.isActive }.count }
+
+    /// Stream pods plus registered projects the stream has not reported (shown as stopped).
+    var allPods: [Pod] {
+        let known = Set(pods.map(\.name))
+        let extra = listed.filter { !known.contains($0.name) }
+            .map { Pod(name: $0.name, domain: $0.domain, state: .stopped, running: 0, total: 0) }
+        return Self.ordered(pods + extra)
+    }
+
+    func applyList(_ projects: [ListedProject]) {
+        listed = projects
+    }
+
+    var pageCount: Int { max(1, (allPods.count + Self.pageSize - 1) / Self.pageSize) }
+    private var clampedPage: Int { min(max(page, 1), pageCount) }
+    var showsPager: Bool { allPods.count > Self.pageSize }
+    var canGoPrevious: Bool { clampedPage > 1 }
+    var canGoNext: Bool { clampedPage < pageCount }
+
+    var visiblePods: [Pod] {
+        let all = allPods
+        let start = (clampedPage - 1) * Self.pageSize
+        return Array(all[min(start, all.count)..<min(start + Self.pageSize, all.count)])
+    }
+
+    var pageLabel: String {
+        let total = allPods.count
+        guard total > 0 else { return "0 of 0" }
+        let start = (clampedPage - 1) * Self.pageSize
+        return "\(start + 1)-\(min(start + Self.pageSize, total)) of \(total)"
+    }
+
+    func nextPage() { page = min(clampedPage + 1, pageCount) }
+    func previousPage() { page = max(clampedPage - 1, 1) }
+    func resetPage() { page = 1 }
 
     func apply(_ update: StackUpdate) {
         switch update {

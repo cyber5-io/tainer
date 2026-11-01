@@ -8,6 +8,8 @@ struct PodRowModel {
     let pod: Pod
     let busy: Bool
 
+    var title: String { pod.domain.isEmpty ? pod.name : pod.domain }
+    var tooltip: String { pod.name }
     var isActive: Bool { pod.isActive }
     var showsSpinner: Bool { busy }
 
@@ -87,10 +89,4 @@ enum BarIconStyle: Equatable {
         case .unreachable: self = .error
         }
     }
-}
-
-enum PodListLayout {
-    static let maxVisibleRows = 12
-    static let rowHeight: Double = 44
-    static func scrolls(rowCount: Int) -> Bool { rowCount > maxVisibleRows }
 }

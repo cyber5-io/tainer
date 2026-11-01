@@ -4,6 +4,7 @@ struct MenuContent: View {
     let state: StackState
     let onAction: (PodAction, String?) -> Void
     let onQuit: () -> Void
+    var onOpen: () async -> Void = {}
     @Environment(\.colorScheme) private var scheme
     @Environment(\.openURL) private var openURL
 
@@ -34,26 +35,43 @@ struct MenuContent: View {
         .frame(width: 340)
         .background(palette.background)
         .foregroundStyle(palette.text)
+        .task {
+            state.resetPage()
+            while !Task.isCancelled {
+                await onOpen()
+                try? await Task.sleep(for: .seconds(60))
+            }
+        }
     }
 
     @ViewBuilder private func podList(_ palette: MenuPalette) -> some View {
-        if state.pods.isEmpty {
+        if state.allPods.isEmpty {
             Text("No pods yet")
                 .font(.system(size: 12)).foregroundStyle(palette.tertiaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 14).padding(.vertical, 8)
         } else {
-            let rows = VStack(spacing: 0) {
-                ForEach(state.pods) { pod in
+            VStack(spacing: 0) {
+                ForEach(state.visiblePods) { pod in
                     PodRow(model: PodRowModel(pod: pod, busy: state.busy.contains(pod.name)), palette: palette, onAction: onAction)
                 }
-            }
-            if PodListLayout.scrolls(rowCount: state.pods.count) {
-                ScrollView { rows }.frame(maxHeight: PodListLayout.rowHeight * Double(PodListLayout.maxVisibleRows))
-            } else {
-                rows
+                if state.showsPager { pager(palette) }
             }
         }
+    }
+
+    private func pager(_ palette: MenuPalette) -> some View {
+        HStack(spacing: 4) {
+            Text(state.pageLabel).font(.system(size: 11)).foregroundStyle(palette.secondaryText)
+            Spacer()
+            IconButton(symbol: "chevron.left", label: "Previous page", palette: palette) { state.previousPage() }
+                .disabled(!state.canGoPrevious)
+                .keyboardShortcut(.leftArrow, modifiers: [])
+            IconButton(symbol: "chevron.right", label: "Next page", palette: palette) { state.nextPage() }
+                .disabled(!state.canGoNext)
+                .keyboardShortcut(.rightArrow, modifiers: [])
+        }
+        .padding(.horizontal, 14).padding(.top, 2)
     }
 
     private func footer(_ palette: MenuPalette) -> some View {
