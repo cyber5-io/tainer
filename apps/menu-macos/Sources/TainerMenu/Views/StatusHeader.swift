@@ -1,8 +1,12 @@
+import AppKit
 import SwiftUI
 
 struct BrandHeader: View {
     let palette: MenuPalette
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.openURL) private var openURL
+
+    static let linkURL = MenuLinks.tainer
 
     static var versionText: String {
         (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "dev"
@@ -10,13 +14,18 @@ struct BrandHeader: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Group {
-                if let logo = AppBundle.image(scheme == .dark ? "logo-tainer-dark" : "logo-tainer-light", height: 30) {
-                    Image(nsImage: logo)
-                } else {
-                    Text("tainer").font(.system(size: 20, weight: .semibold, design: .rounded))
+            Button { openURL(Self.linkURL) } label: {
+                Group {
+                    if let logo = AppBundle.image(scheme == .dark ? "logo-tainer-dark" : "logo-tainer-light", height: 30) {
+                        Image(nsImage: logo)
+                    } else {
+                        Text("tainer").font(.system(size: 20, weight: .semibold, design: .rounded))
+                    }
                 }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .onHover { $0 ? NSCursor.pointingHand.push() : NSCursor.pop() }
             .accessibilityLabel("tainer")
             Spacer()
             Text(Self.versionText)

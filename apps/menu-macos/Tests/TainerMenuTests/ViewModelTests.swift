@@ -128,3 +128,7 @@ private func hasRedPixel(_ image: NSImage) -> Bool {
     let scaled = try #require(AppBundle.image("logo-tainer-light", height: 30))
     #expect(scaled.size.height == 30)
 }
+
+@Test func brandHeaderLogoLinksToTainerSite() {
+    #expect(BrandHeader.linkURL.absoluteString == "https://tainer.dev/go/tainerapp")
+}
