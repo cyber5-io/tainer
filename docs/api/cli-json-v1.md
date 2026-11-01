@@ -401,7 +401,7 @@ Port 7754. The address the pod uses depends on the network mode:
 
 ## 10. Accounts
 
-`login`, `logout` and `whoami` manage the tainer account the CLI and the apps share. The signed-in session lives in `account.json` (mode 0600) in the CLI's accounts directory: `~/.cyberstack`, overridable via `TAINER_ACCOUNTS_DIR`. The gateway spawns the CLI with the user's HOME, so dashboard logins and terminal logins share one session. The CLI refreshes and rotates the session as needed. None of these commands runs against pods, and none needs the stack to be up.
+`login`, `logout` and `whoami` manage the tainer account the CLI and the apps share. The signed-in session lives in `account.json` (mode 0600) in the CLI's accounts directory: `~/.cyberstack`, overridable via `TAINER_ACCOUNTS_DIR`. The gateway spawns the CLI with a scrubbed environment: `PATH`, `NO_COLOR`, the user's `HOME` (so dashboard logins and terminal logins share one session) and `DOCKER_HOST`, plus `TAINER_ID_URL` and `TAINER_ACCOUNTS_DIR` only when the daemon itself was started with them set and non-empty (a development aid for pointing at a local accounts service; unset in production, where the CLI uses its built-in accounts endpoint). Nothing else is inherited. The CLI refreshes and rotates the session as needed. None of these commands runs against pods, and none needs the stack to be up.
 
 ### `login`
 
