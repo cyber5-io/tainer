@@ -233,6 +233,8 @@ A destroy the user declined at a prompt: `{"pod":"blog","destroyed":false,"cance
 {"v": 1, "projectName": "blog", "manifestPath": "/p/blog/tainer.yaml", "steps": [{"action": "created", "kind": "file", "path": "tainer.yaml"}]}
 ```
 
+`init` accepts `--size <size>` (also `--size=<size>`), one of `nano`, `small`, `medium`, `large`, `xlarge`, `xxl`, written to `pod.size` in the scaffolded `tainer.yaml`; the default is `small`. An unknown size fails with `invalid-arguments`, and the message lists the valid sizes.
+
 ### `db export` and `db import`
 
 ```json

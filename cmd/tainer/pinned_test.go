@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 	"github.com/cyber5-io/tainer/pkg/tainer/pod"
 	"github.com/cyber5-io/tainer/pkg/tainer/registry"
 )
@@ -123,5 +124,35 @@ func TestInitRefusesReservedName(t *testing.T) {
 	out, exit = failureHarness(t, true, func() { cmdInit([]string{"--json", "node"}) })
 	if exit != 1 || !strings.Contains(string(out), `"code":"invalid-arguments"`) {
 		t.Errorf("cwd-derived: out=%s exit=%d", out, exit)
+	}
+}
+
+func TestInitSizeFlag(t *testing.T) {
+	for _, c := range []struct {
+		in      string
+		want    manifest.PodSize
+		wantErr bool
+	}{
+		{"", manifest.PodSizeSmall, false},
+		{"nano", manifest.PodSizeNano, false},
+		{"xxl", manifest.PodSizeXXL, false},
+		{"huge", "", true},
+		{"custom", "", true},
+	} {
+		got, err := parseInitSize(c.in)
+		if (err != nil) != c.wantErr || got != c.want {
+			t.Errorf("parseInitSize(%q) = %q, %v", c.in, got, err)
+		}
+		if err != nil {
+			if errCode(err) != "invalid-arguments" || !strings.Contains(err.Error(), "nano, small, medium, large, xlarge, xxl") {
+				t.Errorf("error = %v (%s)", err, errCode(err))
+			}
+		}
+	}
+	for _, args := range [][]string{{"--json", "node", "x", "--size", "huge"}, {"--json", "node", "x", "--size=huge"}} {
+		out, exit := failureHarness(t, true, func() { cmdInit(args) })
+		if exit != 1 || !strings.Contains(string(out), `"code":"invalid-arguments"`) || !strings.Contains(string(out), "xxl") {
+			t.Errorf("%v: out=%s exit=%d", args, out, exit)
+		}
 	}
 }

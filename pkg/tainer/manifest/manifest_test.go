@@ -384,3 +384,19 @@ func TestLoad_WithLimits(t *testing.T) {
 		t.Errorf("Resolved MaxExecutionTime = %q, want 300 (default)", r.MaxExecutionTime)
 	}
 }
+
+func TestNamedPodSizesAreValid(t *testing.T) {
+	sizes := NamedPodSizes()
+	if len(sizes) == 0 {
+		t.Fatal("no named pod sizes")
+	}
+	for _, s := range sizes {
+		if s == PodSizeCustom {
+			t.Errorf("custom needs explicit memory and is not a named size")
+		}
+		m := &Manifest{Version: 2, Project: ProjectConfig{Name: "x", Type: TypeNodeJS}, Runtime: RuntimeConfig{Node: "22", Database: DatabaseNone}, Pod: &PodConfig{Size: s}}
+		if err := m.validate(); err != nil {
+			t.Errorf("size %q rejected by Validate: %v", s, err)
+		}
+	}
+}

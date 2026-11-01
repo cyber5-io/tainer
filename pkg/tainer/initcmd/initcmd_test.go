@@ -166,3 +166,17 @@ func TestRunWritesDotEnv(t *testing.T) {
 		t.Errorf(".env not created in cwd: %v", err)
 	}
 }
+
+func TestRunHonoursPodSize(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := RunIn(Options{Type: manifest.TypeNodeJS, Name: "big", PodSize: manifest.PodSizeLarge}, dir); err != nil {
+		t.Fatalf("RunIn: %v", err)
+	}
+	m, err := manifest.Load(filepath.Join(dir, "tainer.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Pod.Size != manifest.PodSizeLarge {
+		t.Errorf("pod size = %q, want large", m.Pod.Size)
+	}
+}

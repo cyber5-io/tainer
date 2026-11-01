@@ -136,7 +136,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "usage: tainer <command>")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "commands:")
-	fmt.Fprintln(os.Stderr, "  init <type> [name]                     scaffold a new project into cwd")
+	fmt.Fprintln(os.Stderr, "  init <type> [name] [--size <size>]     scaffold a new project into cwd")
 	fmt.Fprintln(os.Stderr, "  start [project]                        start a project")
 	fmt.Fprintln(os.Stderr, "  stop [project]                         stop a project")
 	fmt.Fprintln(os.Stderr, "  restart [project]                      stop + start a project")
@@ -991,6 +991,7 @@ func doctorHasPodResults(rep doctor.Report) bool {
 //	tainer init                  (TUI wizard — TODO: wire up tui/wizard)
 //	tainer init <type>           (name defaults to cwd basename)
 //	tainer init <type> <name>    (explicit name)
+//	tainer init ... --size <size> (pod size; default small)
 //
 // Type accepts canonical names AND common shorthands (wp/nest/next/nuxt/node).
 //
@@ -1009,13 +1010,15 @@ func cmdInit(args []string) {
 	// fields existed on initcmd.Options since the start but were never
 	// wired to the CLI — the flags were silently swallowed as
 	// positionals. Parsed before the positional split below.
-	var phpVer, nodeVer string
+	var phpVer, nodeVer, sizeArg string
 	positional := make([]string, 0, len(rest))
 	for i := 0; i < len(rest); i++ {
 		if v, ok := flagValue(rest[i], rest, &i, "--php"); ok {
 			phpVer = v
 		} else if v, ok := flagValue(rest[i], rest, &i, "--node"); ok {
 			nodeVer = v
+		} else if v, ok := flagValue(rest[i], rest, &i, "--size"); ok {
+			sizeArg = v
 		} else {
 			positional = append(positional, rest[i])
 		}
@@ -1043,7 +1046,9 @@ func cmdInit(args []string) {
 		must(withCode("unknown-project-type", fmt.Errorf("unknown project type %q (one of: wordpress, php, nodejs, nextjs, nuxtjs, nestjs, react, svelte, sveltekit, kompozi — shortcuts: wp, node, next, nuxt, nest, kit)", rawType)))
 	}
 
-	opts := initcmd.Options{Type: canonical, PHP: phpVer, Node: nodeVer}
+	size, err := parseInitSize(sizeArg)
+	must(err)
+	opts := initcmd.Options{Type: canonical, PHP: phpVer, Node: nodeVer, PodSize: size}
 	if len(rest) >= 2 {
 		opts.Name = rest[1]
 	}

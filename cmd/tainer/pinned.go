@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/cyber5-io/tainer/pkg/tainer"
+	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 	"github.com/cyber5-io/tainer/pkg/tainer/pod"
 	"github.com/cyber5-io/tainer/pkg/tainer/registry"
 )
@@ -63,4 +65,20 @@ func visiblePods(pods []pod.Pod) []pod.Pod {
 		}
 	}
 	return out
+}
+
+// parseInitSize validates the --size value of init against the named pod
+// sizes. Empty keeps the default (small).
+func parseInitSize(v string) (manifest.PodSize, error) {
+	if v == "" {
+		return manifest.PodSizeSmall, nil
+	}
+	names := make([]string, 0, 6)
+	for _, s := range manifest.NamedPodSizes() {
+		if string(s) == v {
+			return s, nil
+		}
+		names = append(names, string(s))
+	}
+	return "", withCode("invalid-arguments", fmt.Errorf("unknown pod size %q (one of: %s)", v, strings.Join(names, ", ")))
 }

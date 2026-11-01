@@ -52,6 +52,12 @@ const (
 	PodSizeCustom PodSize = "custom"
 )
 
+// NamedPodSizes lists the pod sizes a user can pick by name, smallest first.
+// PodSizeCustom is excluded: it needs an explicit memory budget.
+func NamedPodSizes() []PodSize {
+	return []PodSize{PodSizeNano, PodSizeSmall, PodSizeMedium, PodSizeLarge, PodSizeXLarge, PodSizeXXL}
+}
+
 type Protocol string
 
 const (
