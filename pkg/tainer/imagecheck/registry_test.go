@@ -47,12 +47,15 @@ const (
 )
 
 type fake struct {
-	srv       *httptest.Server
-	needAuth  bool
-	tokenHits int
-	single    bool
-	missing   bool
-	accept    string
+	srv        *httptest.Server
+	needAuth   bool
+	tokenHits  int
+	single     bool
+	missing    bool
+	accepts    []string
+	noScope    bool
+	basicFirst bool
+	useTLS     bool
 }
 
 func newFake(t *testing.T, f *fake) {
@@ -68,7 +71,14 @@ func newFake(t *testing.T, f *fake) {
 	})
 	mux.HandleFunc("/v2/"+repo+"/manifests/", func(w http.ResponseWriter, r *http.Request) {
 		if f.needAuth && r.Header.Get("Authorization") != "Bearer t" {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="`+f.srv.URL+`/token",service="ghcr.io",scope="repository:`+repo+`:pull"`)
+			if f.basicFirst {
+				w.Header().Add("WWW-Authenticate", `Basic realm="x"`)
+			}
+			ch := `Bearer realm="` + f.srv.URL + `/token",service="ghcr.io"`
+			if !f.noScope {
+				ch += `,scope="repository:` + repo + `:pull"`
+			}
+			w.Header().Add("WWW-Authenticate", ch)
 			w.WriteHeader(401)
 			return
 		}
@@ -76,7 +86,7 @@ func newFake(t *testing.T, f *fake) {
 			w.WriteHeader(404)
 			return
 		}
-		f.accept = r.Header.Get("Accept")
+		f.accepts = append(f.accepts, r.Header.Get("Accept"))
 		ref := strings.TrimPrefix(r.URL.Path, "/v2/"+repo+"/manifests/")
 		var body any
 		switch {
@@ -98,12 +108,16 @@ func newFake(t *testing.T, f *fake) {
 		}
 		_ = json.NewEncoder(w).Encode(body)
 	})
-	f.srv = httptest.NewServer(mux)
+	if f.useTLS {
+		f.srv = httptest.NewTLSServer(mux)
+	} else {
+		f.srv = httptest.NewServer(mux)
+	}
 	t.Cleanup(f.srv.Close)
 }
 
 func refFor(f *fake) Ref {
-	return Ref{Host: strings.TrimPrefix(f.srv.URL, "http://"), Repo: repo, Tag: "2-alpine"}
+	return Ref{Host: strings.TrimPrefix(strings.TrimPrefix(f.srv.URL, "https://"), "http://"), Repo: repo, Tag: "2-alpine"}
 }
 
 func client(f *fake) *http.Client { return f.srv.Client() }
@@ -117,9 +131,14 @@ func TestRemoteConfigDigestPicksArch(t *testing.T) {
 			t.Errorf("arch %q = %q, %v; want %q", arch, got, err, want)
 		}
 	}
+	if len(f.accepts) != 6 {
+		t.Fatalf("recorded %d manifest requests, want 6 (index + by-digest, three arches)", len(f.accepts))
+	}
 	for _, mt := range []string{"application/vnd.oci.image.index.v1+json", "application/vnd.docker.distribution.manifest.list.v2+json", "application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"} {
-		if !strings.Contains(f.accept, mt) {
-			t.Errorf("Accept %q missing %s", f.accept, mt)
+		for i, a := range f.accepts {
+			if !strings.Contains(a, mt) {
+				t.Errorf("request %d Accept %q missing %s", i, a, mt)
+			}
 		}
 	}
 }
@@ -140,6 +159,9 @@ func TestRemoteConfigDigestNotFound(t *testing.T) {
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
+	if !strings.Contains(err.Error(), repo+":2-alpine") {
+		t.Errorf("err %q lacks repo:tag context", err)
+	}
 }
 
 func TestRemoteConfigDigestTokenFlow(t *testing.T) {
@@ -159,5 +181,43 @@ func TestRemoteConfigDigestNoMatchingArch(t *testing.T) {
 	newFake(t, f)
 	if _, err := remoteConfigDigest(context.Background(), client(f), "http", refFor(f), "riscv64"); err == nil {
 		t.Fatal("want error for missing platform")
+	}
+}
+
+func TestRemoteConfigDigestChildNotFound(t *testing.T) {
+	f := &fake{}
+	newFake(t, f)
+	ref := refFor(f)
+	ref.Tag = "orphan"
+	_, err := remoteConfigDigest(context.Background(), client(f), "http", ref, "arm64")
+	if !errors.Is(err, ErrNotFound) || !strings.Contains(err.Error(), "orphan") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRemoteConfigDigestScopelessChallenge(t *testing.T) {
+	f := &fake{needAuth: true, noScope: true}
+	newFake(t, f)
+	got, err := remoteConfigDigest(context.Background(), client(f), "http", refFor(f), "arm64")
+	if err != nil || got != armCfg {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+func TestRemoteConfigDigestBasicChallengeFirst(t *testing.T) {
+	f := &fake{needAuth: true, basicFirst: true}
+	newFake(t, f)
+	got, err := remoteConfigDigest(context.Background(), client(f), "http", refFor(f), "arm64")
+	if err != nil || got != armCfg {
+		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+func TestRemoteConfigDigestExportedOverTLS(t *testing.T) {
+	f := &fake{needAuth: true, useTLS: true}
+	newFake(t, f)
+	got, err := RemoteConfigDigest(context.Background(), client(f), refFor(f), "arm64")
+	if err != nil || got != armCfg {
+		t.Fatalf("got %q, %v", got, err)
 	}
 }

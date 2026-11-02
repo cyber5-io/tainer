@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // ErrNotFound is returned when the registry answers 404 for a manifest.
@@ -67,6 +68,9 @@ func remoteConfigDigest(ctx context.Context, httpc *http.Client, scheme string, 
 	if arch == "" {
 		arch = "arm64"
 	}
+	if httpc == nil {
+		httpc = &http.Client{Timeout: 10 * time.Second}
+	}
 	c := &regClient{httpc: httpc, scheme: scheme, ref: ref}
 	doc, err := c.manifest(ctx, ref.Tag)
 	if err != nil {
@@ -107,7 +111,7 @@ func (c *regClient) manifest(ctx context.Context, reference string) (*manifestDo
 		return nil, err
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
-		challenge := resp.Header.Get("WWW-Authenticate")
+		challenge := bearerChallenge(resp.Header.Values("WWW-Authenticate"))
 		resp.Body.Close()
 		if err := c.fetchToken(ctx, challenge); err != nil {
 			return nil, err
@@ -119,7 +123,7 @@ func (c *regClient) manifest(ctx context.Context, reference string) (*manifestDo
 	defer resp.Body.Close()
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%s/%s:%s: %w", c.ref.Host, c.ref.Repo, reference, ErrNotFound)
 	case resp.StatusCode != http.StatusOK:
 		return nil, fmt.Errorf("registry returned %s for %s", resp.Status, u)
 	}
@@ -142,6 +146,20 @@ func (c *regClient) get(ctx context.Context, u string) (*http.Response, error) {
 	return c.httpc.Do(req)
 }
 
+// bearerChallenge picks the Bearer entry from a response's WWW-Authenticate
+// values, or returns the first value (for the error message) when none is.
+func bearerChallenge(values []string) string {
+	for _, v := range values {
+		if scheme, _, _ := strings.Cut(v, " "); strings.EqualFold(scheme, "Bearer") {
+			return v
+		}
+	}
+	if len(values) > 0 {
+		return values[0]
+	}
+	return ""
+}
+
 func (c *regClient) fetchToken(ctx context.Context, challenge string) error {
 	scheme, params, _ := strings.Cut(challenge, " ")
 	if !strings.EqualFold(scheme, "Bearer") {
@@ -162,6 +180,8 @@ func (c *regClient) fetchToken(ctx context.Context, challenge string) error {
 	}
 	if v := attrs["scope"]; v != "" {
 		q.Set("scope", v)
+	} else {
+		q.Set("scope", "repository:"+c.ref.Repo+":pull")
 	}
 	tu.RawQuery = q.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tu.String(), nil)
@@ -174,7 +194,7 @@ func (c *regClient) fetchToken(ctx context.Context, challenge string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("registry token endpoint returned %s", resp.Status)
+		return fmt.Errorf("registry token endpoint %s for %s returned %s", tu.Host, c.ref.Repo, resp.Status)
 	}
 	var tok struct {
 		Token       string `json:"token"`
