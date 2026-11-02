@@ -3056,9 +3056,14 @@ func cmdUpdate(args []string) {
 	fs := flag.NewFlagSet("update", flag.ExitOnError)
 	baseType := fs.String("base", "", "refresh base image for project type (skips pod-level update)")
 	all := fs.Bool("all", false, "update every registered pod sequentially")
+	check := fs.Bool("check", false, "report which pods have updates available (no changes)")
 	_ = fs.Parse(rest)
 
 	switch {
+	case *check && (*all || *baseType != "" || fs.NArg() > 0):
+		must(updateCheckUsageErr())
+	case *check:
+		runUpdateCheck(mode)
 	case *baseType != "":
 		runUpdateBase(mode, *baseType)
 	case *all:

@@ -13,6 +13,7 @@ Examples are copied from the tests' own golden strings, so the page and the code
 | `tainer api --json` output | `TestAPIListsAllJSONCommands` (`cmd/tainer/api_test.go`) |
 | Error envelope | `TestJSONErrorEnvelopeAndExit` (`cmd/tainer/jsonenv_test.go`) |
 | `destroy --nuke` refusal | `TestNukeGuardInJSONMode` (`cmd/tainer/jsonenv_test.go`) |
+| `update --check` document | `TestJSONSnapshotUpdateCheck` against `update-check.golden` (`cmd/tainer/jsonsnap_test.go`), and `TestUpdateCheckRejectsCombinedModes` (`cmd/tainer/updatecheck_test.go`) |
 | `update-failed` envelope | `TestFailedUpdateAndNetworkEmitEnvelope` (`cmd/tainer/jsonenv_test.go`) |
 | Single-shot documents (status, doctor, start, stop, destroy, init, db, update, network) | `TestJSONSnapshot*` against `cmd/tainer/testdata/json/*.golden` (`cmd/tainer/jsonsnap_test.go`). The goldens omit `"v"`; the test requires the live output to equal the golden plus `"v":1` |
 | `list` document | `TestJSONSnapshotList` against `list-v1.golden`, and `TestJSONListEnvelope` |
@@ -254,6 +255,44 @@ Base image (`update --base <type>`; error envelope on failure):
 ```json
 {"v": 1, "mode": "base", "baseType": "wordpress", "updated": true, "elapsedMs": 1000}
 ```
+
+`update --check` is a metadata-only report: it compares each registered pod's local parts with the registry and changes nothing. It exits 0 even when updates exist. Pods that have never been started (no containers yet) are left out. If a pod's check fails (registry unreachable, local record unreadable), it counts as `unknown`, carries `error`, and its `updateAvailable` is false. With the stack not running it is an error envelope (`stack-unreachable`). Combining `--check` with `--all`, `--base` or a project name is `invalid-arguments`.
+
+```json
+{
+  "v": 1,
+  "checkedAt": "2026-11-02T12:00:00.000Z",
+  "pods": [
+    {
+      "name": "blog",
+      "type": "wordpress",
+      "domain": "blog.tainer.me",
+      "state": "running",
+      "updateAvailable": true,
+      "parts": "WordPress · PHP 8.3 · MariaDB 11 · Caddy",
+      "roles": [
+        {"role": "web", "image": "ghcr.io/cyber5-io/tainer-caddy-web:2-alpine", "updateAvailable": false},
+        {"role": "app", "image": "ghcr.io/cyber5-io/tainer-wordpress-app:php-8.3", "updateAvailable": true}
+      ]
+    },
+    {
+      "name": "shop",
+      "type": "react",
+      "domain": "shop.tainer.me",
+      "state": "stopped",
+      "updateAvailable": false,
+      "parts": "React · Node 22 · Caddy",
+      "roles": [],
+      "error": "registry unreachable"
+    }
+  ],
+  "upToDate": 0,
+  "available": 1,
+  "unknown": 1
+}
+```
+
+`state` is `running` or `stopped`. `parts` is a display line, not a stable identifier. `error` is present only when something failed.
 
 `update --all` is a report: it exits 1 if any pod failed, but still prints this document.
 
