@@ -247,8 +247,10 @@ A destroy the user declined at a prompt: `{"pod":"blog","destroyed":false,"cance
 Single project (error envelope on failure):
 
 ```json
-{"v": 1, "mode": "project", "pod": "blog", "updated": true, "elapsedMs": 1000}
+{"v": 1, "mode": "project", "pod": "blog", "updated": true, "started": true, "elapsedMs": 1000}
 ```
+
+`started` is true when the pod was brought back up after the update. A pod that was stopped before the update is recreated with the new images but left stopped, and reports `"updated": true, "started": false`. A pod that was running (or partly running) before the update reports `started: true`. The same `started` field appears on each `update --all` row, where it is false for a failed pod.
 
 Base image (`update --base <type>`; error envelope on failure):
 
@@ -301,8 +303,9 @@ Base image (`update --base <type>`; error envelope on failure):
   "v": 1,
   "mode": "all",
   "pods": [
-    {"name": "blog", "updated": true, "elapsedMs": 100},
-    {"name": "shop", "updated": false, "error": "manifest missing: x", "elapsedMs": 0}
+    {"name": "blog", "updated": true, "started": true, "elapsedMs": 100},
+    {"name": "docs", "updated": true, "started": false, "elapsedMs": 50},
+    {"name": "shop", "updated": false, "started": false, "error": "manifest missing: x", "elapsedMs": 0}
   ],
   "totalElapsedMs": 3000
 }

@@ -15,10 +15,29 @@ type UpdateOptions struct {
 	BaseType manifest.ProjectType // populated when BaseOnly=true
 }
 
+// UpdateResult reports what Update did beyond succeeding.
+type UpdateResult struct {
+	// Started is false when the pod was stopped before the update and
+	// was deliberately left stopped. It is also false for BaseOnly runs.
+	Started bool
+}
+
+// restartAfterUpdate decides whether an update brings the pod back up.
+// prior is the pod as it was before the update stopped it. A pod whose
+// containers were all stopped stays stopped; mixed counts as running.
+// A pod with no containers (never started) is started, as before.
+func restartAfterUpdate(prior *Pod) bool {
+	if prior == nil || len(prior.Containers) == 0 {
+		return true
+	}
+	return prior.State() != StateStopped
+}
+
 // Update refreshes a single pod's image and recreates its containers.
 // On `tainer update --base <type>` (BaseOnly=true), only the cache
-// gets refreshed — running pods are untouched.
-func Update(ctx context.Context, eng *engine.Client, opts StartOptions, uopt UpdateOptions) error {
+// gets refreshed — running pods are untouched. A pod that was stopped
+// before the update is recreated but left stopped.
+func Update(ctx context.Context, eng *engine.Client, opts StartOptions, uopt UpdateOptions) (UpdateResult, error) {
 	if uopt.BaseOnly {
 		// Pull each role's image for the base type. Use a synthesised
 		// manifest so ImageRef can resolve tags. ImageRef interpolates
@@ -40,46 +59,56 @@ func Update(ctx context.Context, eng *engine.Client, opts StartOptions, uopt Upd
 		report("pull", "pulling base images", -1, false)
 		for _, role := range RolesForType(uopt.BaseType) {
 			if err := eng.Pull(ctx, ImageRef(m, role)); err != nil {
-				return fmt.Errorf("update --base: pull %s: %w", role, err)
+				return UpdateResult{}, fmt.Errorf("update --base: pull %s: %w", role, err)
 			}
 		}
 		report("pull", "base images updated", 100, true)
-		return nil
+		return UpdateResult{}, nil
 	}
 
 	m, err := manifest.Load(opts.ManifestPath)
 	if err != nil {
-		return err
+		return UpdateResult{}, err
 	}
 	report := progress.Reporter(ctx, "update", m.Project.Name)
 	report("pull", "pulling images", -1, false)
 	for _, role := range RolesForPod(m) {
 		if err := eng.Pull(ctx, ImageRef(m, role)); err != nil {
-			return fmt.Errorf("update: pull %s: %w", role, err)
+			return UpdateResult{}, fmt.Errorf("update: pull %s: %w", role, err)
 		}
 	}
 	report("pull", "images updated", -1, false)
+	// Capture the prior state before Stop so a stopped pod stays stopped.
+	prior, err := Get(ctx, eng, m.Project.Name)
+	if err != nil {
+		return UpdateResult{}, err
+	}
+	restart := restartAfterUpdate(prior)
 	// Recreate containers by stopping + removing + re-running. Volumes
 	// preserved (DB data on the named volume; mount binds untouched).
 	if err := Stop(ctx, eng, m.Project.Name); err != nil {
-		return err
+		return UpdateResult{}, err
 	}
 	p, err := Get(ctx, eng, m.Project.Name)
 	if err != nil {
-		return err
+		return UpdateResult{}, err
 	}
 	if p != nil {
 		for _, c := range p.Containers {
 			if err := eng.Remove(ctx, c.Name, true); err != nil {
-				return err
+				return UpdateResult{}, err
 			}
 		}
 	}
+	if !restart {
+		report("restart", "pod updated (still stopped)", 100, true)
+		return UpdateResult{}, nil
+	}
 	if _, err = Start(ctx, eng, opts); err != nil {
-		return err
+		return UpdateResult{}, err
 	}
 	report("restart", "pod updated", 100, true)
-	return nil
+	return UpdateResult{Started: true}, nil
 }
 
 // defaultRuntimeFor returns the default RuntimeConfig for a project

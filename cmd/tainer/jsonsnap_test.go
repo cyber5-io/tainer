@@ -183,10 +183,12 @@ func TestJSONSnapshotDB(t *testing.T) {
 
 func TestJSONSnapshotUpdate(t *testing.T) {
 	assertSnapshot(t, "update-base-ok", func() { emitUpdateBaseJSON("wordpress", nil, time.Second) })
-	assertSnapshot(t, "update-single-ok", func() { emitUpdateSingleJSON("blog", nil, time.Second) })
+	assertSnapshot(t, "update-single-ok", func() { emitUpdateSingleJSON("blog", true, nil, time.Second) })
+	assertSnapshot(t, "update-single-stopped", func() { emitUpdateSingleJSON("blog", false, nil, time.Second) })
 	assertSnapshot(t, "update-all", func() {
 		emitUpdateAllJSON([]updateAllPodResult{
-			{Name: "blog", Updated: true, ElapsedMs: 100},
+			{Name: "blog", Updated: true, Started: true, ElapsedMs: 100},
+			{Name: "docs", Updated: true, ElapsedMs: 50},
 			{Name: "shop", Error: "manifest missing: x", ElapsedMs: 0},
 		}, 3*time.Second)
 	})
