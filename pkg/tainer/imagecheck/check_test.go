@@ -240,8 +240,10 @@ func TestRunBoundedConcurrency(t *testing.T) {
 		release <- struct{}{}
 	}
 	<-done
-	if peak > maxConcurrency || peak < 2 {
-		t.Fatalf("peak in-flight %d, want 2..%d", peak, maxConcurrency)
+	// The literal 6 is the requirement; asserting against maxConcurrency
+	// would mutate together with the code and never fail.
+	if peak > 6 || peak < 2 {
+		t.Fatalf("peak in-flight %d, want 2..6", peak)
 	}
 }
 
