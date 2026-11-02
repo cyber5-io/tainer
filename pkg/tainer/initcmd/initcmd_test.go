@@ -9,9 +9,18 @@ import (
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 )
 
+// isolateRegistry points the project registry at a throwaway directory.
+// Without it, every RunIn test registers its temp project into the
+// developer's real ~/.config/tainer/projects.json (found as 15 debris
+// entries in a live registry on 2026-11-02).
+func isolateRegistry(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+}
+
 // TestRunWordPress verifies that a WordPress project is scaffolded into the
 // current working directory — not into a <name> subdirectory.
 func TestRunWordPress(t *testing.T) {
+	isolateRegistry(t)
 	dir := t.TempDir()
 	_, err := RunIn(Options{
 		Type: manifest.TypeWordPress,
@@ -49,6 +58,7 @@ func TestRunWordPress(t *testing.T) {
 
 // TestRunKompoziDefaultsToPostgres verifies database type selection.
 func TestRunKompoziDefaultsToPostgres(t *testing.T) {
+	isolateRegistry(t)
 	dir := t.TempDir()
 	if _, err := RunIn(Options{Type: manifest.TypeKompozi, Name: "site"}, dir); err != nil {
 		t.Fatal(err)
@@ -64,6 +74,7 @@ func TestRunKompoziDefaultsToPostgres(t *testing.T) {
 
 // TestRunCreatesHtmlDataDbDirs verifies the directory tree lands in cwd.
 func TestRunCreatesHtmlDataDbDirs(t *testing.T) {
+	isolateRegistry(t)
 	dir := t.TempDir()
 	if _, err := RunIn(Options{Type: manifest.TypeWordPress, Name: "site"}, dir); err != nil {
 		t.Fatalf("RunIn: %v", err)
@@ -84,6 +95,7 @@ func TestRunCreatesHtmlDataDbDirs(t *testing.T) {
 // TestRunNoDatabaseSkipsDbDir verifies that db/ is not created when the
 // project type declares no database.
 func TestRunNoDatabaseSkipsDbDir(t *testing.T) {
+	isolateRegistry(t)
 	dir := t.TempDir()
 	// Write a tainer.yaml manually with database: none — but we can't pass
 	// DatabaseNone through Options directly.  Instead scaffold a NodeJS
@@ -107,6 +119,7 @@ func TestRunNoDatabaseSkipsDbDir(t *testing.T) {
 // TestRunWordPressCreatesWPContentDirs checks legacy 0.2.x line 151-155:
 // WordPress gets data/wp-content/{uploads,plugins,themes}.
 func TestRunWordPressCreatesWPContentDirs(t *testing.T) {
+	isolateRegistry(t)
 	dir := t.TempDir()
 	if _, err := RunIn(Options{Type: manifest.TypeWordPress, Name: "wp"}, dir); err != nil {
 		t.Fatalf("RunIn: %v", err)
@@ -122,6 +135,7 @@ func TestRunWordPressCreatesWPContentDirs(t *testing.T) {
 // TestRunDefaultsNameToCwdBasename verifies that when Name is empty the
 // directory basename is used.
 func TestRunDefaultsNameToCwdBasename(t *testing.T) {
+	isolateRegistry(t)
 	// Use a temp dir whose base is a valid project name.
 	parent := t.TempDir()
 	dir := filepath.Join(parent, "myproject")
@@ -143,6 +157,7 @@ func TestRunDefaultsNameToCwdBasename(t *testing.T) {
 // TestRunErrorsIfTainerYamlExists verifies that a second init in the same
 // directory is rejected with a clear message.
 func TestRunErrorsIfTainerYamlExists(t *testing.T) {
+	isolateRegistry(t)
 	dir := t.TempDir()
 	if _, err := RunIn(Options{Type: manifest.TypeNodeJS, Name: "first"}, dir); err != nil {
 		t.Fatalf("first RunIn: %v", err)
@@ -158,6 +173,7 @@ func TestRunErrorsIfTainerYamlExists(t *testing.T) {
 
 // TestRunWritesDotEnv verifies that a .env file is created in cwd.
 func TestRunWritesDotEnv(t *testing.T) {
+	isolateRegistry(t)
 	dir := t.TempDir()
 	if _, err := RunIn(Options{Type: manifest.TypeWordPress, Name: "envtest"}, dir); err != nil {
 		t.Fatalf("RunIn: %v", err)
@@ -168,6 +184,7 @@ func TestRunWritesDotEnv(t *testing.T) {
 }
 
 func TestRunHonoursPodSize(t *testing.T) {
+	isolateRegistry(t)
 	dir := t.TempDir()
 	if _, err := RunIn(Options{Type: manifest.TypeNodeJS, Name: "big", PodSize: manifest.PodSizeLarge}, dir); err != nil {
 		t.Fatalf("RunIn: %v", err)
