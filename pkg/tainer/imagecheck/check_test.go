@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
@@ -203,4 +205,113 @@ func TestReportJSONShape(t *testing.T) {
 	if _, ok := p["error"]; ok {
 		t.Fatal("error should be omitted when empty")
 	}
+}
+
+func TestRunBoundedConcurrency(t *testing.T) {
+	f := newFakes()
+	var mu sync.Mutex
+	inflight, peak := 0, 0
+	release := make(chan struct{})
+	d := f.deps()
+	d.ImageInspect = func(ctx context.Context, ref string) (engine.ImageInfo, error) {
+		return engine.ImageInfo{ID: "x", Architecture: "arm64"}, nil
+	}
+	d.RemoteConfigDigest = func(ctx context.Context, ref Ref, arch string) (string, error) {
+		mu.Lock()
+		inflight++
+		if inflight > peak {
+			peak = inflight
+		}
+		mu.Unlock()
+		<-release
+		mu.Lock()
+		inflight--
+		mu.Unlock()
+		return "x", nil
+	}
+	unique := map[string]struct{}{}
+	for i := 0; i < 24; i++ {
+		unique[fmt.Sprintf("ghcr.io/cyber5-io/img%d:1", i)] = struct{}{}
+	}
+	done := make(chan struct{})
+	go func() { checkRefs(context.Background(), d, unique); close(done) }()
+	for i := 0; i < 24; i++ {
+		time.Sleep(5 * time.Millisecond)
+		release <- struct{}{}
+	}
+	<-done
+	if peak > maxConcurrency || peak < 2 {
+		t.Fatalf("peak in-flight %d, want 2..%d", peak, maxConcurrency)
+	}
+}
+
+func TestRunMixedPodIsAvailableWithError(t *testing.T) {
+	f := newFakes()
+	sameEverywhere(f, web, db)
+	f.local[wpA] = "old"
+	f.digest[wpA] = "sha256:new"
+	f.local[rA] = "x"
+	f.pods = []pod.Pod{{Name: "blog", Containers: []pod.Container{{Role: "web", State: "running"}}}}
+	f.rerr[db] = errors.New("registry unreachable")
+	rep, err := Run(context.Background(), f.deps(), map[string]registry.Project{"blog": mkProject(t, "blog", wpYAML)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Available != 1 || rep.Unknown != 0 || rep.Pods[0].Error == "" {
+		t.Fatalf("report %+v", rep)
+	}
+	if !strings.Contains(rep.Pods[0].Error, db) {
+		t.Fatalf("error should name the ref: %q", rep.Pods[0].Error)
+	}
+}
+
+func TestRunCancelledContext(t *testing.T) {
+	f := newFakes()
+	sameEverywhere(f, web, rA)
+	f.pods = []pod.Pod{{Name: "app", Containers: []pod.Container{{Role: "web", State: "running"}}}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := Run(ctx, f.deps(), map[string]registry.Project{"app": mkProject(t, "app", reactYAML)})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+}
+
+func TestRunPerPodErrorCases(t *testing.T) {
+	t.Run("manifest load failure", func(t *testing.T) {
+		f := newFakes()
+		f.pods = []pod.Pod{{Name: "bad", Containers: []pod.Container{{Role: "web", State: "running"}}}}
+		rep, err := Run(context.Background(), f.deps(), map[string]registry.Project{"bad": {Path: t.TempDir(), Type: "react", Domain: "bad.tainer.me"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := rep.Pods[0]
+		if rep.Unknown != 1 || p.Error == "" || p.Parts != "" || p.Roles == nil || len(p.Roles) != 0 {
+			t.Fatalf("report %+v", rep)
+		}
+	})
+	t.Run("unparsable ref", func(t *testing.T) {
+		t.Setenv("TAINER_IMAGE_REPO", "nohostrepo@sha256:abc")
+		f := newFakes()
+		f.pods = []pod.Pod{{Name: "app", Containers: []pod.Container{{Role: "web", State: "running"}}}}
+		rep, err := Run(context.Background(), f.deps(), map[string]registry.Project{"app": mkProject(t, "app", reactYAML)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rep.Unknown != 1 || rep.Pods[0].Error == "" || rep.Pods[0].UpdateAvailable {
+			t.Fatalf("report %+v", rep)
+		}
+	})
+	t.Run("stopped pod container without role", func(t *testing.T) {
+		f := newFakes()
+		sameEverywhere(f, web, rA)
+		f.pods = []pod.Pod{{Name: "app", Containers: []pod.Container{{State: "exited"}}}}
+		rep, err := Run(context.Background(), f.deps(), map[string]registry.Project{"app": mkProject(t, "app", reactYAML)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rep.UpToDate != 1 || rep.Pods[0].State != "stopped" {
+			t.Fatalf("report %+v", rep)
+		}
+	})
 }

@@ -13,3 +13,11 @@ func TestUpdateCheckRejectsCombinedModes(t *testing.T) {
 		}
 	}
 }
+
+func TestUpdateCheckDaemonDownEmitsEnvelope(t *testing.T) {
+	t.Setenv("DOCKER_HOST", "unix://"+t.TempDir()+"/missing.sock")
+	out, exit := failureHarness(t, true, func() { cmdUpdate([]string{"--json", "--check"}) })
+	if exit != 1 || !strings.Contains(string(out), `"code":"stack-unreachable"`) {
+		t.Fatalf("exit=%d out=%s", exit, out)
+	}
+}

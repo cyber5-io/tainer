@@ -110,6 +110,9 @@ func Run(ctx context.Context, d Deps, projects map[string]registry.Project) (Rep
 	}
 
 	results := checkRefs(ctx, d, unique)
+	if err := ctx.Err(); err != nil {
+		return Report{}, err
+	}
 
 	rep := Report{CheckedAt: time.Now().UTC().Format("2006-01-02T15:04:05.000Z07:00"), Pods: make([]PodReport, 0, len(plans))}
 	for _, pl := range plans {
@@ -158,7 +161,12 @@ func checkRefs(ctx context.Context, d Deps, refs map[string]struct{}) map[string
 	var wg sync.WaitGroup
 	for ref := range refs {
 		wg.Add(1)
-		sem <- struct{}{}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Done()
+			continue
+		}
 		go func(ref string) {
 			defer wg.Done()
 			defer func() { <-sem }()
@@ -183,7 +191,7 @@ func checkRef(ctx context.Context, d Deps, ref string) refResult {
 	}
 	remote, err := d.RemoteConfigDigest(ctx, parsed, local.Architecture)
 	if err != nil {
-		return refResult{err: err}
+		return refResult{err: fmt.Errorf("remote %s: %w", ref, err)}
 	}
 	return refResult{update: normDigest(local.ID) != normDigest(remote)}
 }
