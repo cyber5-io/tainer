@@ -251,3 +251,26 @@ func (c *Client) NetworkSubnets(ctx context.Context) ([]string, error) {
 // "engine error". The underlying SDK uses an opaque error type; this
 // is an explicit sentinel for callers that prefer errors.Is.
 var ErrNotFound = errors.New("not found")
+
+// ErrImageNotFound is returned by ImageInspect when the engine has no image
+// for the given reference.
+var ErrImageNotFound = errors.New("image not found")
+
+// ImageInfo is the subset of the engine's image record tainer cares about.
+type ImageInfo struct {
+	ID           string
+	Architecture string
+}
+
+// ImageInspect returns the engine's record for the image ref. A missing
+// image yields an error wrapping ErrImageNotFound.
+func (c *Client) ImageInspect(ctx context.Context, ref string) (ImageInfo, error) {
+	resp, err := c.api.ImageInspect(ctx, ref)
+	if err != nil {
+		if client.IsErrNotFound(err) {
+			return ImageInfo{}, fmt.Errorf("engine: image inspect %s: %w", ref, ErrImageNotFound)
+		}
+		return ImageInfo{}, fmt.Errorf("engine: image inspect %s: %w", ref, err)
+	}
+	return ImageInfo{ID: resp.ID, Architecture: resp.Architecture}, nil
+}
