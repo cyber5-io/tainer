@@ -135,3 +135,16 @@ func TestCheckTLSExpiredNoAttemptYet(t *testing.T) {
 		t.Errorf("stale manual hint survived: %q", r.Hint)
 	}
 }
+
+// The stopped count covers every registered project that has no
+// running pod — not just engine-known pods (TAIN-119 convergence).
+func TestCountStoppedCoversRegistryOnlyProjects(t *testing.T) {
+	registered := []string{"blog", "shop", "api", "docs"}
+	running := map[string]bool{"blog": true}
+	if got := countStopped(registered, running); got != 3 {
+		t.Fatalf("countStopped = %d, want 3", got)
+	}
+	if got := countStopped(nil, running); got != 0 {
+		t.Fatalf("countStopped(nil) = %d, want 0", got)
+	}
+}

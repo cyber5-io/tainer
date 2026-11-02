@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	tainer "github.com/cyber5-io/tainer/pkg/tainer"
 	"github.com/cyber5-io/tainer/pkg/tainer/certsync"
 	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/dns"
@@ -113,6 +114,24 @@ type Options struct {
 	// strictly sequential: every Started is followed by at least one
 	// Progress before the next Started.
 	Started func(name string)
+
+	// RegisteredPods, when non-nil, names every user-visible registered
+	// project. StoppedPods then counts registered projects without a
+	// running pod, so the figure matches `tainer list` and the control
+	// dashboard instead of only engine-known pods.
+	RegisteredPods []string
+}
+
+// countStopped is the registry-wide stopped figure: every registered
+// project that has no running pod.
+func countStopped(registered []string, running map[string]bool) int {
+	n := 0
+	for _, name := range registered {
+		if !running[name] {
+			n++
+		}
+	}
+	return n
 }
 
 // Run executes all checks in dependency order and returns the report.
@@ -457,10 +476,44 @@ func (d *run) checkPods(ctx context.Context, eng *engine.Client) {
 		return
 	}
 	probed := 0
+	runningNames := make(map[string]bool, len(pods))
 	for _, p := range pods {
 		name := "pod " + p.Name
+		// The pinned control pod is infrastructure (it serves the
+		// dashboard), not a user pod: probe it under its own name and
+		// keep it out of every pod count.
+		pinned := tainer.IsPinnedProject(p.Name)
+		if pinned {
+			name = "dashboard"
+		}
 		if p.State() == pod.StateStopped {
+			if pinned {
+				d.add(Result{Name: name, Status: StatusWarn,
+					Detail: "not running",
+					Hint:   "it starts with the stack — run `tainer doctor --fix`"})
+				continue
+			}
 			d.report.StoppedPods++
+			continue
+		}
+		runningNames[p.Name] = true
+		if pinned {
+			d.start(name)
+			domain := podDomain(ctx, eng, p)
+			code, err := d.probeHTTPS(ctx, domain)
+			switch {
+			case domain == "" || err != nil:
+				d.add(Result{Name: name, Status: StatusFail,
+					Detail: "the control dashboard is unreachable",
+					Hint:   "try `tainer doctor --fix`"})
+			case code >= 500:
+				d.add(Result{Name: name, Status: StatusFail,
+					Detail: fmt.Sprintf("https://%s → HTTP %d", domain, code),
+					Hint:   "the dashboard is up but erroring — check its logs"})
+			default:
+				d.add(Result{Name: name, Status: StatusOK,
+					Detail: fmt.Sprintf("https://%s → HTTP %d", domain, code)})
+			}
 			continue
 		}
 		probed++
@@ -498,6 +551,12 @@ func (d *run) checkPods(ctx context.Context, eng *engine.Client) {
 			d.add(Result{Name: name, Status: StatusOK,
 				Detail: fmt.Sprintf("https://%s → HTTP %d", domain, code)})
 		}
+	}
+	// Registry-wide stopped figure: a project with no engine pod at all
+	// is just as stopped as one whose containers exist. Keeps doctor's
+	// numbers in line with `tainer list` and the dashboard (TAIN-119).
+	if d.opts.RegisteredPods != nil {
+		d.report.StoppedPods = countStopped(d.opts.RegisteredPods, runningNames)
 	}
 	if probed == 0 {
 		detail := "no pods"

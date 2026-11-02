@@ -105,3 +105,13 @@ func withRegisteredProjects(pods []podStatus, reg map[string]registry.Project) [
 	}
 	return pods
 }
+
+// visibleProjectNames lists every user-visible registered project name.
+func visibleProjectNames() []string {
+	all := visibleProjects(registry.All())
+	names := make([]string, 0, len(all))
+	for name := range all {
+		names = append(names, name)
+	}
+	return names
+}

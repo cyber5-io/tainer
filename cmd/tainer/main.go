@@ -830,7 +830,7 @@ func cmdDoctor(args []string) {
 	flags, rest := tui.ParseOutputFlags(args)
 	mode := resolveMode(flags, false)
 
-	opts := doctor.Options{}
+	opts := doctor.Options{RegisteredPods: visibleProjectNames()}
 	for _, a := range rest {
 		switch a {
 		case "--fix", "-f":
