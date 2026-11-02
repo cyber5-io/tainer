@@ -111,24 +111,30 @@ func TestRunDedupesAndClassifies(t *testing.T) {
 	projects := map[string]registry.Project{
 		"blog":  mkProject(t, "blog", wpYAML),
 		"app":   mkProject(t, "app", reactYAML),
-		"newer": mkProject(t, "newer", reactYAML), // registry-only: no engine pod
+		"newer": mkProject(t, "newer", reactYAML), // no engine pod: stopped, up to date
 	}
 	rep, err := Run(context.Background(), f.deps(), projects)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rep.Pods) != 2 {
-		t.Fatalf("pods=%d want 2 (registry-only excluded)", len(rep.Pods))
+	if len(rep.Pods) != 3 {
+		t.Fatalf("pods=%d want 3 (registry-only included)", len(rep.Pods))
 	}
-	if rep.Available != 1 || rep.UpToDate != 1 || rep.Unknown != 0 {
+	if rep.Available != 1 || rep.UpToDate != 2 || rep.Unknown != 0 {
 		t.Fatalf("counts %+v", rep)
 	}
 	if n := f.remote[web]; n != 1 {
 		t.Fatalf("caddy-web fetched %d times, want 1", n)
 	}
-	app, blog := rep.Pods[0], rep.Pods[1]
-	if app.Name != "app" || blog.Name != "blog" {
-		t.Fatalf("not sorted: %s %s", app.Name, blog.Name)
+	app, blog, newer := rep.Pods[0], rep.Pods[1], rep.Pods[2]
+	if app.Name != "app" || blog.Name != "blog" || newer.Name != "newer" {
+		t.Fatalf("not sorted: %s %s %s", app.Name, blog.Name, newer.Name)
+	}
+	if newer.State != "stopped" || newer.UpdateAvailable || newer.Error != "" || len(newer.Roles) != 0 || newer.Parts != "React · Node 22 · Caddy" {
+		t.Fatalf("no-container project: %+v", newer)
+	}
+	if n := f.remote[rA]; n != 1 {
+		t.Fatalf("react app fetched %d times, want 1 (no checks for container-less project)", n)
 	}
 	if !blog.UpdateAvailable || blog.State != "running" || app.State != "stopped" {
 		t.Fatalf("blog/app: %+v / %+v", blog, app)
@@ -316,4 +322,16 @@ func TestRunPerPodErrorCases(t *testing.T) {
 			t.Fatalf("report %+v", rep)
 		}
 	})
+}
+
+func TestRunUpdatedWhileStoppedStaysInReport(t *testing.T) {
+	f := newFakes()
+	f.pods = nil
+	rep, err := Run(context.Background(), f.deps(), map[string]registry.Project{"blog": mkProject(t, "blog", wpYAML)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Pods) != 1 || rep.UpToDate != 1 || rep.Pods[0].State != "stopped" || rep.Pods[0].UpdateAvailable {
+		t.Fatalf("report %+v", rep)
+	}
 }

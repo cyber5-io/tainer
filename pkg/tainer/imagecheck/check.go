@@ -65,7 +65,8 @@ type podPlan struct {
 }
 
 // Run compares each registered project's local images with the registry,
-// metadata only. Projects with no engine pod are left out.
+// metadata only. Projects with no engine pod are reported as stopped and
+// up to date.
 func Run(ctx context.Context, d Deps, projects map[string]registry.Project) (Report, error) {
 	pods, err := d.EnginePods(ctx)
 	if err != nil {
@@ -78,17 +79,16 @@ func Run(ctx context.Context, d Deps, projects map[string]registry.Project) (Rep
 
 	names := make([]string, 0, len(projects))
 	for n := range projects {
-		if _, ok := byName[n]; ok {
-			names = append(names, n)
-		}
+		names = append(names, n)
 	}
 	sort.Strings(names)
 
 	plans := make([]podPlan, 0, len(names))
 	unique := map[string]struct{}{}
 	for _, n := range names {
+		ep, hasPod := byName[n]
 		pl := podPlan{name: n, state: "running"}
-		if byName[n].State() == pod.StateStopped {
+		if !hasPod || ep.State() == pod.StateStopped {
 			pl.state = "stopped"
 		}
 		m, err := manifest.Load(filepath.Join(projects[n].Path, manifest.FileName))
@@ -98,6 +98,12 @@ func Run(ctx context.Context, d Deps, projects map[string]registry.Project) (Rep
 			continue
 		}
 		pl.m = m
+		if !hasPod {
+			// No containers (never started, or updated while stopped): the
+			// next start pulls fresh parts, so there is nothing to compare.
+			plans = append(plans, pl)
+			continue
+		}
 		for _, role := range pod.RolesForPod(m) {
 			ref := pod.ImageRef(m, role)
 			if ref == "" {

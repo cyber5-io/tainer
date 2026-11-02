@@ -258,7 +258,7 @@ Base image (`update --base <type>`; error envelope on failure):
 {"v": 1, "mode": "base", "baseType": "wordpress", "updated": true, "elapsedMs": 1000}
 ```
 
-`update --check` is a metadata-only report: it compares each registered pod's local parts with the registry and changes nothing. It exits 0 even when updates exist. Pods that have never been started (no containers yet) are left out. If a pod's check fails (registry unreachable, local record unreadable), it counts as `unknown`, carries `error`, and its `updateAvailable` is false. With the stack not running it is an error envelope (`stack-unreachable`). Combining `--check` with `--all`, `--base` or a project name is `invalid-arguments`.
+`update --check` is a metadata-only report: it compares each registered pod's local parts with the registry and changes nothing. It exits 0 even when updates exist. Every visible registered project is listed. A project with no containers (never started, or updated while stopped) appears with `state` `stopped`, `updateAvailable` false, empty `roles`, and counts as up to date: its next start pulls fresh parts. If a check fails (registry unreachable, local record unreadable), the pod carries `error`. It counts as `unknown` only when no other role shows an update; one failed role plus one role with an update is `available`, with `error` riding along. A pod whose manifest cannot be read counts as `unknown`. With the stack not running it is an error envelope (`stack-unreachable`). Combining `--check` with `--all`, `--base` or a project name is `invalid-arguments`.
 
 ```json
 {

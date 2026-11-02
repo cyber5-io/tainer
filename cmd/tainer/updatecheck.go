@@ -49,6 +49,9 @@ func runUpdateCheck(outMode tui.OutputMode) {
 				fmt.Printf("update available: %s (%s)\n", p.Name, p.Parts)
 			}
 		}
+		for _, p := range unknownPods(rep) {
+			fmt.Printf("couldn't check: %s - %s\n", p.Name, p.Error)
+		}
 		fmt.Println(updateCheckSummary(rep))
 	default:
 		tui.Bookend("update", "check")
@@ -57,11 +60,26 @@ func runUpdateCheck(outMode tui.OutputMode) {
 				fmt.Println("  " + tui.MarkInfo() + p.Name + "  " + p.Parts)
 			}
 		}
-		if rep.Available > 0 {
+		for _, p := range unknownPods(rep) {
+			fmt.Println("  " + tui.MarkWarn() + "couldn't check: " + p.Name + " — " + p.Error)
+		}
+		if rep.Available > 0 || rep.Unknown > 0 {
 			fmt.Println()
 		}
 		tui.BookendClose(time.Since(started), updateCheckSummary(rep))
 	}
+}
+
+// unknownPods are the pods counted as unknown: a check failed and no role
+// shows an update.
+func unknownPods(r imagecheck.Report) []imagecheck.PodReport {
+	var out []imagecheck.PodReport
+	for _, p := range r.Pods {
+		if p.Error != "" && !p.UpdateAvailable {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func updateCheckSummary(r imagecheck.Report) string {

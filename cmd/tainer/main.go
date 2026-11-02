@@ -3181,7 +3181,7 @@ func runUpdateSingle(outMode tui.OutputMode, positional []string) {
 	case tui.ModePlain:
 		fmt.Printf("%s...\n", label)
 		must(run())
-		fmt.Printf("%s %s   (%.1fs)\n", updatedWord(res.Started), projectName, time.Since(started).Seconds())
+		fmt.Printf("updated %s%s   (%.1fs)\n", projectName, stillStoppedNote(res.Started), time.Since(started).Seconds())
 	default:
 		tui.Bookend(projectName, "update")
 		if err := tui.RunSpinner(label, run); err != nil {
@@ -3197,13 +3197,13 @@ func runUpdateSingle(outMode tui.OutputMode, positional []string) {
 	}
 }
 
-// updatedWord is the plain-mode verb for a finished update: a pod that
+// stillStoppedNote is the suffix for a finished update's line: a pod that
 // was stopped before the update is recreated but left stopped.
-func updatedWord(started bool) string {
+func stillStoppedNote(started bool) string {
 	if started {
-		return "updated"
+		return ""
 	}
-	return "updated (still stopped)"
+	return " (still stopped)"
 }
 
 // emitUpdateSingleJSON prints the result document, or the error envelope when
@@ -3338,7 +3338,7 @@ func runUpdateAll(outMode tui.OutputMode) {
 		}
 		if outMode == tui.ModePlain {
 			if res.Updated {
-				fmt.Printf("%s %s   (%.1fs)\n", updatedWord(res.Started), name, float64(res.ElapsedMs)/1000)
+				fmt.Printf("updated %s%s   (%.1fs)\n", name, stillStoppedNote(res.Started), float64(res.ElapsedMs)/1000)
 			} else {
 				fmt.Printf("failed %s: %s\n", name, res.Error)
 			}
