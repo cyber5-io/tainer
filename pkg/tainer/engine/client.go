@@ -7,6 +7,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -251,3 +252,43 @@ func (c *Client) NetworkSubnets(ctx context.Context) ([]string, error) {
 // "engine error". The underlying SDK uses an opaque error type; this
 // is an explicit sentinel for callers that prefer errors.Is.
 var ErrNotFound = errors.New("not found")
+
+// ErrImageNotFound is returned by ImageInspect when the engine has no image
+// for the given reference.
+var ErrImageNotFound = errors.New("image not found")
+
+// ImageInfo is the subset of the engine's image record tainer cares about.
+type ImageInfo struct {
+	ID           string
+	Architecture string
+}
+
+// ImageInspect returns the engine's record for the image ref. A missing
+// image yields an error wrapping ErrImageNotFound. It decodes only the
+// fields in ImageInfo rather than the SDK's InspectResponse, whose field
+// types do not match what the daemon sends (e.g. Created).
+func (c *Client) ImageInspect(ctx context.Context, ref string) (ImageInfo, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://cyberstack/images/"+ref+"/json", nil)
+	if err != nil {
+		return ImageInfo{}, fmt.Errorf("engine: image inspect %s: %w", ref, err)
+	}
+	resp, err := c.api.HTTPClient().Do(req)
+	if err != nil {
+		return ImageInfo{}, fmt.Errorf("engine: image inspect %s: %w", ref, err)
+	}
+	defer resp.Body.Close()
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		return ImageInfo{}, fmt.Errorf("engine: image inspect %s: %w", ref, ErrImageNotFound)
+	case resp.StatusCode != http.StatusOK:
+		return ImageInfo{}, fmt.Errorf("engine: image inspect %s: unexpected status %s", ref, resp.Status)
+	}
+	var body struct {
+		Id           string
+		Architecture string
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return ImageInfo{}, fmt.Errorf("engine: image inspect %s: decode: %w", ref, err)
+	}
+	return ImageInfo{ID: body.Id, Architecture: body.Architecture}, nil
+}

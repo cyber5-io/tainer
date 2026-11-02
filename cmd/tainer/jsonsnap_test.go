@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/doctor"
+	"github.com/cyber5-io/tainer/pkg/tainer/imagecheck"
 	"github.com/cyber5-io/tainer/pkg/tainer/initcmd"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 	"github.com/cyber5-io/tainer/pkg/tainer/networkcmd"
@@ -182,10 +183,12 @@ func TestJSONSnapshotDB(t *testing.T) {
 
 func TestJSONSnapshotUpdate(t *testing.T) {
 	assertSnapshot(t, "update-base-ok", func() { emitUpdateBaseJSON("wordpress", nil, time.Second) })
-	assertSnapshot(t, "update-single-ok", func() { emitUpdateSingleJSON("blog", nil, time.Second) })
+	assertSnapshot(t, "update-single-ok", func() { emitUpdateSingleJSON("blog", true, nil, time.Second) })
+	assertSnapshot(t, "update-single-stopped", func() { emitUpdateSingleJSON("blog", false, nil, time.Second) })
 	assertSnapshot(t, "update-all", func() {
 		emitUpdateAllJSON([]updateAllPodResult{
-			{Name: "blog", Updated: true, ElapsedMs: 100},
+			{Name: "blog", Updated: true, Started: true, ElapsedMs: 100},
+			{Name: "docs", Updated: true, ElapsedMs: 50},
 			{Name: "shop", Error: "manifest missing: x", ElapsedMs: 0},
 		}, 3*time.Second)
 	})
@@ -216,4 +219,24 @@ func sampleListRows() []listRow {
 func TestJSONSnapshotList(t *testing.T) {
 	assertGolden(t, "list-v1", true, func() { emitListJSON(sampleListRows()) })
 	assertGolden(t, "list-v1-empty", true, func() { emitListJSON(nil) })
+}
+
+func TestJSONSnapshotUpdateCheck(t *testing.T) {
+	assertSnapshot(t, "update-check", func() {
+		jsonDoc(imagecheck.Report{
+			CheckedAt: "2026-11-02T12:00:00.000Z",
+			Pods: []imagecheck.PodReport{
+				{Name: "blog", Type: "wordpress", Domain: "blog.tainer.me", State: "running", UpdateAvailable: true,
+					Parts: "WordPress · PHP 8.3 · MariaDB 11 · Caddy",
+					Roles: []imagecheck.RoleReport{
+						{Role: "web", Image: "ghcr.io/cyber5-io/tainer-caddy-web:2-alpine"},
+						{Role: "app", Image: "ghcr.io/cyber5-io/tainer-wordpress-app:php-8.3", UpdateAvailable: true},
+					}},
+				{Name: "shop", Type: "react", Domain: "shop.tainer.me", State: "stopped",
+					Parts: "React · Node 22 · Caddy", Roles: []imagecheck.RoleReport{}, Error: "registry unreachable"},
+			},
+			Available: 1,
+			Unknown:   1,
+		})
+	})
 }

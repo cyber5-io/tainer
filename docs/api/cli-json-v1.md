@@ -13,6 +13,7 @@ Examples are copied from the tests' own golden strings, so the page and the code
 | `tainer api --json` output | `TestAPIListsAllJSONCommands` (`cmd/tainer/api_test.go`) |
 | Error envelope | `TestJSONErrorEnvelopeAndExit` (`cmd/tainer/jsonenv_test.go`) |
 | `destroy --nuke` refusal | `TestNukeGuardInJSONMode` (`cmd/tainer/jsonenv_test.go`) |
+| `update --check` document | `TestJSONSnapshotUpdateCheck` against `update-check.golden` (`cmd/tainer/jsonsnap_test.go`), and `TestUpdateCheckRejectsCombinedModes` (`cmd/tainer/updatecheck_test.go`) |
 | `update-failed` envelope | `TestFailedUpdateAndNetworkEmitEnvelope` (`cmd/tainer/jsonenv_test.go`) |
 | Single-shot documents (status, doctor, start, stop, destroy, init, db, update, network) | `TestJSONSnapshot*` against `cmd/tainer/testdata/json/*.golden` (`cmd/tainer/jsonsnap_test.go`). The goldens omit `"v"`; the test requires the live output to equal the golden plus `"v":1` |
 | `list` document | `TestJSONSnapshotList` against `list-v1.golden`, and `TestJSONListEnvelope` |
@@ -246,14 +247,54 @@ A destroy the user declined at a prompt: `{"pod":"blog","destroyed":false,"cance
 Single project (error envelope on failure):
 
 ```json
-{"v": 1, "mode": "project", "pod": "blog", "updated": true, "elapsedMs": 1000}
+{"v": 1, "mode": "project", "pod": "blog", "updated": true, "started": true, "elapsedMs": 1000}
 ```
+
+`started` is true when the pod was brought back up after the update. A pod that was stopped before the update, or never started, gets the new images but is left stopped, and reports `"updated": true, "started": false`. A pod that was running (or partly running) before the update reports `started: true`. The same `started` field appears on each `update --all` row, where it is false for a failed pod.
 
 Base image (`update --base <type>`; error envelope on failure):
 
 ```json
 {"v": 1, "mode": "base", "baseType": "wordpress", "updated": true, "elapsedMs": 1000}
 ```
+
+`update --check` is a metadata-only report: it compares each registered pod's local parts with the registry and changes nothing. It exits 0 even when updates exist. Every visible registered project is listed. A project with no containers (never started, or updated while stopped) appears with `state` `stopped`, `updateAvailable` false, empty `roles`, and counts as up to date: its next start pulls fresh parts. If a check fails (registry unreachable, local record unreadable), the pod carries `error`. It counts as `unknown` only when no other role shows an update; one failed role plus one role with an update is `available`, with `error` riding along. A pod whose manifest cannot be read counts as `unknown`. With the stack not running it is an error envelope (`stack-unreachable`). Combining `--check` with `--all`, `--base` or a project name is `invalid-arguments`.
+
+```json
+{
+  "v": 1,
+  "checkedAt": "2026-11-02T12:00:00.000Z",
+  "pods": [
+    {
+      "name": "blog",
+      "type": "wordpress",
+      "domain": "blog.tainer.me",
+      "state": "running",
+      "updateAvailable": true,
+      "parts": "WordPress · PHP 8.3 · MariaDB 11 · Caddy",
+      "roles": [
+        {"role": "web", "image": "ghcr.io/cyber5-io/tainer-caddy-web:2-alpine", "updateAvailable": false},
+        {"role": "app", "image": "ghcr.io/cyber5-io/tainer-wordpress-app:php-8.3", "updateAvailable": true}
+      ]
+    },
+    {
+      "name": "shop",
+      "type": "react",
+      "domain": "shop.tainer.me",
+      "state": "stopped",
+      "updateAvailable": false,
+      "parts": "React · Node 22 · Caddy",
+      "roles": [],
+      "error": "registry unreachable"
+    }
+  ],
+  "upToDate": 0,
+  "available": 1,
+  "unknown": 1
+}
+```
+
+`state` is `running` or `stopped`. `parts` is a display line, not a stable identifier. `error` is present only when something failed.
 
 `update --all` is a report: it exits 1 if any pod failed, but still prints this document.
 
@@ -262,8 +303,9 @@ Base image (`update --base <type>`; error envelope on failure):
   "v": 1,
   "mode": "all",
   "pods": [
-    {"name": "blog", "updated": true, "elapsedMs": 100},
-    {"name": "shop", "updated": false, "error": "manifest missing: x", "elapsedMs": 0}
+    {"name": "blog", "updated": true, "started": true, "elapsedMs": 100},
+    {"name": "docs", "updated": true, "started": false, "elapsedMs": 50},
+    {"name": "shop", "updated": false, "started": false, "error": "manifest missing: x", "elapsedMs": 0}
   ],
   "totalElapsedMs": 3000
 }

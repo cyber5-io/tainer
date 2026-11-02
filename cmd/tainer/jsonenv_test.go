@@ -253,7 +253,7 @@ func TestFailedUpdateAndNetworkEmitEnvelope(t *testing.T) {
 		t.Errorf("out=%q exit=%d", out, exit)
 	}
 	out, _ = failureHarness(t, true, func() {
-		emitUpdateSingleJSON("blog", errors.New("x"), time.Second)
+		emitUpdateSingleJSON("blog", false, errors.New("x"), time.Second)
 	})
 	if !strings.Contains(string(out), `"code":"update-failed"`) {
 		t.Errorf("uncoded update error must default to update-failed: %s", out)

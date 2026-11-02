@@ -4,11 +4,19 @@
     {
       "name": "blog",
       "updated": true,
+      "started": true,
       "elapsedMs": 100
+    },
+    {
+      "name": "docs",
+      "updated": true,
+      "started": false,
+      "elapsedMs": 50
     },
     {
       "name": "shop",
       "updated": false,
+      "started": false,
       "error": "manifest missing: x",
       "elapsedMs": 0
     }

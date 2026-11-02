@@ -3056,9 +3056,14 @@ func cmdUpdate(args []string) {
 	fs := flag.NewFlagSet("update", flag.ExitOnError)
 	baseType := fs.String("base", "", "refresh base image for project type (skips pod-level update)")
 	all := fs.Bool("all", false, "update every registered pod sequentially")
+	check := fs.Bool("check", false, "report which pods have updates available (no changes)")
 	_ = fs.Parse(rest)
 
 	switch {
+	case *check && (*all || *baseType != "" || fs.NArg() > 0):
+		must(updateCheckUsageErr())
+	case *check:
+		runUpdateCheck(mode)
 	case *baseType != "":
 		runUpdateBase(mode, *baseType)
 	case *all:
@@ -3088,10 +3093,11 @@ func runUpdateBase(outMode tui.OutputMode, rawType string) {
 			return engineErr(err)
 		}
 		defer eng.Close()
-		return pod.Update(ctx, eng, pod.StartOptions{}, pod.UpdateOptions{
+		_, err = pod.Update(ctx, eng, pod.StartOptions{}, pod.UpdateOptions{
 			BaseOnly: true,
 			BaseType: canonical,
 		})
+		return err
 	}
 
 	switch outMode {
@@ -3150,6 +3156,7 @@ func runUpdateSingle(outMode tui.OutputMode, positional []string) {
 	started := time.Now()
 	label := "updating images for " + projectName
 
+	var res pod.UpdateResult
 	run := func() error {
 		ctx, cancel := ctxWithTimeout(10 * time.Minute)
 		defer cancel()
@@ -3158,22 +3165,23 @@ func runUpdateSingle(outMode tui.OutputMode, positional []string) {
 			return engineErr(err)
 		}
 		defer eng.Close()
-		return pod.Update(ctx, eng,
+		res, err = pod.Update(ctx, eng,
 			pod.StartOptions{ManifestPath: manifestPath, ProjectDir: projectDir},
 			pod.UpdateOptions{})
+		return err
 	}
 
 	switch outMode {
 	case tui.ModeJSON:
 		err := run()
-		emitUpdateSingleJSON(projectName, err, time.Since(started))
+		emitUpdateSingleJSON(projectName, res.Started, err, time.Since(started))
 		if err != nil {
 			os.Exit(1)
 		}
 	case tui.ModePlain:
 		fmt.Printf("%s...\n", label)
 		must(run())
-		fmt.Printf("updated %s   (%.1fs)\n", projectName, time.Since(started).Seconds())
+		fmt.Printf("updated %s%s   (%.1fs)\n", projectName, stillStoppedNote(res.Started), time.Since(started).Seconds())
 	default:
 		tui.Bookend(projectName, "update")
 		if err := tui.RunSpinner(label, run); err != nil {
@@ -3181,13 +3189,26 @@ func runUpdateSingle(outMode tui.OutputMode, positional []string) {
 			tui.BookendCloseError(time.Since(started), "Failed", err.Error())
 			os.Exit(1)
 		}
-		tui.BookendClose(time.Since(started), "Updated")
+		if res.Started {
+			tui.BookendClose(time.Since(started), "Updated")
+		} else {
+			tui.BookendClose(time.Since(started), "Updated", "still stopped")
+		}
 	}
+}
+
+// stillStoppedNote is the suffix for a finished update's line: a pod that
+// was stopped before the update is recreated but left stopped.
+func stillStoppedNote(started bool) string {
+	if started {
+		return ""
+	}
+	return " (still stopped)"
 }
 
 // emitUpdateSingleJSON prints the result document, or the error envelope when
 // err is set; the caller exits 1 in that case.
-func emitUpdateSingleJSON(projectName string, err error, elapsed time.Duration) {
+func emitUpdateSingleJSON(projectName string, started bool, err error, elapsed time.Duration) {
 	if err != nil {
 		jsonFail(errCodeOr(err, "update-failed"), err.Error())
 		return
@@ -3196,11 +3217,13 @@ func emitUpdateSingleJSON(projectName string, err error, elapsed time.Duration) 
 		Mode      string `json:"mode"`
 		Pod       string `json:"pod"`
 		Updated   bool   `json:"updated"`
+		Started   bool   `json:"started"`
 		ElapsedMs int64  `json:"elapsedMs"`
 	}{
 		Mode:      "project",
 		Pod:       projectName,
 		Updated:   true,
+		Started:   started,
 		ElapsedMs: elapsed.Milliseconds(),
 	}
 	jsonDoc(out)
@@ -3211,6 +3234,7 @@ func emitUpdateSingleJSON(projectName string, err error, elapsed time.Duration) 
 type updateAllPodResult struct {
 	Name      string `json:"name"`
 	Updated   bool   `json:"updated"`
+	Started   bool   `json:"started"`
 	Error     string `json:"error,omitempty"`
 	ElapsedMs int64  `json:"elapsedMs"`
 }
@@ -3270,6 +3294,7 @@ func runUpdateAll(outMode tui.OutputMode) {
 		started := time.Now()
 		label := "updating " + name
 
+		var upd pod.UpdateResult
 		runErr := func() error {
 			ctx, cancel := ctxWithTimeout(10 * time.Minute)
 			defer cancel()
@@ -3278,9 +3303,10 @@ func runUpdateAll(outMode tui.OutputMode) {
 				return engineErr(err)
 			}
 			defer eng.Close()
-			return pod.Update(ctx, eng,
+			upd, err = pod.Update(ctx, eng,
 				pod.StartOptions{ManifestPath: manifestPath, ProjectDir: p.Path},
 				pod.UpdateOptions{})
+			return err
 		}
 
 		var err error
@@ -3297,6 +3323,7 @@ func runUpdateAll(outMode tui.OutputMode) {
 		res := updateAllPodResult{
 			Name:      name,
 			Updated:   err == nil,
+			Started:   err == nil && upd.Started,
 			ElapsedMs: time.Since(started).Milliseconds(),
 		}
 		if err != nil {
@@ -3305,9 +3332,13 @@ func runUpdateAll(outMode tui.OutputMode) {
 		}
 		results = append(results, res)
 
+		if outMode == tui.ModeStyled && res.Updated && !res.Started {
+			muted := lipgloss.NewStyle().Foreground(tui.Colors().Muted)
+			fmt.Println("  " + muted.Render(name+" updated (still stopped)"))
+		}
 		if outMode == tui.ModePlain {
 			if res.Updated {
-				fmt.Printf("updated %s   (%.1fs)\n", name, float64(res.ElapsedMs)/1000)
+				fmt.Printf("updated %s%s   (%.1fs)\n", name, stillStoppedNote(res.Started), float64(res.ElapsedMs)/1000)
 			} else {
 				fmt.Printf("failed %s: %s\n", name, res.Error)
 			}
