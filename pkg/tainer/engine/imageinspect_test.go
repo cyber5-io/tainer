@@ -50,11 +50,11 @@ func TestImageInspect(t *testing.T) {
 	const ref = "ghcr.io/cyber5-io/tainer-caddy-web:2-alpine"
 	c := newFakeEngine(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/images/"+ref+"/json") {
-			http.Error(w, `{"message":"No such image"}`, http.StatusNotFound)
+			http.Error(w, "no such image", http.StatusNotFound)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"Id":"abc123","Architecture":"arm64"}`))
+		_, _ = w.Write([]byte(`{"Id":"sha256:abc","RepoTags":["a:b"],"Size":123,"Created":1730000000,"Architecture":"arm64","Os":"linux","Config":{"Env":[],"Cmd":[],"Entrypoint":[""],"WorkingDir":"/"}}`))
 	}))
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -63,14 +63,14 @@ func TestImageInspect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ImageInspect: %v", err)
 	}
-	if want := (ImageInfo{ID: "abc123", Architecture: "arm64"}); got != want {
+	if want := (ImageInfo{ID: "sha256:abc", Architecture: "arm64"}); got != want {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
 }
 
 func TestImageInspectNotFound(t *testing.T) {
 	c := newFakeEngine(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, `{"message":"No such image"}`, http.StatusNotFound)
+		http.Error(w, "no such image", http.StatusNotFound)
 	}))
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
