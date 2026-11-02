@@ -10,8 +10,8 @@ func TestRestartAfterUpdate(t *testing.T) {
 		pod  *Pod
 		want bool
 	}{
-		{"nil pod has nothing to preserve", nil, true},
-		{"never started", &Pod{}, true},
+		{"nil pod is never booted", nil, false},
+		{"never started", &Pod{}, false},
 		{"running", &Pod{Containers: []Container{running, running}}, true},
 		{"mixed counts as running", &Pod{Containers: []Container{running, exited}}, true},
 		{"stopped stays stopped", &Pod{Containers: []Container{exited, exited}}, false},

@@ -23,14 +23,11 @@ type UpdateResult struct {
 }
 
 // restartAfterUpdate decides whether an update brings the pod back up.
-// prior is the pod as it was before the update stopped it. A pod whose
-// containers were all stopped stays stopped; mixed counts as running.
-// A pod with no containers (never started) is started, as before.
+// prior is the pod as it was before the update stopped it. Update never
+// boots anything: only a pod with running (or mixed) containers is
+// restarted. A stopped pod, or one never started, stays down.
 func restartAfterUpdate(prior *Pod) bool {
-	if prior == nil || len(prior.Containers) == 0 {
-		return true
-	}
-	return prior.State() != StateStopped
+	return prior != nil && prior.State() != StateStopped
 }
 
 // Update refreshes a single pod's image and recreates its containers.

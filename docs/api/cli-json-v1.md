@@ -250,7 +250,7 @@ Single project (error envelope on failure):
 {"v": 1, "mode": "project", "pod": "blog", "updated": true, "started": true, "elapsedMs": 1000}
 ```
 
-`started` is true when the pod was brought back up after the update. A pod that was stopped before the update is recreated with the new images but left stopped, and reports `"updated": true, "started": false`. A pod that was running (or partly running) before the update reports `started: true`. The same `started` field appears on each `update --all` row, where it is false for a failed pod.
+`started` is true when the pod was brought back up after the update. A pod that was stopped before the update, or never started, gets the new images but is left stopped, and reports `"updated": true, "started": false`. A pod that was running (or partly running) before the update reports `started: true`. The same `started` field appears on each `update --all` row, where it is false for a failed pod.
 
 Base image (`update --base <type>`; error envelope on failure):
 
