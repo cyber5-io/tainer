@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/cyber5-io/tainer/pkg/tainer"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 )
 
@@ -196,6 +197,11 @@ func ImageRef(m *manifest.Manifest, role string) string {
 	case RoleApp:
 		if m.IsPHP() {
 			return fmt.Sprintf("%s/tainer-%s-app:php-%s", repo, m.Project.Type, m.Runtime.PHP)
+		}
+		if tainer.IsPinnedProject(m.Project.Name) {
+			// The control pod's app image adds a headless browser for pod
+			// previews; no other project carries one.
+			return fmt.Sprintf("%s/tainer-control-app:node-%s", repo, m.Runtime.Node)
 		}
 		return fmt.Sprintf("%s/tainer-%s-app:node-%s", repo, m.Project.Type, m.Runtime.Node)
 	case RoleDB:

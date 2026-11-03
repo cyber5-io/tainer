@@ -176,3 +176,23 @@ func TestImageRefEnvOverride(t *testing.T) {
 		t.Errorf("Kompozi postgres override: got %q", got)
 	}
 }
+
+func TestImageRefControlPod(t *testing.T) {
+	control := &manifest.Manifest{
+		Project: manifest.ProjectConfig{Name: "control", Type: manifest.TypeNodeJS},
+		Runtime: manifest.RuntimeConfig{Node: "22"},
+	}
+	if got := ImageRef(control, RoleApp); got != "ghcr.io/cyber5-io/tainer-control-app:node-22" {
+		t.Errorf("control app image: got %q", got)
+	}
+	if got := ImageRef(control, RoleWeb); got != "ghcr.io/cyber5-io/tainer-caddy-web:2-alpine" {
+		t.Errorf("control web image: got %q", got)
+	}
+	other := &manifest.Manifest{
+		Project: manifest.ProjectConfig{Name: "blog", Type: manifest.TypeNodeJS},
+		Runtime: manifest.RuntimeConfig{Node: "22"},
+	}
+	if got := ImageRef(other, RoleApp); got != "ghcr.io/cyber5-io/tainer-nodejs-app:node-22" {
+		t.Errorf("nodejs app image: got %q", got)
+	}
+}
