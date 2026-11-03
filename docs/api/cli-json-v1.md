@@ -94,6 +94,7 @@ Example of an error with a document-shaped command:
 | `destroy-failed` | Destroy failed. |
 | `update-failed` | Update failed (single-target update). |
 | `network-switch-failed` | Switching the network mode failed. |
+| `router-unavailable` | The tainer router is missing, stopped, or has no address on the pod network. |
 | `db-export-failed` | Database export failed. |
 | `db-import-failed` | Database import failed. |
 | `missing-input-file` | An input file argument is required but absent. |
@@ -326,6 +327,12 @@ Base image (`update --base <type>`; error envelope on failure):
 ```
 
 When the mode is already set: `"switched": false, "noChange": true` and no `restarted` or `failed` keys.
+
+`network router` reports the router's address on the pod network. The control pod's preview service uses it to reach `*.tainer.me` sites from inside a pod, where those names resolve to the pod itself. The address can change when the router is recreated, so look it up each time instead of caching it. When the router is missing, stopped, or has no address, the command fails with the error envelope (`router-unavailable`):
+
+```json
+{"v": 1, "address": "172.17.0.2"}
+```
 
 ### `doctor`
 

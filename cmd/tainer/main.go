@@ -3414,8 +3414,12 @@ func cmdNetwork(args []string) {
 	flags, rest := tui.ParseOutputFlags(args)
 	mode := resolveMode(flags, false)
 
+	if len(rest) == 1 && rest[0] == "router" {
+		runNetworkRouter(mode)
+		return
+	}
 	if len(rest) < 2 || rest[0] != "mode" {
-		fmt.Fprintln(os.Stderr, "usage: tainer network mode show|set <perf|compat|hybrid>")
+		fmt.Fprintln(os.Stderr, "usage: tainer network mode show|set <perf|compat|hybrid> | tainer network router")
 		os.Exit(2)
 	}
 	switch rest[1] {

@@ -89,6 +89,22 @@ func (c *Client) Inspect(ctx context.Context, name string) (container.InspectRes
 	return c.api.ContainerInspect(ctx, name)
 }
 
+// ContainerIP returns a container's address on its pod network: the first
+// non-empty per-network address, else the top-level one cyberstackd reports
+// when the Networks map is empty, else "".
+func ContainerIP(insp container.InspectResponse) string {
+	ns := insp.NetworkSettings
+	if ns == nil {
+		return ""
+	}
+	for _, n := range ns.Networks {
+		if n != nil && n.IPAddress != "" {
+			return n.IPAddress
+		}
+	}
+	return ns.IPAddress
+}
+
 // Stop signals the named container to stop. nil if already stopped.
 func (c *Client) Stop(ctx context.Context, name string) error {
 	if err := c.api.ContainerStop(ctx, name, container.StopOptions{}); err != nil {

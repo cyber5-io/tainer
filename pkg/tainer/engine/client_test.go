@@ -5,6 +5,9 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/network"
 )
 
 func TestNewWithoutSocketReturnsError(t *testing.T) {
@@ -55,5 +58,27 @@ func TestPingLiveDaemon(t *testing.T) {
 	defer cancel()
 	if err := c.Ping(ctx); err != nil {
 		t.Fatalf("Ping live daemon at %s: %v", socket, err)
+	}
+}
+
+func TestContainerIP(t *testing.T) {
+	withNets := container.InspectResponse{NetworkSettings: &container.NetworkSettings{
+		DefaultNetworkSettings: container.DefaultNetworkSettings{IPAddress: "172.17.0.9"},
+		Networks:               map[string]*network.EndpointSettings{"pods": {IPAddress: "10.0.0.2"}},
+	}}
+	topLevel := container.InspectResponse{NetworkSettings: &container.NetworkSettings{
+		DefaultNetworkSettings: container.DefaultNetworkSettings{IPAddress: "172.17.0.2"},
+	}}
+	for name, tc := range map[string]struct {
+		in   container.InspectResponse
+		want string
+	}{
+		"networks entry wins":     {withNets, "10.0.0.2"},
+		"falls back to top level": {topLevel, "172.17.0.2"},
+		"nil network settings":    {container.InspectResponse{}, ""},
+	} {
+		if got := ContainerIP(tc.in); got != tc.want {
+			t.Errorf("%s: ContainerIP = %q, want %q", name, got, tc.want)
+		}
 	}
 }

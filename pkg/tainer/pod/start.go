@@ -649,8 +649,7 @@ func dbDataPath(m *manifest.Manifest) string {
 
 // buildEndpoints derives a PodEndpoint per pod by inspecting the leader
 // (web) container's IP. Under shared-netns / shared bridge the leader owns
-// the whole pod's network identity; use the first non-empty IP from the
-// Networks map (IPAddress is only set for the default bridge).
+// the whole pod's network identity.
 func buildEndpoints(ctx context.Context, eng *engine.Client, pods []Pod) ([]router.PodEndpoint, error) {
 	out := make([]router.PodEndpoint, 0, len(pods))
 	for _, p := range pods {
@@ -669,18 +668,7 @@ func buildEndpoints(ctx context.Context, eng *engine.Client, pods []Pod) ([]rout
 		if err != nil {
 			continue
 		}
-		for _, netInfo := range insp.NetworkSettings.Networks {
-			if netInfo.IPAddress != "" {
-				ep.WebIP = netInfo.IPAddress
-				break
-			}
-		}
-		// cyberstackd reports the leader's IP at the top-level
-		// NetworkSettings.IPAddress (no per-network map). Fall back
-		// to that when Networks is empty.
-		if ep.WebIP == "" {
-			ep.WebIP = insp.NetworkSettings.IPAddress
-		}
+		ep.WebIP = engine.ContainerIP(insp)
 		// Skip pods we can't route to (e.g. stopped — no IP). The
 		// router doesn't need a site block for them and an empty
 		// Domain/WebIP would produce a malformed Caddyfile.
