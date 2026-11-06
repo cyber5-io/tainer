@@ -37,8 +37,12 @@ func runSignup(args []string, stdin io.Reader, out io.Writer, c *accounts.Client
 	if asJSON {
 		jsonActive = true
 	}
-	if len(rest) > 0 {
-		return accountFailTo(out, asJSON, "invalid-arguments", "usage: tainer signup")
+	if len(rest) > 1 {
+		return accountFailTo(out, asJSON, "invalid-arguments", "usage: tainer signup [email]")
+	}
+	argEmail := ""
+	if len(rest) == 1 {
+		argEmail = strings.TrimSpace(rest[0])
 	}
 
 	var in signupInput
@@ -49,17 +53,20 @@ func runSignup(args []string, stdin io.Reader, out io.Writer, c *accounts.Client
 		}
 	} else {
 		var err error
-		if in, err = promptSignup(stdin); err != nil {
+		if in, err = promptSignup(stdin, argEmail); err != nil {
 			return accountFailTo(out, false, "invalid-arguments", err.Error())
 		}
 	}
 	in.Email = strings.TrimSpace(in.Email)
+	if in.Email == "" {
+		in.Email = argEmail
+	}
 	if in.Email == "" || in.Password == "" {
 		return accountFailTo(out, asJSON, "invalid-arguments", "email and password are required")
 	}
 
 	if err := c.Signup(in.Email, in.Password); err != nil {
-		slug, msg := accountFailure(err)
+		slug, msg := emailFailure(err)
 		return accountFailTo(out, asJSON, slug, msg)
 	}
 	if !asJSON {
@@ -71,17 +78,32 @@ func runSignup(args []string, stdin io.Reader, out io.Writer, c *accounts.Client
 	}{true})
 }
 
-// promptSignup asks for the email, the password and its confirmation. The
-// passwords are read without echo when stdin is a terminal.
-func promptSignup(stdin io.Reader) (signupInput, error) {
+// emailFailure is accountFailure for the commands that take an email address:
+// a 400 invalid_request there means the address itself was rejected.
+func emailFailure(err error) (slug, msg string) {
+	var ae *accounts.APIError
+	if errors.As(err, &ae) && ae.Code == "invalid_request" {
+		return "invalid-email", "enter a valid email address"
+	}
+	return accountFailure(err)
+}
+
+// promptSignup asks for the email (unless it was given as an argument), the
+// password and its confirmation. The passwords are read without echo when
+// stdin is a terminal.
+func promptSignup(stdin io.Reader, email string) (signupInput, error) {
 	var in signupInput
 	rd := bufio.NewReader(stdin)
-	fmt.Fprint(os.Stderr, "Email: ")
-	line, err := rd.ReadString('\n')
-	if err != nil && line == "" {
-		return in, errors.New("no email given")
+	if email != "" {
+		in.Email = email
+	} else {
+		fmt.Fprint(os.Stderr, "Email: ")
+		line, err := rd.ReadString('\n')
+		if err != nil && line == "" {
+			return in, errors.New("no email given")
+		}
+		in.Email = strings.TrimSpace(line)
 	}
-	in.Email = strings.TrimSpace(line)
 
 	pw, err := promptSecret(stdin, rd, "Password: ")
 	if err != nil {
@@ -124,7 +146,7 @@ func runPasswordReset(args []string, out io.Writer, c *accounts.Client) int {
 		return accountFailTo(out, asJSON, "invalid-arguments", "usage: tainer password-reset <email>")
 	}
 	if err := c.RequestPasswordReset(strings.TrimSpace(rest[0])); err != nil {
-		slug, msg := accountFailure(err)
+		slug, msg := emailFailure(err)
 		return accountFailTo(out, asJSON, slug, msg)
 	}
 	if !asJSON {

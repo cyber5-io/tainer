@@ -72,7 +72,7 @@ func TestSignupJSONWeakPassword(t *testing.T) {
 	}{
 		{400, "weak_password", "weak-password"},
 		{400, "password_too_long", "password-too-long"},
-		{400, "invalid_request", "command-failed"},
+		{400, "invalid_request", "invalid-email"},
 	} {
 		st := newSignupStub(t, tc.status, tc.code)
 		var out bytes.Buffer
@@ -82,6 +82,48 @@ func TestSignupJSONWeakPassword(t *testing.T) {
 		if got := errCodeOf(t, &out); got != tc.slug {
 			t.Errorf("%s: slug %q", tc.code, got)
 		}
+	}
+}
+
+func TestSignupWithEmailArgPromptsOnlyForPassword(t *testing.T) {
+	st := newSignupStub(t, 0, "")
+	var out bytes.Buffer
+	if code := runSignup([]string{" leni@example.com "}, strings.NewReader("longenough1\nlongenough1\n"), &out, st.client()); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if len(st.bodies) != 1 || st.bodies[0]["email"] != "leni@example.com" || st.bodies[0]["password"] != "longenough1" {
+		t.Errorf("requests %v", st.bodies)
+	}
+	if got := out.String(); got != "Check your email to confirm your address.\n" {
+		t.Errorf("got %q", got)
+	}
+	// A mismatch still stops before the service, and extra arguments are refused.
+	st2 := newSignupStub(t, 0, "")
+	if code := runSignup([]string{"a@b.co"}, strings.NewReader("longenough1\nlongenough2\n"), &bytes.Buffer{}, st2.client()); code != 1 || len(st2.paths) != 0 {
+		t.Errorf("mismatch: exit %d, paths %v", code, st2.paths)
+	}
+	out.Reset()
+	if code := runSignup([]string{"a@b.co", "extra", "--json"}, strings.NewReader(""), &out, st2.client()); code != 1 || errCodeOf(t, &out) != "invalid-arguments" {
+		t.Errorf("extra args: %s", out.String())
+	}
+}
+
+func TestSignupJSONWithEmailArg(t *testing.T) {
+	st := newSignupStub(t, 0, "")
+	var out bytes.Buffer
+	if code := runSignup([]string{"--json", "arg@example.com"}, strings.NewReader(`{"password":"longenough1"}`), &out, st.client()); code != 0 {
+		t.Fatalf("exit %d: %s", code, out.String())
+	}
+	if len(st.bodies) != 1 || st.bodies[0]["email"] != "arg@example.com" {
+		t.Errorf("requests %v", st.bodies)
+	}
+}
+
+func TestPasswordResetInvalidEmail(t *testing.T) {
+	st := newSignupStub(t, 400, "invalid_request")
+	var out bytes.Buffer
+	if code := runPasswordReset([]string{"a@localhost", "--json"}, &out, st.client()); code != 1 || errCodeOf(t, &out) != "invalid-email" {
+		t.Errorf("got %s", out.String())
 	}
 }
 

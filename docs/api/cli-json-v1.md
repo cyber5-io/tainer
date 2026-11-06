@@ -24,6 +24,7 @@ Examples are copied from the tests' own golden strings, so the page and the code
 | `config` document | `TestConfigJSONShape` |
 | `exec` lines | `TestExecJSONStreamShape`, `TestExecJSONRefusesTTY` |
 | `login`, `whoami`, `logout` documents | `TestLoginJSONReadsStdinAndStoresSession`, `TestWhoamiLoggedOutDocument`, `TestLogoutClearsStore` (`cmd/tainer/login_test.go`) |
+| `signup`, `password-reset` documents and failure slugs | `TestSignupJSONReadsStdin`, `TestSignupJSONWeakPassword`, `TestSignupWithEmailArgPromptsOnlyForPassword`, `TestPasswordResetJSON`, `TestPasswordResetInvalidEmail` (`cmd/tainer/signup_test.go`) |
 | Gateway behaviour | `internal/controlapi/server_test.go` in the CyberStack repo |
 
 ## 1. The envelope
@@ -106,7 +107,10 @@ Example of an error with a document-shaped command:
 | `logs-unavailable` | Logs could not be read, or a line exceeded 4 MiB. |
 | `login-failed` | `login`: the email or password is wrong. |
 | `email-unverified` | `login`: the account's email address is not verified yet. |
-| `too-many-attempts` | `login`: too many failed attempts; try again later. |
+| `too-many-attempts` | `login`, `signup`, `password-reset`: too many attempts; try again later. |
+| `weak-password` | `signup`: the password is shorter than 10 characters. |
+| `password-too-long` | `signup`: the password is longer than 128 characters. |
+| `invalid-email` | `signup`, `password-reset`: the accounts service rejected the address as malformed. |
 | `id-unreachable` | The tainer accounts service could not be reached, or answered with a server error. |
 | `pod-pinned` | The pod is pinned and cannot be stopped or destroyed. |
 | `watch-ended` | The event stream ended (see section 4). |
@@ -412,7 +416,7 @@ For tools running in a pod (the control webapp), CyberStack exposes the CLI over
 | `POST /v1/cli/{cmd}` | Body `{"args":["..."]}`. Runs `tainer {cmd} --json <args>` (argv exec, no shell) and relays stdout. `logs`, `exec` and `watch` stream as `application/x-ndjson`; the rest return `application/json`. |
 | `GET /v1/watch` | The event stream (section 3), same lines as `tainer watch --json`. |
 
-`{cmd}` must be one of: `status`, `list`, `init`, `start`, `stop`, `restart`, `destroy`, `db`, `update`, `network`, `doctor`, `logs`, `exec`, `config`, `api`, `watch`, `login`, `logout`, `whoami`. The request body may also carry an optional `"stdin"` string, which the gateway writes to the CLI's standard input; it is permitted only for `login` (which reads its credentials there) and refused for every other command. Anything else (`ssh`, `menu`, ...) is refused. The gateway adds `--json` itself and drops any `--json` or `--json=...` in your args that comes before a bare `--`.
+`{cmd}` must be one of: `status`, `list`, `init`, `start`, `stop`, `restart`, `destroy`, `db`, `update`, `network`, `doctor`, `logs`, `exec`, `config`, `api`, `watch`, `login`, `signup`, `password-reset`, `logout`, `whoami`. The request body may also carry an optional `"stdin"` string, which the gateway writes to the CLI's standard input; it is permitted only for `login` and `signup` (which read their credentials there) and refused for every other command. Anything else (`ssh`, `menu`, ...) is refused. The gateway adds `--json` itself and drops any `--json` or `--json=...` in your args that comes before a bare `--`.
 
 ### Authentication
 
@@ -452,7 +456,7 @@ Port 7754. The address the pod uses depends on the network mode:
 
 ## 10. Accounts
 
-`login`, `logout` and `whoami` manage the tainer account the CLI and the apps share. The signed-in session lives in `account.json` (mode 0600) in the CLI's accounts directory: `~/.cyberstack`, overridable via `TAINER_ACCOUNTS_DIR`. The gateway spawns the CLI with a scrubbed environment: `PATH`, `NO_COLOR`, the user's `HOME` (so dashboard logins and terminal logins share one session) and `DOCKER_HOST`, plus `TAINER_ID_URL` and `TAINER_ACCOUNTS_DIR` only when the daemon itself was started with them set and non-empty (a development aid for pointing at a local accounts service; unset in production, where the CLI uses its built-in accounts endpoint). Nothing else is inherited. The CLI refreshes and rotates the session as needed. None of these commands runs against pods, and none needs the stack to be up.
+`login`, `signup`, `password-reset`, `logout` and `whoami` manage the tainer account the CLI and the apps share. The signed-in session lives in `account.json` (mode 0600) in the CLI's accounts directory: `~/.cyberstack`, overridable via `TAINER_ACCOUNTS_DIR`. The gateway spawns the CLI with a scrubbed environment: `PATH`, `NO_COLOR`, the user's `HOME` (so dashboard logins and terminal logins share one session) and `DOCKER_HOST`, plus `TAINER_ID_URL` and `TAINER_ACCOUNTS_DIR` only when the daemon itself was started with them set and non-empty (a development aid for pointing at a local accounts service; unset in production, where the CLI uses its built-in accounts endpoint). Nothing else is inherited. The CLI refreshes and rotates the session as needed. None of these commands runs against pods, and none needs the stack to be up.
 
 ### `login`
 
@@ -474,6 +478,36 @@ Success never echoes tokens:
 ```
 
 Errors: `login-failed`, `email-unverified`, `too-many-attempts`, `id-unreachable`, and `invalid-arguments` (stdin is not one object, or the email or password is missing). Without `--json`, `login` prompts for the email and the password (typed without echo).
+
+### `signup`
+
+`tainer signup --json` reads exactly one JSON object from stdin. An optional `[email]` argument supplies the address when stdin carries none. Without `--json`, `tainer signup [email]` prompts for the email (skipped when given as an argument), the password and its confirmation. Signup never signs in and never touches the stored session: the account exists only once the emailed link is followed.
+
+```json
+{"email":"leni@example.com","password":"..."}
+```
+
+```json
+{
+  "v": 1,
+  "signedUp": true
+}
+```
+
+Errors: `weak-password`, `password-too-long`, `invalid-email`, `too-many-attempts`, `id-unreachable`, `invalid-arguments` (stdin is not one object, the email or password is missing, or more than one argument), and `command-failed` for any other refusal by the accounts service.
+
+### `password-reset`
+
+`tainer password-reset <email> --json` takes the address as its one argument and reads nothing from stdin. The service answers the same whether or not the address has an account, and so does the CLI.
+
+```json
+{
+  "v": 1,
+  "requested": true
+}
+```
+
+Errors: `invalid-email`, `too-many-attempts`, `id-unreachable`, `invalid-arguments` (not exactly one address), and `command-failed`.
 
 ### `whoami`
 
