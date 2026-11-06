@@ -123,3 +123,53 @@ func TestClientLogoutPostsRefreshToken(t *testing.T) {
 		t.Errorf("path %q body %q", gotPath, gotBody)
 	}
 }
+
+func TestSignupPostsCredentials(t *testing.T) {
+	var path string
+	var body map[string]string
+	status, resp := 200, `{"ok":true,"message":"check your email"}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		json.NewDecoder(r.Body).Decode(&body)
+		w.WriteHeader(status)
+		w.Write([]byte(resp))
+	}))
+	defer srv.Close()
+	c := &Client{BaseURL: srv.URL, HTTP: srv.Client()}
+	if err := c.Signup("a@b.co", "longenough1"); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/v1/signup" || body["email"] != "a@b.co" || body["password"] != "longenough1" {
+		t.Errorf("path %q body %v", path, body)
+	}
+	status, resp = 400, `{"error":{"code":"weak_password"}}`
+	var ae *APIError
+	if err := c.Signup("a@b.co", "short"); !errors.As(err, &ae) || ae.Code != "weak_password" || ae.Status != 400 {
+		t.Fatalf("got %#v", err)
+	}
+}
+
+func TestRequestPasswordResetPostsEmail(t *testing.T) {
+	var path string
+	var body map[string]string
+	status, resp := 200, `{"ok":true}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		json.NewDecoder(r.Body).Decode(&body)
+		w.WriteHeader(status)
+		w.Write([]byte(resp))
+	}))
+	defer srv.Close()
+	c := &Client{BaseURL: srv.URL, HTTP: srv.Client()}
+	if err := c.RequestPasswordReset("a@b.co"); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/v1/password-reset/request" || body["email"] != "a@b.co" || len(body) != 1 {
+		t.Errorf("path %q body %v", path, body)
+	}
+	status, resp = 400, `{"error":{"code":"weak_password"}}`
+	var ae *APIError
+	if err := c.RequestPasswordReset("a@b.co"); !errors.As(err, &ae) || ae.Code != "weak_password" {
+		t.Fatalf("got %#v", err)
+	}
+}

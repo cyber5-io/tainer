@@ -74,7 +74,11 @@ func accountFailure(err error) (slug, msg string) {
 			return "login-failed", "incorrect email or password"
 		case "email_unverified":
 			return "email-unverified", "verify your email address before signing in"
-		case "too_many_attempts":
+		case "weak_password":
+			return "weak-password", "use at least 10 characters"
+		case "password_too_long":
+			return "password-too-long", "use at most 128 characters"
+		case "too_many_attempts", "rate_limited":
 			return "too-many-attempts", "too many attempts, try again later"
 		}
 		if ae.Status < 500 {

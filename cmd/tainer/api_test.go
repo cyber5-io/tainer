@@ -30,6 +30,8 @@ const apiGolden = `{"v":1,"commands":[` +
 	`{"name":"api","json":true,"stream":false},` +
 	`{"name":"watch","json":true,"stream":true},` +
 	`{"name":"login","json":true,"stream":false},` +
+	`{"name":"signup","json":true,"stream":false},` +
+	`{"name":"password-reset","json":true,"stream":false},` +
 	`{"name":"logout","json":true,"stream":false},` +
 	`{"name":"whoami","json":true,"stream":false}` +
 	`]}` + "\n"

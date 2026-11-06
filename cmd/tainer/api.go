@@ -35,6 +35,8 @@ var apiCommands = []apiCommand{
 	{"api", true, false},
 	{"watch", true, true},
 	{"login", true, false},
+	{"signup", true, false},
+	{"password-reset", true, false},
 	{"logout", true, false},
 	{"whoami", true, false},
 }

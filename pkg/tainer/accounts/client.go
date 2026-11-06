@@ -76,6 +76,18 @@ func (c *Client) Login(email, password, deviceName string) (*TokenPair, error) {
 	return &tp, nil
 }
 
+// Signup registers an account. The service answers 200 whether or not the
+// address is already registered, so success says nothing about the address.
+func (c *Client) Signup(email, password string) error {
+	return c.do("POST", "/v1/signup", "", map[string]string{"email": email, "password": password}, nil)
+}
+
+// RequestPasswordReset asks for a reset link to be mailed. The service answers
+// 200 whether or not the address has an account.
+func (c *Client) RequestPasswordReset(email string) error {
+	return c.do("POST", "/v1/password-reset/request", "", map[string]string{"email": email}, nil)
+}
+
 // Refresh rotates the refresh token, returning a new pair.
 func (c *Client) Refresh(refreshToken string) (*TokenPair, error) {
 	var tp TokenPair

@@ -111,6 +111,10 @@ func main() {
 		cmdAPI(os.Args[2:])
 	case "login":
 		cmdLogin(os.Args[2:])
+	case "signup":
+		cmdSignup(os.Args[2:])
+	case "password-reset":
+		cmdPasswordReset(os.Args[2:])
 	case "logout":
 		cmdLogout(os.Args[2:])
 	case "whoami":
@@ -154,6 +158,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  update [project|--base <type>|--all]   refresh image(s)")
 	fmt.Fprintln(os.Stderr, "  network mode show|set <perf|compat>    inspect / switch network mode")
 	fmt.Fprintln(os.Stderr, "  login | logout | whoami                sign in to your tainer account")
+	fmt.Fprintln(os.Stderr, "  signup | password-reset <email>        create an account, or reset its password")
 	fmt.Fprintln(os.Stderr, "  welcome                                show the quickstart screen")
 	fmt.Fprintln(os.Stderr, "  version                                print version")
 }
