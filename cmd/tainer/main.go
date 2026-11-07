@@ -107,6 +107,10 @@ func main() {
 		cmdUpdate(os.Args[2:])
 	case "watch":
 		cmdWatch(os.Args[2:])
+	case "control":
+		// Internal: `tainer control ensure` is spawned by the runtime-ready
+		// hook; not listed in usage().
+		cmdControl(os.Args[2:])
 	case "api":
 		cmdAPI(os.Args[2:])
 	case "login":

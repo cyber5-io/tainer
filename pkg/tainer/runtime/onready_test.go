@@ -11,8 +11,8 @@ import (
 // stubBringUp swaps the socket/daemon seams for the duration of a test.
 func stubBringUp(t *testing.T, dialOK bool) (spawns *int) {
 	t.Helper()
-	oldDial, oldSpawn, oldWait, oldRefresh, oldHook := dialFn, spawnFn, waitFn, refreshFn, OnSpawn
-	t.Cleanup(func() { dialFn, spawnFn, waitFn, refreshFn, OnSpawn = oldDial, oldSpawn, oldWait, oldRefresh, oldHook })
+	oldDial, oldSpawn, oldWait, oldRefresh, oldHook := dialFn, spawnFn, waitFn, refreshFn, OnReady
+	t.Cleanup(func() { dialFn, spawnFn, waitFn, refreshFn, OnReady = oldDial, oldSpawn, oldWait, oldRefresh, oldHook })
 	n := 0
 	dialFn = func(context.Context, string) (*engine.Client, error) {
 		if dialOK {
@@ -26,40 +26,41 @@ func stubBringUp(t *testing.T, dialOK bool) (spawns *int) {
 	return &n
 }
 
-func TestOnSpawnSkippedOnFastPath(t *testing.T) {
+// The fast path is the only path on Linux, where systemd owns the daemon,
+// so the ready hook must fire there too.
+func TestOnReadyRunsOnFastPath(t *testing.T) {
 	spawns := stubBringUp(t, true)
+	var got *engine.Client
 	calls := 0
-	OnSpawn = func(context.Context, *engine.Client) { calls++ }
-	if _, err := Engine(context.Background(), Options{SocketPath: "/x.sock", AutoStart: true}); err != nil {
+	OnReady = func(_ context.Context, cli *engine.Client) { calls++; got = cli }
+	cli, err := Engine(context.Background(), Options{SocketPath: "/x.sock"})
+	if err != nil {
 		t.Fatalf("Engine: %v", err)
 	}
-	if *spawns != 0 || calls != 0 {
-		t.Fatalf("fast path: spawns=%d hook calls=%d, want 0/0", *spawns, calls)
+	if *spawns != 0 || calls != 1 || got != cli {
+		t.Fatalf("fast path: spawns=%d hook calls=%d same client=%v, want 0/1/true", *spawns, calls, got == cli)
 	}
 }
 
-func TestOnSpawnRunsOnceAfterSpawn(t *testing.T) {
+func TestOnReadyRunsOnceAfterSpawn(t *testing.T) {
 	spawns := stubBringUp(t, false)
 	var got *engine.Client
 	calls := 0
-	OnSpawn = func(_ context.Context, cli *engine.Client) { calls++; got = cli }
+	OnReady = func(_ context.Context, cli *engine.Client) { calls++; got = cli }
 	cli, err := Engine(context.Background(), Options{SocketPath: "/x.sock", AutoStart: true})
 	if err != nil {
 		t.Fatalf("Engine: %v", err)
 	}
-	if *spawns != 1 || calls != 1 {
-		t.Fatalf("slow path: spawns=%d hook calls=%d, want 1/1", *spawns, calls)
-	}
-	if got != cli {
-		t.Fatalf("hook got a different client than Engine returned")
+	if *spawns != 1 || calls != 1 || got != cli {
+		t.Fatalf("slow path: spawns=%d hook calls=%d same client=%v, want 1/1/true", *spawns, calls, got == cli)
 	}
 }
 
-func TestOnSpawnSkippedWhenDaemonNeverAnswers(t *testing.T) {
+func TestOnReadySkippedWhenDaemonNeverAnswers(t *testing.T) {
 	stubBringUp(t, false)
 	waitFn = func(context.Context, string) (*engine.Client, error) { return nil, errors.New("timeout") }
 	calls := 0
-	OnSpawn = func(context.Context, *engine.Client) { calls++ }
+	OnReady = func(context.Context, *engine.Client) { calls++ }
 	if _, err := Engine(context.Background(), Options{SocketPath: "/x.sock", AutoStart: true}); err == nil {
 		t.Fatal("want error when the daemon never answers")
 	}

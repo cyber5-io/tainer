@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/cyber5-io/tainer/pkg/tainer"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/network"
 	"github.com/cyber5-io/tainer/pkg/tainer/pod"
@@ -106,7 +107,7 @@ func Switch(ctx context.Context, raw string) (*SwitchResult, error) {
 	}
 	defer eng2.Close()
 
-	for _, name := range running {
+	for _, name := range podsToRestart(running) {
 		// We rely on the pod's manifest-path label to locate the manifest.
 		manifestPath, ok := manifestPathFor(ctx2, eng2, name)
 		if !ok {
@@ -120,6 +121,18 @@ func Switch(ctx context.Context, raw string) (*SwitchResult, error) {
 		res.Restarted = append(res.Restarted, name)
 	}
 	return res, nil
+}
+
+// podsToRestart drops the pinned control pod from the restart list: the
+// runtime-ready hook brings it back up on its own once per runtime boot.
+func podsToRestart(running []string) []string {
+	out := make([]string, 0, len(running))
+	for _, name := range running {
+		if !tainer.IsPinnedProject(name) {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // manifestPathFor reads the tainer.manifest-path label from any of the

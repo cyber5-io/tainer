@@ -72,12 +72,13 @@ type Status struct {
 	PID       int    // 0 when no PID file is present
 }
 
-// OnSpawn, when set, runs once right after Engine has spawned cyberstackd
-// and the socket answers — never on the fast path where the daemon was
-// already up. The tainer command registers it to bring up the control pod;
-// it lives here as a variable because runtime must not import pod. It has no
-// error return: whatever it does, the caller's command carries on.
-var OnSpawn func(ctx context.Context, cli *engine.Client)
+// OnReady, when set, runs after every successful Engine call — fast path
+// (daemon already up, the only path on Linux where systemd owns it) and
+// slow path (just spawned) alike. The tainer command registers it to keep
+// the control pod up once per daemon boot; it lives here as a variable
+// because runtime must not import pod. It must be cheap on the common path
+// and has no error return: whatever it does, the caller's command carries on.
+var OnReady func(ctx context.Context, cli *engine.Client)
 
 // Seams for tests; production values are the real socket/daemon paths.
 var (
@@ -99,6 +100,7 @@ func Engine(ctx context.Context, opts Options) (*engine.Client, error) {
 	// Fast path: existing socket, ping succeeds.
 	if cli, err := dialFn(ctx, socket); err == nil {
 		refreshFn(ctx, cli)
+		ready(ctx, cli)
 		return cli, nil
 	}
 
@@ -116,10 +118,14 @@ func Engine(ctx context.Context, opts Options) (*engine.Client, error) {
 		return nil, err
 	}
 	refreshFn(ctx, cli)
-	if OnSpawn != nil {
-		OnSpawn(ctx, cli)
-	}
+	ready(ctx, cli)
 	return cli, nil
+}
+
+func ready(ctx context.Context, cli *engine.Client) {
+	if OnReady != nil {
+		OnReady(ctx, cli)
+	}
 }
 
 // ErrUnsupportedOS is returned by operations that have no implementation on

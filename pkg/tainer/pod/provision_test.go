@@ -22,10 +22,11 @@ type fakeControl struct {
 	starts     []StartOptions
 	startErr   error
 	pullErr    error
+	images     map[string]bool // refs already present locally
 }
 
 func newFakeControl() *fakeControl {
-	return &fakeControl{containers: map[string]container.InspectResponse{}, reg: map[string]registry.Project{}}
+	return &fakeControl{containers: map[string]container.InspectResponse{}, reg: map[string]registry.Project{}, images: map[string]bool{}}
 }
 
 func (f *fakeControl) ops() controlOps {
@@ -46,6 +47,7 @@ func (f *fakeControl) ops() controlOps {
 			f.pulled = append(f.pulled, ref)
 			return f.pullErr
 		},
+		hasImage: func(_ context.Context, ref string) bool { return f.images[ref] },
 		start: func(_ context.Context, opts StartOptions) error {
 			f.starts = append(f.starts, opts)
 			return f.startErr
@@ -242,8 +244,9 @@ func TestOfflineKeepsTheOldPodRunning(t *testing.T) {
 	f.running(RoleApp, filepath.Join(old, "tainer.yaml"), [2]string{filepath.Join(old, "html"), "/var/www/html"})
 	f.pullErr = errors.New("offline")
 
-	if err := ensureControlPod(context.Background(), f.ops()); err == nil {
-		t.Fatal("want the pull error back")
+	err := ensureControlPod(context.Background(), f.ops())
+	if !errors.Is(err, ErrControlDownload) {
+		t.Fatalf("want ErrControlDownload, got %v", err)
 	}
 	if len(f.removed) != 0 || len(f.starts) != 0 {
 		t.Errorf("a failed pull must leave the old pod alone: removed=%v starts=%d", f.removed, len(f.starts))
@@ -274,10 +277,84 @@ func TestStoppedControlPodIsStarted(t *testing.T) {
 	f.running(RoleApp, mf)
 	f.containers[ContainerName("control", RoleApp)].State.Running = false
 	f.startErr = errors.New("boom")
-	if err := ensureControlPod(context.Background(), f.ops()); err == nil {
-		t.Fatal("want the start error back")
+	if err := ensureControlPod(context.Background(), f.ops()); !errors.Is(err, ErrControlStart) {
+		t.Fatalf("want ErrControlStart, got %v", err)
 	}
 	if len(f.starts) != 1 || len(f.removed) != 0 {
 		t.Errorf("stopped pod: starts=%d removed=%v, want 1 start, no removal", len(f.starts), f.removed)
+	}
+}
+
+func TestHtmlMountIsStaleEvenWithMatchingLabel(t *testing.T) {
+	dir := controlTestHome(t)
+	f := newFakeControl()
+	mf := filepath.Join(dir, "tainer.yaml")
+	f.running(RoleWeb, mf)
+	f.running(RoleApp, mf, [2]string{"/somewhere/html", "/var/www/html"})
+	if err := ensureControlPod(context.Background(), f.ops()); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if len(f.removed) != 2 || len(f.starts) != 1 {
+		t.Errorf("html mount: removed=%v starts=%d, want both removed and one start", f.removed, len(f.starts))
+	}
+}
+
+func TestPartialPodIsStarted(t *testing.T) {
+	dir := controlTestHome(t)
+	f := newFakeControl()
+	f.running(RoleWeb, filepath.Join(dir, "tainer.yaml"))
+	if err := ensureControlPod(context.Background(), f.ops()); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if len(f.removed) != 0 || len(f.starts) != 1 {
+		t.Errorf("partial pod: removed=%v starts=%d, want no removal and one start", f.removed, len(f.starts))
+	}
+}
+
+func TestLocalImagesAreNotPulled(t *testing.T) {
+	controlTestHome(t)
+	f := newFakeControl()
+	m := controlManifest(t)
+	for _, role := range RolesForPod(m) {
+		f.images[ImageRef(m, role)] = true
+	}
+	if !controlImagesPresent(context.Background(), f.ops()) {
+		t.Fatal("controlImagesPresent = false with every image local")
+	}
+	if err := ensureControlPod(context.Background(), f.ops()); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if len(f.pulled) != 0 {
+		t.Errorf("local images were pulled again: %v", f.pulled)
+	}
+}
+
+func TestMissingImagesArePulledBeforeStart(t *testing.T) {
+	controlTestHome(t)
+	f := newFakeControl()
+	if controlImagesPresent(context.Background(), f.ops()) {
+		t.Fatal("controlImagesPresent = true with no images")
+	}
+	if err := ensureControlPod(context.Background(), f.ops()); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if len(f.pulled) != len(RolesForPod(controlManifest(t))) || len(f.starts) != 1 {
+		t.Errorf("pulled=%v starts=%d", f.pulled, len(f.starts))
+	}
+}
+
+func TestPartialManifestIsRemovedOnWriteError(t *testing.T) {
+	dir := controlTestHome(t)
+	old := writeManifestFile
+	t.Cleanup(func() { writeManifestFile = old })
+	writeManifestFile = func(name string, data []byte, perm os.FileMode) error {
+		os.WriteFile(name, data[:3], perm) // a short write, then the failure
+		return errors.New("disk full")
+	}
+	if err := ensureControlPod(context.Background(), newFakeControl().ops()); err == nil {
+		t.Fatal("want the write error back")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "tainer.yaml.partial")); !os.IsNotExist(err) {
+		t.Errorf("tainer.yaml.partial left behind (err=%v)", err)
 	}
 }

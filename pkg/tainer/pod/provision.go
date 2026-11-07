@@ -3,6 +3,7 @@ package pod
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -19,19 +20,34 @@ import (
 // controlOps is everything EnsureControlPod touches outside the control
 // folder, so tests can run it against an in-memory runtime and registry.
 type controlOps struct {
-	inspect func(ctx context.Context, name string) (container.InspectResponse, error)
-	remove  func(ctx context.Context, name string) error
-	pull    func(ctx context.Context, ref string) error
-	start   func(ctx context.Context, opts StartOptions) error
-	regGet  func(name string) (registry.Project, bool)
-	regPut  func(name string, p registry.Project) error
+	inspect  func(ctx context.Context, name string) (container.InspectResponse, error)
+	remove   func(ctx context.Context, name string) error
+	pull     func(ctx context.Context, ref string) error
+	hasImage func(ctx context.Context, ref string) bool
+	start    func(ctx context.Context, opts StartOptions) error
+	regGet   func(name string) (registry.Project, bool)
+	regPut   func(name string, p registry.Project) error
 }
+
+// ErrControlDownload and ErrControlStart classify EnsureControlPod failures
+// so callers can explain them in plain words without echoing lower layers.
+var (
+	ErrControlDownload = errors.New("control image download failed")
+	ErrControlStart    = errors.New("control pod start failed")
+)
+
+// writeManifestFile is a seam for tests.
+var writeManifestFile = os.WriteFile
 
 func liveControlOps(eng *engine.Client) controlOps {
 	return controlOps{
 		inspect: eng.Inspect,
 		remove:  func(ctx context.Context, name string) error { return eng.Remove(ctx, name, true) },
 		pull:    eng.Pull,
+		hasImage: func(ctx context.Context, ref string) bool {
+			_, err := eng.ImageInspect(ctx, ref)
+			return err == nil
+		},
 		start: func(ctx context.Context, opts StartOptions) error {
 			_, err := Start(ctx, eng, opts)
 			return err
@@ -57,6 +73,25 @@ func liveControlOps(eng *engine.Client) controlOps {
 //   - starts the pod when any of its containers is missing or stopped.
 func EnsureControlPod(ctx context.Context, eng *engine.Client) error {
 	return ensureControlPod(ctx, liveControlOps(eng))
+}
+
+// ControlImagesPresent reports whether every control pod image is already
+// stored locally, i.e. whether EnsureControlPod can run without a download.
+func ControlImagesPresent(ctx context.Context, eng *engine.Client) bool {
+	return controlImagesPresent(ctx, liveControlOps(eng))
+}
+
+func controlImagesPresent(ctx context.Context, ops controlOps) bool {
+	m, err := manifest.ParseBytes(ControlManifestYAML())
+	if err != nil {
+		return false
+	}
+	for _, role := range RolesForPod(m) {
+		if !ops.hasImage(ctx, ImageRef(m, role)) {
+			return false
+		}
+	}
+	return true
 }
 
 func ensureControlPod(ctx context.Context, ops controlOps) error {
@@ -93,27 +128,35 @@ func ensureControlPod(ctx context.Context, ops controlOps) error {
 		}
 	}
 
-	if stale {
-		// Pull before tearing anything down: if the new images can't be
-		// fetched (offline), the old dashboard keeps running until next time.
-		for _, role := range roles {
-			if err := ops.pull(ctx, ImageRef(m, role)); err != nil {
-				return fmt.Errorf("pull %s: %w", role, err)
-			}
+	if !stale && !needStart {
+		return nil
+	}
+
+	// Download missing images before tearing anything down: if they can't
+	// be fetched (offline), an old dashboard keeps running until next time.
+	for _, role := range roles {
+		ref := ImageRef(m, role)
+		if ops.hasImage(ctx, ref) {
+			continue
 		}
+		if err := ops.pull(ctx, ref); err != nil {
+			return fmt.Errorf("%w: %s: %w", ErrControlDownload, role, err)
+		}
+	}
+
+	if stale {
 		// Followers share the leader's network, so replace the whole pod.
 		for _, role := range roles {
 			if err := ops.remove(ctx, ContainerName(m.Project.Name, role)); err != nil {
 				return fmt.Errorf("replace the old control pod: %w", err)
 			}
 		}
-		needStart = true
 	}
 
-	if !needStart {
-		return nil
+	if err := ops.start(ctx, StartOptions{ManifestPath: manifestPath, ProjectDir: dir}); err != nil {
+		return fmt.Errorf("%w: %w", ErrControlStart, err)
 	}
-	return ops.start(ctx, StartOptions{ManifestPath: manifestPath, ProjectDir: dir})
+	return nil
 }
 
 // writeControlFolder creates dir and dir/data and writes the built-in
@@ -127,7 +170,8 @@ func writeControlFolder(dir, manifestPath string) error {
 		return nil
 	}
 	tmp := manifestPath + ".partial"
-	if err := os.WriteFile(tmp, want, 0o644); err != nil {
+	if err := writeManifestFile(tmp, want, 0o644); err != nil {
+		os.Remove(tmp)
 		return fmt.Errorf("write the control definition: %w", err)
 	}
 	if err := os.Rename(tmp, manifestPath); err != nil {
