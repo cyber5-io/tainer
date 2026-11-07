@@ -116,6 +116,18 @@ func (c *Client) Stop(ctx context.Context, name string) error {
 	return nil
 }
 
+// StopTimeout stops the named container, giving it timeout seconds to exit
+// before it is killed (nil: the runtime's default).
+func (c *Client) StopTimeout(ctx context.Context, name string, timeout *int) error {
+	if err := c.api.ContainerStop(ctx, name, container.StopOptions{Timeout: timeout}); err != nil {
+		if client.IsErrNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("engine: stop %s: %w", name, err)
+	}
+	return nil
+}
+
 // Remove deletes the named container. force=true kills if running.
 func (c *Client) Remove(ctx context.Context, name string, force bool) error {
 	err := c.api.ContainerRemove(ctx, name, container.RemoveOptions{Force: force})

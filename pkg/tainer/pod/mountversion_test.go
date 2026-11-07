@@ -109,3 +109,61 @@ func TestControlPodWithOlderMountsIsReplaced(t *testing.T) {
 		t.Errorf("older mounts: removed=%v starts=%d, want both removed and one start", f.removed, len(f.starts))
 	}
 }
+
+// Replacing a running pod made by an older tainer stops it gracefully
+// first, app before db before web, giving the database 30 seconds to shut
+// down cleanly, then removes every container. A stop that fails doesn't
+// keep the old container: it is still removed. A removal that fails stops
+// the start.
+func TestReplaceOutdatedPodStopsGracefullyFirst(t *testing.T) {
+	type call struct {
+		op, name string
+		timeout  int // -1: the default
+	}
+	run := func(stopErr, removeErr error) ([]call, error) {
+		var calls []call
+		ops := replaceOps{
+			stop: func(_ context.Context, name string, timeout *int) error {
+				c := call{"stop", name, -1}
+				if timeout != nil {
+					c.timeout = *timeout
+				}
+				calls = append(calls, c)
+				return stopErr
+			},
+			remove: func(_ context.Context, name string) error {
+				calls = append(calls, call{"remove", name, 0})
+				return removeErr
+			},
+		}
+		err := replaceOutdatedPod(context.Background(), ops, "site", []string{RoleWeb, RoleDB, RoleApp})
+		return calls, err
+	}
+	n := func(role string) string { return ContainerName("site", role) }
+	want := []call{
+		{"stop", n(RoleApp), -1}, {"stop", n(RoleDB), 30}, {"stop", n(RoleWeb), -1},
+		{"remove", n(RoleWeb), 0}, {"remove", n(RoleDB), 0}, {"remove", n(RoleApp), 0},
+	}
+	calls, err := run(nil, nil)
+	if err != nil || len(calls) != len(want) {
+		t.Fatalf("calls %v, err %v; want %v", calls, err, want)
+	}
+	for i := range want {
+		if calls[i] != want[i] {
+			t.Errorf("call %d = %v, want %v", i, calls[i], want[i])
+		}
+	}
+	calls, err = run(errors.New("stop timed out"), nil)
+	removed := 0
+	for _, c := range calls {
+		if c.op == "remove" {
+			removed++
+		}
+	}
+	if err != nil || removed != 3 {
+		t.Errorf("failed stop: removed %d, err %v; want all 3 removed", removed, err)
+	}
+	if _, err := run(nil, errors.New("busy")); err == nil {
+		t.Error("failed removal: want the start stopped")
+	}
+}

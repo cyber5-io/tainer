@@ -299,11 +299,12 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 		return nil, err
 	}
 	if outdated {
-		for _, role := range roles {
-			name := ContainerName(m.Project.Name, role)
-			if err := eng.Remove(ctx, name, true); err != nil {
-				return nil, removeErr(m.Project.Name, Container{Name: name, Role: role}, "replace", err)
-			}
+		ops := replaceOps{
+			stop:   eng.StopTimeout,
+			remove: func(ctx context.Context, name string) error { return eng.Remove(ctx, name, true) },
+		}
+		if err := replaceOutdatedPod(ctx, ops, m.Project.Name, roles); err != nil {
+			return nil, err
 		}
 	}
 
@@ -535,6 +536,44 @@ func podMountsOutdated(ctx context.Context, inspect func(context.Context, string
 		}
 	}
 	return false, nil
+}
+
+// dbStopTimeout is how long the database gets to shut down cleanly when a
+// pod is replaced; the runtime's default is too short for a busy one.
+const dbStopTimeout = 30
+
+// replaceOps are the runtime actions replaceOutdatedPod drives; split out
+// so the order can be tested without a runtime.
+type replaceOps struct {
+	stop   func(ctx context.Context, name string, timeout *int) error
+	remove func(ctx context.Context, name string) error
+}
+
+// replaceOutdatedPod removes every container of a pod made under older
+// mount rules so Start recreates them. Running containers are stopped
+// gracefully first, in reverse start order (app, then db with
+// dbStopTimeout, then web), so the database shuts down cleanly. A stop
+// that fails is logged and the container is removed anyway — an old
+// container is never reused; a removal that fails is returned.
+func replaceOutdatedPod(ctx context.Context, ops replaceOps, project string, roles []string) error {
+	for i := len(roles) - 1; i >= 0; i-- {
+		var timeout *int
+		if roles[i] == RoleDB {
+			t := dbStopTimeout
+			timeout = &t
+		}
+		name := ContainerName(project, roles[i])
+		if err := ops.stop(ctx, name, timeout); err != nil {
+			log.Printf("%s did not stop cleanly; replacing it anyway", name)
+		}
+	}
+	for _, role := range roles {
+		name := ContainerName(project, role)
+		if err := ops.remove(ctx, name); err != nil {
+			return removeErr(project, Container{Name: name, Role: role}, "replace", err)
+		}
+	}
+	return nil
 }
 
 // isNotFound reports whether err is the engine's "container doesn't
