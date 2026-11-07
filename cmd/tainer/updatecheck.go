@@ -27,14 +27,18 @@ func runUpdateCheck(outMode tui.OutputMode) {
 	}
 	defer eng.Close()
 
+	cd := controlCheckDeps()
 	deps := imagecheck.Deps{
 		EnginePods:   func(ctx context.Context) ([]pod.Pod, error) { return pod.List(ctx, eng) },
 		ImageInspect: func(ctx context.Context, ref string) (engine.ImageInfo, error) { return eng.ImageInspect(ctx, ref) },
 		RemoteConfigDigest: func(ctx context.Context, ref imagecheck.Ref, arch string) (string, error) {
 			return imagecheck.RemoteConfigDigest(ctx, nil, ref, arch)
 		},
+		RemoteLabels:  cd.RemoteLabels,
+		TainerVersion: cd.TainerVersion,
 	}
-	rep, err := imagecheck.Run(ctx, deps, visibleProjects(registry.All()))
+	// The control pod is checked like any pod (against its stable channel).
+	rep, err := imagecheck.Run(ctx, deps, registry.All())
 	if err != nil {
 		must(engineErr(err))
 		return
@@ -49,6 +53,9 @@ func runUpdateCheck(outMode tui.OutputMode) {
 				fmt.Printf("update available: %s (%s)\n", p.Name, p.Parts)
 			}
 		}
+		for _, p := range heldPods(rep) {
+			fmt.Printf("needs a newer tainer: %s (%s)\n", p.Name, heldDetail(p))
+		}
 		for _, p := range unknownPods(rep) {
 			fmt.Printf("couldn't check: %s - %s\n", p.Name, p.Error)
 		}
@@ -60,10 +67,13 @@ func runUpdateCheck(outMode tui.OutputMode) {
 				fmt.Println("  " + tui.MarkInfo() + p.Name + "  " + p.Parts)
 			}
 		}
+		for _, p := range heldPods(rep) {
+			fmt.Println("  " + tui.MarkWarn() + p.Name + "  needs a newer tainer — " + heldDetail(p))
+		}
 		for _, p := range unknownPods(rep) {
 			fmt.Println("  " + tui.MarkWarn() + "couldn't check: " + p.Name + " — " + p.Error)
 		}
-		if rep.Available > 0 || rep.Unknown > 0 {
+		if rep.Available > 0 || rep.Unknown > 0 || rep.Held > 0 {
 			fmt.Println()
 		}
 		tui.BookendClose(time.Since(started), updateCheckSummary(rep))
@@ -82,8 +92,28 @@ func unknownPods(r imagecheck.Report) []imagecheck.PodReport {
 	return out
 }
 
+// heldPods are the pods whose newer image needs a newer tainer.
+func heldPods(r imagecheck.Report) []imagecheck.PodReport {
+	var out []imagecheck.PodReport
+	for _, p := range r.Pods {
+		if p.Control != nil && p.Control.State == imagecheck.ControlNeedsNewerTainer {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// heldDetail names the held image and the tainer it needs.
+func heldDetail(p imagecheck.PodReport) string {
+	return fmt.Sprintf("dashboard %s needs tainer %s or later", p.Control.Stable, p.Control.MinTainer)
+}
+
 func updateCheckSummary(r imagecheck.Report) string {
-	return fmt.Sprintf("%d up to date · %d updates available · %d unknown", r.UpToDate, r.Available, r.Unknown)
+	s := fmt.Sprintf("%d up to date · %d updates available · %d unknown", r.UpToDate, r.Available, r.Unknown)
+	if r.Held > 0 {
+		s += fmt.Sprintf(" · %d needs a newer tainer", r.Held)
+	}
+	return s
 }
 
 // updateCheckUsageErr is returned when --check is combined with another mode.

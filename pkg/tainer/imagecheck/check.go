@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cyber5-io/tainer/pkg/tainer"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 	"github.com/cyber5-io/tainer/pkg/tainer/pod"
@@ -17,11 +18,16 @@ import (
 
 const maxConcurrency = 6
 
-// Deps are the outside-world lookups Run needs; tests fake all three.
+// Deps are the outside-world lookups Run needs; tests fake them all.
 type Deps struct {
 	EnginePods         func(ctx context.Context) ([]pod.Pod, error)
 	ImageInspect       func(ctx context.Context, ref string) (engine.ImageInfo, error)
 	RemoteConfigDigest func(ctx context.Context, ref Ref, arch string) (string, error)
+	// RemoteLabels reads an image's labels from the registry (control pod).
+	RemoteLabels func(ctx context.Context, ref Ref, arch string) (map[string]string, error)
+	// TainerVersion is this tainer's release version; "dev" or empty for a
+	// development build.
+	TainerVersion string
 }
 
 // Report is the `tainer update --check --json` document. The envelope's
@@ -32,6 +38,8 @@ type Report struct {
 	UpToDate  int         `json:"upToDate"`
 	Available int         `json:"available"`
 	Unknown   int         `json:"unknown"`
+	// Held counts pods whose newer image needs a newer tainer.
+	Held int `json:"held,omitempty"`
 }
 
 type PodReport struct {
@@ -42,7 +50,10 @@ type PodReport struct {
 	UpdateAvailable bool         `json:"updateAvailable"`
 	Parts           string       `json:"parts"`
 	Roles           []RoleReport `json:"roles"`
-	Error           string       `json:"error,omitempty"`
+	// Control is set for the control pod: its version against the stable
+	// channel.
+	Control *ControlCheck `json:"control,omitempty"`
+	Error   string        `json:"error,omitempty"`
 }
 
 type RoleReport struct {
@@ -62,6 +73,10 @@ type podPlan struct {
 	state string
 	roles []RoleReport
 	err   error
+	// control is set for the pinned control pod: the version it runs. Its
+	// app role is judged by version against the stable channel, not by
+	// digest.
+	control string
 }
 
 // Run compares each registered project's local images with the registry,
@@ -104,7 +119,15 @@ func Run(ctx context.Context, d Deps, projects map[string]registry.Project) (Rep
 			plans = append(plans, pl)
 			continue
 		}
+		pinned := tainer.IsPinnedProject(n)
+		if pinned {
+			pl.control = pod.ControlVersion(projects[n].ImageVersion)
+		}
 		for _, role := range pod.RolesForPod(m) {
+			if pinned && role == pod.RoleApp {
+				pl.roles = append(pl.roles, RoleReport{Role: role, Image: pod.ControlImageRef(pl.control)})
+				continue
+			}
 			ref := pod.ImageRef(m, role)
 			if ref == "" {
 				continue
@@ -135,7 +158,23 @@ func Run(ctx context.Context, d Deps, projects map[string]registry.Project) (Rep
 		if pl.err != nil {
 			errs = append(errs, pl.err.Error())
 		}
+		if pl.control != "" {
+			pr.Control = &ControlCheck{Running: pl.control}
+			if c, err := CheckControl(ctx, d, pl.control); err != nil {
+				errs = append(errs, err.Error())
+			} else {
+				pr.Control = &c
+			}
+		}
 		for _, r := range pl.roles {
+			if pr.Control != nil && r.Role == pod.RoleApp {
+				r.UpdateAvailable = pr.Control.State == ControlUpdate
+				if r.UpdateAvailable {
+					pr.UpdateAvailable = true
+				}
+				pr.Roles = append(pr.Roles, r)
+				continue
+			}
 			res := results[r.Image]
 			if res.err != nil {
 				errs = append(errs, res.err.Error())
@@ -150,6 +189,8 @@ func Run(ctx context.Context, d Deps, projects map[string]registry.Project) (Rep
 		switch {
 		case pr.UpdateAvailable:
 			rep.Available++
+		case pr.Control != nil && pr.Control.State == ControlNeedsNewerTainer:
+			rep.Held++
 		case pr.Error != "":
 			rep.Unknown++
 		default:

@@ -45,3 +45,7 @@ func controlVersion(recorded string) string {
 	}
 	return controlImageVersion
 }
+
+// ControlVersion is the control image version the pod runs given the
+// version recorded in the registry: never older than this build's pin.
+func ControlVersion(recorded string) string { return controlVersion(recorded) }

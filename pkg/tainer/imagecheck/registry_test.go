@@ -108,6 +108,21 @@ func newFake(t *testing.T, f *fake) {
 		}
 		_ = json.NewEncoder(w).Encode(body)
 	})
+	mux.HandleFunc("/v2/"+repo+"/blobs/", func(w http.ResponseWriter, r *http.Request) {
+		if f.needAuth && r.Header.Get("Authorization") != "Bearer t" {
+			w.WriteHeader(401)
+			return
+		}
+		switch strings.TrimPrefix(r.URL.Path, "/v2/"+repo+"/blobs/") {
+		case armCfg:
+			_ = json.NewEncoder(w).Encode(map[string]any{"architecture": "arm64", "config": map[string]any{
+				"Labels": map[string]string{LabelVersion: "1.2.0", LabelMinVersion: "1.3.0"}}})
+		case amdCfg:
+			_ = json.NewEncoder(w).Encode(map[string]any{"architecture": "amd64", "config": map[string]any{}})
+		default:
+			w.WriteHeader(404)
+		}
+	})
 	if f.useTLS {
 		f.srv = httptest.NewTLSServer(mux)
 	} else {
@@ -219,5 +234,29 @@ func TestRemoteConfigDigestExportedOverTLS(t *testing.T) {
 	got, err := RemoteConfigDigest(context.Background(), client(f), refFor(f), "arm64")
 	if err != nil || got != armCfg {
 		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+func TestRemoteConfigLabelsReadsConfigBlob(t *testing.T) {
+	f := &fake{needAuth: true}
+	newFake(t, f)
+	got, err := remoteConfigLabels(context.Background(), client(f), "http", refFor(f), "arm64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[LabelVersion] != "1.2.0" || got[LabelMinVersion] != "1.3.0" {
+		t.Fatalf("labels = %v", got)
+	}
+	if f.tokenHits != 1 {
+		t.Errorf("token hits = %d, want 1 (token reused for the blob)", f.tokenHits)
+	}
+}
+
+func TestRemoteConfigLabelsNoLabels(t *testing.T) {
+	f := &fake{}
+	newFake(t, f)
+	got, err := remoteConfigLabels(context.Background(), client(f), "http", refFor(f), "amd64")
+	if err != nil || len(got) != 0 {
+		t.Fatalf("labels = %v, %v; want empty", got, err)
 	}
 }

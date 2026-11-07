@@ -56,6 +56,7 @@ type fakes struct {
 	rerr   map[string]error
 	lerr   map[string]error
 	pods   []pod.Pod
+	labels func(ref Ref) (map[string]string, error)
 }
 
 func (f *fakes) deps() Deps {
@@ -76,6 +77,12 @@ func (f *fakes) deps() Deps {
 				return "", err
 			}
 			return f.digest[key], nil
+		},
+		RemoteLabels: func(ctx context.Context, ref Ref, arch string) (map[string]string, error) {
+			if f.labels == nil {
+				return nil, errors.New("no labels faked")
+			}
+			return f.labels(ref)
 		},
 	}
 }

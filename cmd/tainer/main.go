@@ -3166,6 +3166,7 @@ func runUpdateSingle(outMode tui.OutputMode, positional []string) {
 	label := "updating images for " + projectName
 
 	var res pod.UpdateResult
+	var note string
 	run := func() error {
 		ctx, cancel := ctxWithTimeout(10 * time.Minute)
 		defer cancel()
@@ -3174,22 +3175,23 @@ func runUpdateSingle(outMode tui.OutputMode, positional []string) {
 			return engineErr(err)
 		}
 		defer eng.Close()
-		res, err = pod.Update(ctx, eng,
-			pod.StartOptions{ManifestPath: manifestPath, ProjectDir: projectDir},
-			pod.UpdateOptions{})
+		res, note, err = updateProject(ctx, projectName, manifestPath, projectDir, liveControlUpdateOps(eng))
 		return err
 	}
 
 	switch outMode {
 	case tui.ModeJSON:
 		err := run()
-		emitUpdateSingleJSON(projectName, res.Started, err, time.Since(started))
+		emitUpdateSingleJSON(projectName, res.Started, note, err, time.Since(started))
 		if err != nil {
 			os.Exit(1)
 		}
 	case tui.ModePlain:
 		fmt.Printf("%s...\n", label)
 		must(run())
+		if note != "" {
+			fmt.Println(note)
+		}
 		fmt.Printf("updated %s%s   (%.1fs)\n", projectName, stillStoppedNote(res.Started), time.Since(started).Seconds())
 	default:
 		tui.Bookend(projectName, "update")
@@ -3197,6 +3199,9 @@ func runUpdateSingle(outMode tui.OutputMode, positional []string) {
 			fmt.Println()
 			tui.BookendCloseError(time.Since(started), "Failed", err.Error())
 			os.Exit(1)
+		}
+		if note != "" {
+			fmt.Println("  " + tui.MarkWarn() + note)
 		}
 		if res.Started {
 			tui.BookendClose(time.Since(started), "Updated")
@@ -3217,7 +3222,7 @@ func stillStoppedNote(started bool) string {
 
 // emitUpdateSingleJSON prints the result document, or the error envelope when
 // err is set; the caller exits 1 in that case.
-func emitUpdateSingleJSON(projectName string, started bool, err error, elapsed time.Duration) {
+func emitUpdateSingleJSON(projectName string, started bool, note string, err error, elapsed time.Duration) {
 	if err != nil {
 		jsonFail(errCodeOr(err, "update-failed"), err.Error())
 		return
@@ -3227,12 +3232,14 @@ func emitUpdateSingleJSON(projectName string, started bool, err error, elapsed t
 		Pod       string `json:"pod"`
 		Updated   bool   `json:"updated"`
 		Started   bool   `json:"started"`
+		Note      string `json:"note,omitempty"`
 		ElapsedMs int64  `json:"elapsedMs"`
 	}{
 		Mode:      "project",
 		Pod:       projectName,
 		Updated:   true,
 		Started:   started,
+		Note:      note,
 		ElapsedMs: elapsed.Milliseconds(),
 	}
 	jsonDoc(out)
@@ -3244,6 +3251,7 @@ type updateAllPodResult struct {
 	Name      string `json:"name"`
 	Updated   bool   `json:"updated"`
 	Started   bool   `json:"started"`
+	Note      string `json:"note,omitempty"`
 	Error     string `json:"error,omitempty"`
 	ElapsedMs int64  `json:"elapsedMs"`
 }
@@ -3304,6 +3312,7 @@ func runUpdateAll(outMode tui.OutputMode) {
 		label := "updating " + name
 
 		var upd pod.UpdateResult
+		var note string
 		runErr := func() error {
 			ctx, cancel := ctxWithTimeout(10 * time.Minute)
 			defer cancel()
@@ -3312,9 +3321,7 @@ func runUpdateAll(outMode tui.OutputMode) {
 				return engineErr(err)
 			}
 			defer eng.Close()
-			upd, err = pod.Update(ctx, eng,
-				pod.StartOptions{ManifestPath: manifestPath, ProjectDir: p.Path},
-				pod.UpdateOptions{})
+			upd, note, err = updateProject(ctx, name, manifestPath, p.Path, liveControlUpdateOps(eng))
 			return err
 		}
 
@@ -3333,6 +3340,7 @@ func runUpdateAll(outMode tui.OutputMode) {
 			Name:      name,
 			Updated:   err == nil,
 			Started:   err == nil && upd.Started,
+			Note:      note,
 			ElapsedMs: time.Since(started).Milliseconds(),
 		}
 		if err != nil {
@@ -3341,11 +3349,17 @@ func runUpdateAll(outMode tui.OutputMode) {
 		}
 		results = append(results, res)
 
+		if outMode == tui.ModeStyled && res.Note != "" {
+			fmt.Println("  " + tui.MarkWarn() + res.Note)
+		}
 		if outMode == tui.ModeStyled && res.Updated && !res.Started {
 			muted := lipgloss.NewStyle().Foreground(tui.Colors().Muted)
 			fmt.Println("  " + muted.Render(name+" updated (still stopped)"))
 		}
 		if outMode == tui.ModePlain {
+			if res.Note != "" {
+				fmt.Println(res.Note)
+			}
 			if res.Updated {
 				fmt.Printf("updated %s%s   (%.1fs)\n", name, stillStoppedNote(res.Started), float64(res.ElapsedMs)/1000)
 			} else {

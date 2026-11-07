@@ -65,13 +65,50 @@ func RemoteConfigDigest(ctx context.Context, httpc *http.Client, ref Ref, arch s
 }
 
 func remoteConfigDigest(ctx context.Context, httpc *http.Client, scheme string, ref Ref, arch string) (string, error) {
-	if arch == "" {
-		arch = "arm64"
+	return newRegClient(httpc, scheme, ref).configDigest(ctx, arch)
+}
+
+// RemoteConfigLabels returns the labels of the linux/<arch> image behind ref,
+// read from its config blob before anything is pulled. An empty arch means
+// arm64; an image without labels yields an empty map.
+func RemoteConfigLabels(ctx context.Context, httpc *http.Client, ref Ref, arch string) (map[string]string, error) {
+	return remoteConfigLabels(ctx, httpc, "https", ref, arch)
+}
+
+func remoteConfigLabels(ctx context.Context, httpc *http.Client, scheme string, ref Ref, arch string) (map[string]string, error) {
+	c := newRegClient(httpc, scheme, ref)
+	digest, err := c.configDigest(ctx, arch)
+	if err != nil {
+		return nil, err
 	}
+	var cfg struct {
+		Config struct {
+			Labels map[string]string `json:"Labels"`
+		} `json:"config"`
+	}
+	if err := c.blob(ctx, digest, &cfg); err != nil {
+		return nil, err
+	}
+	if cfg.Config.Labels == nil {
+		return map[string]string{}, nil
+	}
+	return cfg.Config.Labels, nil
+}
+
+func newRegClient(httpc *http.Client, scheme string, ref Ref) *regClient {
 	if httpc == nil {
 		httpc = &http.Client{Timeout: 10 * time.Second}
 	}
-	c := &regClient{httpc: httpc, scheme: scheme, ref: ref}
+	return &regClient{httpc: httpc, scheme: scheme, ref: ref}
+}
+
+// configDigest resolves the client's ref to the config digest of its
+// linux/<arch> image.
+func (c *regClient) configDigest(ctx context.Context, arch string) (string, error) {
+	if arch == "" {
+		arch = "arm64"
+	}
+	ref := c.ref
 	doc, err := c.manifest(ctx, ref.Tag)
 	if err != nil {
 		return "", err
@@ -106,32 +143,46 @@ type regClient struct {
 
 func (c *regClient) manifest(ctx context.Context, reference string) (*manifestDoc, error) {
 	u := fmt.Sprintf("%s://%s/v2/%s/manifests/%s", c.scheme, c.ref.Host, c.ref.Repo, reference)
+	var doc manifestDoc
+	if err := c.fetchJSON(ctx, u, reference, "manifest", &doc); err != nil {
+		return nil, err
+	}
+	return &doc, nil
+}
+
+// blob decodes the JSON blob with the given digest (an image config).
+func (c *regClient) blob(ctx context.Context, digest string, out any) error {
+	u := fmt.Sprintf("%s://%s/v2/%s/blobs/%s", c.scheme, c.ref.Host, c.ref.Repo, digest)
+	return c.fetchJSON(ctx, u, digest, "image config", out)
+}
+
+// fetchJSON GETs u, answering one bearer challenge, and decodes the body.
+func (c *regClient) fetchJSON(ctx context.Context, u, reference, what string, out any) error {
 	resp, err := c.get(ctx, u)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
 		challenge := bearerChallenge(resp.Header.Values("WWW-Authenticate"))
 		resp.Body.Close()
 		if err := c.fetchToken(ctx, challenge); err != nil {
-			return nil, err
+			return err
 		}
 		if resp, err = c.get(ctx, u); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	defer resp.Body.Close()
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
-		return nil, fmt.Errorf("%s/%s:%s: %w", c.ref.Host, c.ref.Repo, reference, ErrNotFound)
+		return fmt.Errorf("%s/%s:%s: %w", c.ref.Host, c.ref.Repo, reference, ErrNotFound)
 	case resp.StatusCode != http.StatusOK:
-		return nil, fmt.Errorf("registry returned %s for %s", resp.Status, u)
+		return fmt.Errorf("registry returned %s for %s", resp.Status, u)
 	}
-	var doc manifestDoc
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&doc); err != nil {
-		return nil, fmt.Errorf("decode manifest: %w", err)
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(out); err != nil {
+		return fmt.Errorf("decode %s: %w", what, err)
 	}
-	return &doc, nil
+	return nil
 }
 
 func (c *regClient) get(ctx context.Context, u string) (*http.Response, error) {
