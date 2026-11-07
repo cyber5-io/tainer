@@ -7,18 +7,22 @@ import (
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 )
 
+// Roles are created in this order. web leads (it owns the pod's network);
+// app runs the project's own code with the project mounted read-write, so it
+// starts last: db's folder is checked and mounted before any project code
+// runs.
 func TestRolesForType(t *testing.T) {
 	cases := []struct {
 		typ  manifest.ProjectType
 		want []string
 	}{
-		{manifest.TypeWordPress, []string{"web", "app", "db"}},
-		{manifest.TypePHP, []string{"web", "app", "db"}},
-		{manifest.TypeNodeJS, []string{"web", "app", "db"}},
-		{manifest.TypeKompozi, []string{"web", "app", "db"}},
-		{manifest.TypeReact, []string{"web", "app", "db"}},
-		{manifest.TypeSvelte, []string{"web", "app", "db"}},
-		{manifest.TypeSvelteKit, []string{"web", "app", "db"}},
+		{manifest.TypeWordPress, []string{"web", "db", "app"}},
+		{manifest.TypePHP, []string{"web", "db", "app"}},
+		{manifest.TypeNodeJS, []string{"web", "db", "app"}},
+		{manifest.TypeKompozi, []string{"web", "db", "app"}},
+		{manifest.TypeReact, []string{"web", "db", "app"}},
+		{manifest.TypeSvelte, []string{"web", "db", "app"}},
+		{manifest.TypeSvelteKit, []string{"web", "db", "app"}},
 	}
 	for _, c := range cases {
 		got := RolesForType(c.typ)
@@ -35,11 +39,11 @@ func TestRolesForPod(t *testing.T) {
 		db   manifest.DatabaseType
 		want []string
 	}{
-		{"wp+mariadb", manifest.TypeWordPress, manifest.DatabaseMariaDB, []string{"web", "app", "db"}},
+		{"wp+mariadb", manifest.TypeWordPress, manifest.DatabaseMariaDB, []string{"web", "db", "app"}},
 		{"wp+none", manifest.TypeWordPress, manifest.DatabaseNone, []string{"web", "app"}},
-		{"node+postgres", manifest.TypeNodeJS, manifest.DatabasePostgres, []string{"web", "app", "db"}},
+		{"node+postgres", manifest.TypeNodeJS, manifest.DatabasePostgres, []string{"web", "db", "app"}},
 		{"node+none", manifest.TypeNodeJS, manifest.DatabaseNone, []string{"web", "app"}},
-		{"react+mariadb", manifest.TypeReact, manifest.DatabaseMariaDB, []string{"web", "app", "db"}},
+		{"react+mariadb", manifest.TypeReact, manifest.DatabaseMariaDB, []string{"web", "db", "app"}},
 		{"react+none", manifest.TypeReact, manifest.DatabaseNone, []string{"web", "app"}},
 		{"svelte+none", manifest.TypeSvelte, manifest.DatabaseNone, []string{"web", "app"}},
 		{"sveltekit+none", manifest.TypeSvelteKit, manifest.DatabaseNone, []string{"web", "app"}},

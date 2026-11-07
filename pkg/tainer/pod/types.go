@@ -30,7 +30,11 @@ func RolesForType(t manifest.ProjectType) []string {
 		// TAIN-98) but the table supports it.
 		return []string{RoleWeb, RoleDB}
 	}
-	return []string{RoleWeb, RoleApp, RoleDB}
+	// Creation order. web leads: it owns the pod's network, the others
+	// join it. app comes last because it runs the project's own code with
+	// the whole project mounted read-write — db's folder is checked and
+	// mounted before any of that code runs.
+	return []string{RoleWeb, RoleDB, RoleApp}
 }
 
 // RolesForPod is RolesForType filtered by the manifest's runtime
