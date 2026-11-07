@@ -90,8 +90,8 @@ func ensureWeb(ctx context.Context, eng *engine.Client, extraHTTPPorts []int) er
 			return nil
 		}
 	}
-	if err := eng.Pull(ctx, caddyImage); err != nil {
-		return fmt.Errorf("router web: pull %s: %w", caddyImage, err)
+	if err := eng.EnsureImages(ctx, caddyImage); err != nil {
+		return fmt.Errorf("router web: %w", err)
 	}
 	spec := engine.RunSpec{
 		Image:   caddyImage,
@@ -285,8 +285,8 @@ func ensureSSH(ctx context.Context, eng *engine.Client) error {
 			return fmt.Errorf("router ssh: remove for recreate: %w", err)
 		}
 	}
-	if err := eng.Pull(ctx, sshpiperImage); err != nil {
-		return fmt.Errorf("router ssh: pull %s: %w", sshpiperImage, err)
+	if err := eng.EnsureImages(ctx, sshpiperImage); err != nil {
+		return fmt.Errorf("router ssh: %w", err)
 	}
 	spec := engine.RunSpec{
 		Image: sshpiperImage,

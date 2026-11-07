@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"testing"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/config"
@@ -152,7 +151,7 @@ func TestFreshProvisionCreatesManifestAndDataOnly(t *testing.T) {
 	if !ok || p.Path != dir || p.Type != "nodejs" || p.Domain != "my.tainer.me" {
 		t.Errorf("registry entry = %+v (ok=%v)", p, ok)
 	}
-	want := StartOptions{ManifestPath: filepath.Join(dir, "tainer.yaml"), ProjectDir: dir, PullMissingOnly: true}
+	want := StartOptions{ManifestPath: filepath.Join(dir, "tainer.yaml"), ProjectDir: dir}
 	if len(f.starts) != 1 || f.starts[0] != want {
 		t.Errorf("starts = %+v, want one %+v", f.starts, want)
 	}
@@ -394,32 +393,8 @@ func TestOfflineWithLocalImagesStillStarts(t *testing.T) {
 	if len(f.pulled) != 0 {
 		t.Errorf("pulled %v while every image is local", f.pulled)
 	}
-	if len(f.starts) != 1 || !f.starts[0].PullMissingOnly {
-		t.Errorf("starts = %+v, want one start with PullMissingOnly", f.starts)
-	}
-}
-
-func TestPullImagesSkipsLocalRefsOnlyWhenAsked(t *testing.T) {
-	refs := []string{"a:1", "b:1"}
-	local := map[string]bool{"a:1": true}
-	has := func(_ context.Context, ref string) bool { return local[ref] }
-	for _, tc := range []struct {
-		missingOnly bool
-		want        []string
-	}{{false, []string{"a:1", "b:1"}}, {true, []string{"b:1"}}} {
-		var pulled []string
-		pull := func(_ context.Context, ref string) error { pulled = append(pulled, ref); return nil }
-		if err := pullImages(context.Background(), refs, tc.missingOnly, has, pull); err != nil {
-			t.Fatal(err)
-		}
-		if strings.Join(pulled, ",") != strings.Join(tc.want, ",") {
-			t.Errorf("missingOnly=%v: pulled %v, want %v", tc.missingOnly, pulled, tc.want)
-		}
-	}
-	offline := func(context.Context, string) error { return errors.New("offline") }
-	all := func(context.Context, string) bool { return true }
-	if err := pullImages(context.Background(), refs, true, all, offline); err != nil {
-		t.Errorf("offline with every image local must not fail: %v", err)
+	if len(f.starts) != 1 {
+		t.Errorf("starts = %+v, want one start", f.starts)
 	}
 }
 
