@@ -73,7 +73,7 @@ func LoadOrCreateSecretsAt(path, project, projectDir string) (*Secrets, error) {
 	// when it is a real file: a link could point at another project's .env.
 	if projectDir != "" {
 		envPath := filepath.Join(projectDir, ".env")
-		f, oerr := openProjectFile(envPath)
+		f, oerr := openNoFollow(envPath)
 		if oerr != nil && !errors.Is(oerr, fs.ErrNotExist) {
 			return nil, oerr
 		}
@@ -99,32 +99,6 @@ func LoadOrCreateSecretsAt(path, project, projectDir string) (*Secrets, error) {
 		return nil, err
 	}
 	return s, nil
-}
-
-// openProjectFile opens a file that came with the project, refusing a link
-// or anything but a regular file. The file opened is checked to be the one
-// inspected, so a link swapped in between is refused too.
-func openProjectFile(path string) (*os.File, error) {
-	before, err := os.Lstat(path)
-	if err != nil {
-		return nil, err
-	}
-	if before.Mode()&fs.ModeSymlink != 0 {
-		return nil, fmt.Errorf("refusing to read %s: it is a link; tainer only reads a real file there", path)
-	}
-	if !before.Mode().IsRegular() {
-		return nil, fmt.Errorf("refusing to read %s: it is not a regular file", path)
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	after, err := f.Stat()
-	if err != nil || !os.SameFile(before, after) {
-		f.Close()
-		return nil, fmt.Errorf("refusing to read %s: it changed while being read", path)
-	}
-	return f, nil
 }
 
 func loadSecrets(path string) (*Secrets, error) {
