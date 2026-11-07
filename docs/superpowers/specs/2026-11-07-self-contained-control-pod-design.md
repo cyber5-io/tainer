@@ -1,6 +1,6 @@
 # Self-contained control pod — design
 
-Date: 2026-11-07. Status: agreed in conversation with Leni, awaiting written approval.
+Date: 2026-11-07. Status: approved by Leni 2026-11-07.
 
 ## Intent
 
