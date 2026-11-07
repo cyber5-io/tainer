@@ -36,6 +36,7 @@ func TestLabelConstants(t *testing.T) {
 		{"LabelPodID", LabelPodID, "tainer.pod-id"},
 		{"LabelManifestPath", LabelManifestPath, "tainer.manifest-path"},
 		{"LabelManifestHash", LabelManifestHash, "tainer.manifest-hash"},
+		{"LabelMounts", LabelMounts, "tainer.mounts"},
 		{"LabelPublishPrefix", LabelPublishPrefix, "tainer.published."},
 	}
 	for _, c := range cases {

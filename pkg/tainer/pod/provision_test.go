@@ -82,7 +82,7 @@ func (f *fakeControl) running(role, manifestPath string, mounts ...[2]string) {
 		Mounts:            mps,
 		Config: &container.Config{
 			Image:  ImageRefIn(m, role, config.ControlDir()),
-			Labels: map[string]string{LabelManifestPath: manifestPath, LabelManifestHash: ManifestHash(m)},
+			Labels: map[string]string{LabelManifestPath: manifestPath, LabelManifestHash: ManifestHash(m), LabelMounts: MountsVersion},
 		},
 	}
 }

@@ -27,10 +27,20 @@ const (
 	// LabelControlAccess records the control-access decision an app
 	// container was created under (see controlAccessStamp).
 	LabelControlAccess = "tainer.control-access"
+	// LabelMounts records the mount layout a container was made with
+	// (MountsVersion). A container with an older one is recreated.
+	LabelMounts = "tainer.mounts"
 	// LabelPublishPrefix is concatenated with the role to form the full
 	// label key (e.g. "tainer.published.db" = "30070").
 	LabelPublishPrefix = "tainer.published."
 )
+
+// MountsVersion is the current mount layout. Raise it whenever the
+// mounts a role gets change in a way existing containers must pick up:
+// mounts are fixed when a container is made, and start otherwise reuses
+// it. 2: web reads the docroot, data and extra mounts read-only, and every
+// project folder is checked on disk before it is mounted.
+const MountsVersion = "2"
 
 // PodCgroup is the shared cgroup path for a project's pod. Every container
 // in the pod runs as a leaf under it; the parent carries the pod's aggregate

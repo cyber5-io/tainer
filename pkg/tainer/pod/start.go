@@ -283,6 +283,25 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 		}
 	}
 
+	// Containers made under older mount rules (an older tainer: a writable
+	// web docroot, unchecked folders) keep those mounts until recreated.
+	// Replace the whole pod, leader first, so followers rejoin the new
+	// leader's network. Only containers go: the project's files, data/ and
+	// db/ are folders in the project and stay as they are. A removal that
+	// fails stops the start, so an old container is never reused.
+	outdated, err := podMountsOutdated(ctx, eng.Inspect, m.Project.Name, roles)
+	if err != nil {
+		return nil, err
+	}
+	if outdated {
+		for _, role := range roles {
+			name := ContainerName(m.Project.Name, role)
+			if err := eng.Remove(ctx, name, true); err != nil {
+				return nil, removeErr(m.Project.Name, Container{Name: name, Role: role}, "replace", err)
+			}
+		}
+	}
+
 	report("start", "starting containers", -1, false)
 	anyWork := false
 	for i, role := range roles {
@@ -391,28 +410,8 @@ func startContainer(
 	mounts = append(mounts, gwMounts...)
 	envs = append(envs, gwEnv...)
 
-	labels := map[string]string{
-		LabelPod:          m.Project.Name,
-		LabelRole:         role,
-		LabelPodID:        strconv.Itoa(podID),
-		LabelDomain:       m.Project.Domain,
-		LabelManifestPath: opts.ManifestPath,
-		LabelManifestHash: mhash,
-	}
 	stamp := access.stamp(role)
-	if stamp != "" {
-		labels[LabelControlAccess] = stamp
-	}
-	// Emit one published-port label per binding, keyed by the binding's
-	// own role rather than this container's role. Under shared-netns the
-	// leader carries every role's bindings, but List() / Inspect() expect
-	// each role's port to live under its own PublishLabel(role) key.
-	for _, b := range bindings {
-		if b.Role == "" {
-			continue
-		}
-		labels[PublishLabel(b.Role)] = strconv.Itoa(b.Host)
-	}
+	labels := containerLabels(m, opts.ManifestPath, role, podID, mhash, stamp, bindings)
 
 	// Smoke mode: no restart policy. Real pods auto-restart on
 	// crash (unless-stopped). Smoke containers shouldn't — a crash
@@ -454,9 +453,13 @@ func startContainer(
 	// container made under another decision (a revoked or new approval, a
 	// changed count on the control pod) is recreated, since its mounts and
 	// env were fixed at creation.
+	//
+	// So is a container made under older mount rules (see MountsVersion).
+	// Start replaces such a pod whole before this runs; checking here too
+	// means an older container is never started in place.
 	insp, ierr := eng.Inspect(ctx, spec.Name)
 	switch {
-	case ierr == nil && accessChanged(insp, stamp):
+	case ierr == nil && (accessChanged(insp, stamp) || mountsOutdated(insp)):
 		if err := eng.Remove(ctx, spec.Name, true); err != nil {
 			if isBusyRemoval(err) {
 				return false, removeErr(m.Project.Name, Container{Name: spec.Name, Role: role}, "replace", err)
@@ -474,6 +477,59 @@ func startContainer(
 	}
 	_, err = eng.Run(ctx, spec)
 	return true, err
+}
+
+// containerLabels are the labels a role's container is made with.
+func containerLabels(m *manifest.Manifest, manifestPath, role string, podID int, mhash, stamp string, bindings []engine.PortMap) map[string]string {
+	labels := map[string]string{
+		LabelPod:          m.Project.Name,
+		LabelRole:         role,
+		LabelPodID:        strconv.Itoa(podID),
+		LabelDomain:       m.Project.Domain,
+		LabelManifestPath: manifestPath,
+		LabelManifestHash: mhash,
+		LabelMounts:       MountsVersion,
+	}
+	if stamp != "" {
+		labels[LabelControlAccess] = stamp
+	}
+	// Emit one published-port label per binding, keyed by the binding's
+	// own role rather than this container's role. Under shared-netns the
+	// leader carries every role's bindings, but List() / Inspect() expect
+	// each role's port to live under its own PublishLabel(role) key.
+	for _, b := range bindings {
+		if b.Role == "" {
+			continue
+		}
+		labels[PublishLabel(b.Role)] = strconv.Itoa(b.Host)
+	}
+	return labels
+}
+
+// mountsOutdated reports whether a container was made under older mount
+// rules than MountsVersion (or before tainer recorded them), so its mounts
+// are not the ones this tainer would give it.
+func mountsOutdated(insp container.InspectResponse) bool {
+	return insp.Config == nil || insp.Config.Labels[LabelMounts] != MountsVersion
+}
+
+// podMountsOutdated reports whether any existing container of the pod was
+// made under older mount rules. Missing containers don't count; any other
+// inspect failure is returned rather than read as "current".
+func podMountsOutdated(ctx context.Context, inspect func(context.Context, string) (container.InspectResponse, error), project string, roles []string) (bool, error) {
+	for _, role := range roles {
+		insp, err := inspect(ctx, ContainerName(project, role))
+		if isNotFound(err) {
+			continue
+		}
+		if err != nil {
+			return false, fmt.Errorf("pod start: check %s: %w", ContainerName(project, role), err)
+		}
+		if mountsOutdated(insp) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // isNotFound reports whether err is the engine's "container doesn't

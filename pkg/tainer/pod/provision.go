@@ -380,14 +380,15 @@ func staleControlContainer(insp container.InspectResponse, manifestPath string) 
 }
 
 // outdatedControlContainer reports whether a control container was made by
-// another tainer build: its definition hash differs from the built-in one, or
+// another tainer build: its definition hash differs from the built-in one, it
+// was made under older mount rules (MountsVersion), or
 // the app runs another image than the one this build wants (a tainer upgrade
 // that raised the pinned version, or an update that recorded a newer one).
 func outdatedControlContainer(insp container.InspectResponse, m *manifest.Manifest, role, dir string) bool {
 	if insp.Config == nil {
 		return true
 	}
-	if insp.Config.Labels[LabelManifestHash] != ManifestHash(m) {
+	if insp.Config.Labels[LabelManifestHash] != ManifestHash(m) || mountsOutdated(insp) {
 		return true
 	}
 	if role != RoleApp {
