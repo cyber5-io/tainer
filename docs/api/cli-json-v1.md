@@ -187,6 +187,8 @@ All documents below start with `"v":1` on the wire; the examples omit it only wh
 }
 ```
 
+Each row may also carry `"controlDev": true`: the project is a dashboard checkout (`project.control-dev: true` in its `tainer.yaml`) whose developer access the user approved with `tainer control dev allow`. The key is absent on every other row (additive, v1 unchanged).
+
 ### `status`
 
 `status` (all projects) and `status <project>` are report commands. `status` exits 1 only when `daemon.reachable` is false, and it still prints the full document. Read `daemon.reachable`, not the exit status; stopped pods and per-project `queryError` do not affect the exit code. Project form:

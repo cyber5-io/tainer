@@ -91,8 +91,11 @@ func TestMarkerPlusApprovalGrantsControlAccess(t *testing.T) {
 			t.Errorf("env missing %q: %v", want, env)
 		}
 	}
+	if !slices.Contains(env, "TAINER_CONTROL_DEV=1") {
+		t.Errorf("an approved dev copy must know it is one: %v", env)
+	}
 	if envHas(env, "TAINER_CONTROL_DEV_ACCESS=") {
-		t.Errorf("the dev-access count is for the control pod only: %v", env)
+		t.Errorf("the dev-access count is gone: %v", env)
 	}
 	if m, e := gatewayInjection(m, RoleWeb, "/home/u/.cyberstack", dir); len(m) != 0 || len(e) != 0 {
 		t.Errorf("web role must get nothing: %+v %v", m, e)
@@ -141,31 +144,49 @@ func TestImageRefUsesTheRegisteredFolder(t *testing.T) {
 	}
 }
 
-func TestControlPodGetsTheDevAccessCount(t *testing.T) {
+func TestControlPodIgnoresDevApprovals(t *testing.T) {
 	devHome(t)
 	ctl := controlManifest(t)
 	dir := config.ControlDir()
-	_, env := gatewayInjection(ctl, RoleApp, "/home/u/.cyberstack", dir)
-	if !slices.Contains(env, "TAINER_CONTROL_DEV_ACCESS=0") {
-		t.Errorf("no approvals: env = %v", env)
+	check := func(when string) {
+		t.Helper()
+		_, env := gatewayInjection(ctl, RoleApp, "/home/u/.cyberstack", dir)
+		if envHas(env, "TAINER_CONTROL_DEV") {
+			t.Errorf("%s: the built-in dashboard is not a dev copy and gets no dev env: %v", when, env)
+		}
+		if s := controlAccessStamp(ctl, dir, RoleApp); s != "" {
+			t.Errorf("%s: stamp = %q, want empty", when, s)
+		}
 	}
-	if s := controlAccessStamp(ctl, dir, RoleApp); s != "" {
-		t.Errorf("no approvals: stamp = %q, want empty (matches containers made before the dev track)", s)
-	}
+	check("no approvals")
 	for _, d := range []string{t.TempDir(), t.TempDir()} {
 		if err := controldev.Allow(d); err != nil {
 			t.Fatal(err)
 		}
 	}
-	_, env = gatewayInjection(ctl, RoleApp, "/home/u/.cyberstack", dir)
-	if !slices.Contains(env, "TAINER_CONTROL_DEV_ACCESS=2") {
-		t.Errorf("two approvals: env = %v", env)
-	}
+	check("two approvals")
 	if got := ImageRefIn(ctl, RoleApp, dir); got != "ghcr.io/cyber5-io/tainer-control:1.0.0" {
 		t.Errorf("pinned control pod keeps the sealed image, got %q", got)
 	}
-	if s := controlAccessStamp(ctl, dir, RoleApp); s != "dev-access:2" {
-		t.Errorf("stamp = %q", s)
+}
+
+func TestIsApprovedControlDev(t *testing.T) {
+	dir := devHome(t)
+	if IsApprovedControlDev(devProject(true), dir) {
+		t.Error("marked but unapproved must not count")
+	}
+	if err := controldev.Allow(dir); err != nil {
+		t.Fatal(err)
+	}
+	if !IsApprovedControlDev(devProject(true), dir) {
+		t.Error("marked and approved must count")
+	}
+	if IsApprovedControlDev(devProject(false), dir) {
+		t.Error("approved folder without the marker must not count")
+	}
+	ctl := controlManifest(t)
+	if IsApprovedControlDev(ctl, config.ControlDir()) {
+		t.Error("the built-in control pod is not a dev copy")
 	}
 }
 
@@ -189,8 +210,6 @@ func TestAccessIsRecheckedOnEveryStart(t *testing.T) {
 		{"granted", "granted", false},
 		{"granted", "", true}, // revoked: drop the token
 		{"", "granted", true}, // newly approved
-		{"dev-access:1", "dev-access:2", true},
-		{"dev-access:1", "", true},
 	}
 	for _, c := range cases {
 		for _, running := range []bool{true, false} {
@@ -201,7 +220,7 @@ func TestAccessIsRecheckedOnEveryStart(t *testing.T) {
 	}
 }
 
-func TestEnsureRestartsAControlAppWithAStaleCount(t *testing.T) {
+func TestEnsureLeavesARunningControlAppAloneWhenApprovalsChange(t *testing.T) {
 	dir := controlTestHome(t)
 	f := newFakeControl()
 	mf := filepath.Join(dir, "tainer.yaml")
@@ -213,11 +232,8 @@ func TestEnsureRestartsAControlAppWithAStaleCount(t *testing.T) {
 	if err := ensureControlPod(context.Background(), f.ops()); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.starts) != 1 {
-		t.Fatalf("stale dev-access count must restart the control pod, starts=%d", len(f.starts))
-	}
-	if len(f.removed) != 0 {
-		t.Errorf("only the start path recreates the app container; removed=%v", f.removed)
+	if len(f.starts) != 0 || len(f.removed) != 0 {
+		t.Errorf("an approval elsewhere must not touch the control pod: starts=%d removed=%v", len(f.starts), f.removed)
 	}
 }
 

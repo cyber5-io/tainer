@@ -178,7 +178,6 @@ func ensureBuiltInControlPod(ctx context.Context, ops controlOps) error {
 	}
 
 	roles := RolesForPod(m)
-	access := resolveControlAccess(m, dir)
 	stale, needStart := false, false
 	for _, role := range roles {
 		insp, err := ops.inspect(ctx, ContainerName(m.Project.Name, role))
@@ -193,11 +192,6 @@ func ensureBuiltInControlPod(ctx context.Context, ops controlOps) error {
 			stale = true
 		}
 		if insp.State == nil || !insp.State.Running {
-			needStart = true
-		}
-		// A changed number of approved dashboard checkouts: Start recreates
-		// the app container so the dashboard's notice is current.
-		if accessChanged(insp, access.stamp(role)) {
 			needStart = true
 		}
 	}

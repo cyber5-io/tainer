@@ -3,7 +3,6 @@ package pod
 import (
 	"os"
 	"path/filepath"
-	"strconv"
 
 	"github.com/cyber5-io/tainer/pkg/tainer"
 	"github.com/cyber5-io/tainer/pkg/tainer/config"
@@ -21,9 +20,9 @@ import (
 // bind mount whose source is missing.
 const gatewayTarget = "/run/tainer/control"
 
-// controlDevAccessEnv tells the built-in dashboard how many dashboard
-// checkouts are approved on this machine, so it can show a notice while any is.
-const controlDevAccessEnv = "TAINER_CONTROL_DEV_ACCESS"
+// controlDevEnv tells an approved dashboard checkout it is a development copy,
+// so it can say so.
+const controlDevEnv = "TAINER_CONTROL_DEV"
 
 // stampGranted is the LabelControlAccess value of an approved checkout's app
 // container.
@@ -32,9 +31,8 @@ const stampGranted = "granted"
 // controlAccess is one access decision for a pod, made once per start so a
 // container's image, mounts, env and stamp all agree.
 type controlAccess struct {
-	granted  bool
-	pinned   bool // the built-in control pod
-	devCount int  // approved checkouts, reported to the control pod
+	granted bool
+	pinned  bool // the built-in control pod
 }
 
 // resolveControlAccess decides whether a project's app container gets the
@@ -50,7 +48,7 @@ type controlAccess struct {
 func resolveControlAccess(m *manifest.Manifest, projectDir string) controlAccess {
 	if tainer.IsPinnedProject(m.Project.Name) {
 		if isControlFolder(projectDir) {
-			return controlAccess{granted: true, pinned: true, devCount: controldev.Count()}
+			return controlAccess{granted: true, pinned: true}
 		}
 		return controlAccess{}
 	}
@@ -103,6 +101,14 @@ func hasControlAccess(m *manifest.Manifest, projectDir string) bool {
 	return resolveControlAccess(m, projectDir).granted
 }
 
+// IsApprovedControlDev reports whether m in projectDir is a dashboard checkout
+// whose access the user approved: the same decision the start path makes, minus
+// the built-in control pod.
+func IsApprovedControlDev(m *manifest.Manifest, projectDir string) bool {
+	a := resolveControlAccess(m, projectDir)
+	return a.granted && !a.pinned
+}
+
 // gatewayInjection returns the mounts and env that hand a project with
 // control access its gateway address and bearer token. Other projects, other
 // roles, and an unknown state directory get nothing; TAINER_PROJECT_PATH is the
@@ -113,8 +119,8 @@ func gatewayInjection(m *manifest.Manifest, role, stateDir, projectDir string) (
 	return resolveControlAccess(m, projectDir).gateway(role, stateDir, projectDir)
 }
 
-// gateway is gatewayInjection for this decision. The built-in control pod
-// also gets the number of approved checkouts.
+// gateway is gatewayInjection for this decision. An approved checkout also
+// learns it is a development copy.
 func (a controlAccess) gateway(role, stateDir, projectDir string) ([]engine.Mount, []string) {
 	if !a.granted || role != RoleApp || stateDir == "" {
 		return nil, nil
@@ -124,17 +130,15 @@ func (a controlAccess) gateway(role, stateDir, projectDir string) ([]engine.Moun
 		"TAINER_CONTROL_TOKEN_FILE=" + gatewayTarget + "/control.token",
 		"TAINER_PROJECT_PATH=" + projectDir,
 	}
-	if a.pinned {
-		env = append(env, controlDevAccessEnv+"="+strconv.Itoa(a.devCount))
+	if !a.pinned {
+		env = append(env, controlDevEnv+"=1")
 	}
 	return []engine.Mount{{Source: filepath.Join(stateDir, "control"), Target: gatewayTarget, ReadOnly: true}}, env
 }
 
 // controlAccessStamp is the LabelControlAccess value a role's container must
-// carry: "" without access (and on the control pod while no checkout is
-// approved, matching containers made before the dev track), "granted" for an
-// approved checkout, "dev-access:<n>" on the control pod with n approvals.
-// A container whose stamp differs is recreated at the next start.
+// carry: "" without access and on the control pod, "granted" for an approved
+// checkout. A container whose stamp differs is recreated at the next start.
 func controlAccessStamp(m *manifest.Manifest, projectDir, role string) string {
 	return resolveControlAccess(m, projectDir).stamp(role)
 }
@@ -143,8 +147,6 @@ func (a controlAccess) stamp(role string) string {
 	switch {
 	case !a.granted || role != RoleApp:
 		return ""
-	case a.pinned && a.devCount > 0:
-		return "dev-access:" + strconv.Itoa(a.devCount)
 	case a.pinned:
 		return ""
 	default:

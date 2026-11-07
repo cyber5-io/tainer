@@ -2479,7 +2479,7 @@ func listAsJSON(all map[string]registry.Project) {
 		if s, ok := pods[name]; ok {
 			st = string(s)
 		}
-		out = append(out, listRow{Name: name, Type: p.Type, Domain: p.Domain, Path: p.Path, Status: st})
+		out = append(out, listRow{Name: name, Type: p.Type, Domain: p.Domain, Path: p.Path, Status: st, ControlDev: listControlDev(p.Path)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	emitListJSON(out)
@@ -2491,6 +2491,19 @@ type listRow struct {
 	Domain string `json:"domain"`
 	Path   string `json:"path"`
 	Status string `json:"status"`
+	// ControlDev marks an approved dashboard checkout (a development copy
+	// holding control access); absent on every other project.
+	ControlDev bool `json:"controlDev,omitempty"`
+}
+
+// listControlDev reports whether the project at path is an approved dashboard
+// checkout, by the same decision the start path makes.
+func listControlDev(path string) bool {
+	if path == "" {
+		return false
+	}
+	m, err := manifest.Load(filepath.Join(path, manifest.FileName))
+	return err == nil && pod.IsApprovedControlDev(m, path)
 }
 
 // emitListJSON wraps the rows in {"v":1,"projects":[...]}: v cannot be added to
