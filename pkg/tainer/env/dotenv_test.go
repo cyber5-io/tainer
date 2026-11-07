@@ -239,3 +239,25 @@ func TestGenerateNeverWritesThroughALink(t *testing.T) {
 		})
 	}
 }
+
+// html/ can be swapped for a link (say by the app's own code, which has the
+// project read-write) after start checked it. The app .env is created
+// inside the folder that was checked, never through a linked html/.
+func TestGenerateAppEnvNeverWritesThroughALinkedFolder(t *testing.T) {
+	m := &manifest.Manifest{
+		Project: manifest.ProjectConfig{Name: "site", Type: manifest.TypeNodeJS},
+		Runtime: manifest.RuntimeConfig{Node: "22", Database: manifest.DatabaseMariaDB},
+	}
+	creds := DBCreds{Name: "n", User: "u", Password: "p", RootPassword: "r"}
+	proj, outside := t.TempDir(), t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(proj, "html")); err != nil {
+		t.Fatal(err)
+	}
+	err := GenerateAppEnv(m, filepath.Join(proj, "html", ".env"), creds)
+	if _, serr := os.Lstat(filepath.Join(outside, ".env")); serr == nil {
+		t.Fatal("wrote html/.env through the linked folder")
+	}
+	if err == nil || !strings.Contains(err.Error(), "link") {
+		t.Errorf("got %v, want a refusal saying html is a link", err)
+	}
+}

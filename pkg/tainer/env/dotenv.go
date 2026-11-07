@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
@@ -81,7 +82,7 @@ func GenerateAppEnv(m *manifest.Manifest, path string, creds DBCreds) error {
 		lines = append(lines, fmt.Sprintf("DATABASE_URI=%s", url))
 	}
 
-	return writeNew(path, []byte(strings.Join(lines, "\n")+"\n"))
+	return writeNewInRealFolder(path, []byte(strings.Join(lines, "\n")+"\n"))
 }
 
 // GenerateWithCreds creates a .env file for the project using the given DB
@@ -184,6 +185,45 @@ func GenerateWithCreds(m *manifest.Manifest, path string, creds DBCreds) error {
 // .env at a file outside itself and have tainer create it.
 func writeNew(path string, data []byte) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// writeNewInRealFolder is writeNew for a file inside a project folder
+// (html/.env): the folder itself must be a real folder, not a link, and the
+// file is created through the opened folder, so a link swapped in for it
+// after the check is refused rather than written through.
+func writeNewInRealFolder(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	before, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if before.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing to write %s: %s is a link", path, dir)
+	}
+	if !before.IsDir() {
+		return fmt.Errorf("refusing to write %s: %s is not a folder", path, dir)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	opened, err := root.Stat(".")
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(before, opened) {
+		return fmt.Errorf("refusing to write %s: %s changed while being written", path, dir)
+	}
+	f, err := root.OpenFile(filepath.Base(path), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return err
 	}
