@@ -53,8 +53,8 @@ func Destroy(ctx context.Context, eng *engine.Client, podName, projectDir string
 	}
 	if p != nil {
 		for _, c := range p.Containers {
-			if err := eng.Remove(ctx, c.Name, true); err != nil {
-				return fmt.Errorf("remove %s: %w", c.Name, err)
+			if err := removeErr(podName, c, "remove", eng.Remove(ctx, c.Name, true)); err != nil {
+				return err
 			}
 		}
 	}

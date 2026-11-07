@@ -462,6 +462,9 @@ func startContainer(
 	switch {
 	case ierr == nil && accessChanged(insp, stamp):
 		if err := eng.Remove(ctx, spec.Name, true); err != nil {
+			if isBusyRemoval(err) {
+				return false, removeErr(m.Project.Name, Container{Name: spec.Name, Role: role}, "replace", err)
+			}
 			return false, err
 		}
 	case ierr == nil:

@@ -94,6 +94,7 @@ Example of an error with a document-shaped command:
 | `stop-failed` | Stop failed. |
 | `destroy-failed` | Destroy failed. |
 | `update-failed` | Update failed (single-target update). |
+| `pod-busy` | A pod part couldn't be replaced or removed because its files were still in use (start, restart, update, destroy). Retrying later or restarting the pod usually clears it. |
 | `network-switch-failed` | Switching the network mode failed. |
 | `router-unavailable` | The tainer router is missing, stopped, or has no address on the pod network. |
 | `db-export-failed` | Database export failed. |

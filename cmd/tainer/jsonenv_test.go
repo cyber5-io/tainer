@@ -303,3 +303,21 @@ func TestNukeGuardInJSONMode(t *testing.T) {
 		}
 	}
 }
+
+func TestBusyRemovalGetsPodBusySlugAndPlainMessage(t *testing.T) {
+	raw := errors.New(`engine: remove tainer-shop-app: replacing mount point "/x/merged": device or resource busy`)
+	busy := &pod.BusyRemovalError{Pod: "shop", Role: "app", Verb: "replace", Err: raw}
+	// Wrapped by an outer slug, the more specific busy slug still wins.
+	for _, err := range []error{busy, withCode("start-failed", busy), fmt.Errorf("update: %w", busy)} {
+		if got := errCodeOr(err, "update-failed"); got != "pod-busy" {
+			t.Errorf("errCodeOr(%v) = %q, want pod-busy", err, got)
+		}
+	}
+	out, exit := failureHarness(t, true, func() { must(busy) })
+	if exit != 1 || !strings.Contains(string(out), `"code":"pod-busy"`) || !strings.Contains(string(out), `couldn't replace shop's app`) {
+		t.Errorf("exit=%d out=%s", exit, out)
+	}
+	if strings.Contains(string(out), "mount point") || strings.Contains(string(out), "engine") {
+		t.Errorf("raw error leaked into the envelope: %s", out)
+	}
+}

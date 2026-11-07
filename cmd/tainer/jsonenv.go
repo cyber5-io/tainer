@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/cyber5-io/tainer/pkg/tainer/pod"
 	"github.com/cyber5-io/tainer/pkg/tainer/runtime"
 	"github.com/cyber5-io/tainer/pkg/tainer/tui"
 )
@@ -136,7 +137,12 @@ func withCode(code string, err error) error {
 // errors and falling back to "command-failed".
 func errCode(err error) string {
 	var ce *codedError
+	var busy *pod.BusyRemovalError
 	switch {
+	case errors.As(err, &busy):
+		// Checked before outer slugs: "files still in use" is the most
+		// specific thing a busy replace/remove can say (tain-101).
+		return "pod-busy"
 	case errors.As(err, &ce):
 		return ce.code
 	case errors.Is(err, runtime.ErrEngineManaged):

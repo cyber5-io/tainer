@@ -112,8 +112,11 @@ func recreate(prior *Pod, report func(stage, msg string, pct int, done bool), op
 		}
 	}
 	for _, c := range prior.Containers {
-		if err := ops.remove(c.Name); err != nil {
-			return UpdateResult{}, fmt.Errorf("update: remove %s: %w", c.Name, err)
+		if err := removeErr(prior.Name, c, "replace", ops.remove(c.Name)); err != nil {
+			if _, busy := asBusyRemoval(err); busy {
+				return UpdateResult{}, err
+			}
+			return UpdateResult{}, fmt.Errorf("update: %w", err)
 		}
 	}
 	if !restartAfterUpdate(prior) {
