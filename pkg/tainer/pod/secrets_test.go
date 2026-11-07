@@ -14,7 +14,7 @@ import (
 // fresh random passwords that no live DB would accept — is what lets such a
 // project start on the new tainer without an auth mismatch.
 func TestLoadOrCreateSecrets_SeedsFromProjectEnv(t *testing.T) {
-	dir := t.TempDir()               // project dir
+	dir := t.TempDir() // project dir
 	secretsPath := filepath.Join(t.TempDir(), "mywp.env")
 	envBody := "DB_NAME=tainer\nDB_USER=tainer\n" +
 		"DB_PASSWORD=the-existing-db-password-32chars0\n" +
