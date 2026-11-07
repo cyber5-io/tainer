@@ -24,19 +24,23 @@ import (
 // single small file read: the boot is already ensured, nothing to do.
 //
 // For a boot not yet ensured:
-//   - control images present locally → EnsureControlPod runs in-process
-//     under a short bound that never eats into the caller's deadline;
-//   - images missing (first run, an update) or too little caller budget →
-//     a detached hidden `tainer control ensure` child does it on its own
-//     budget and the caller returns immediately.
+//   - the caller's context has a deadline → a detached hidden
+//     `tainer control ensure` child does it on its own budget and the caller
+//     returns immediately (deadline-bound callers such as a network switch
+//     must keep their whole budget);
+//   - no deadline and the control images are local → EnsureControlPod runs
+//     in-process, bounded by controlSyncBudget;
+//   - images missing (first run, an update) or that bound ran out → the
+//     detached child takes over.
 //
 // Failed attempts are retried at most every controlRetryEvery per boot, and
 // the one-line warning is printed at most once per boot.
 const (
-	controlRetryEvery     = 10 * time.Minute
-	controlDeadlineMargin = 10 * time.Second
-	controlMinSync        = 3 * time.Second
-	controlChildBudget    = 5 * time.Minute
+	controlRetryEvery  = 10 * time.Minute
+	controlChildBudget = 5 * time.Minute
+	// controlBootEnv carries the parent's boot ID to the child, so a child
+	// that can't connect still records its failure against the right boot.
+	controlBootEnv = "TAINER_CONTROL_BOOT"
 )
 
 // Seams for tests.
@@ -143,21 +147,20 @@ func onRuntimeReady(ctx context.Context, cli *engine.Client, w io.Writer) {
 	if ensureInProcess(ctx, cli, boot, w) {
 		return
 	}
-	if err := launchControlEnsure(); err != nil {
+	if err := launchControlEnsure(boot); err != nil {
 		failControl(w, boot, err)
 	}
 }
 
-// ensureInProcess runs EnsureControlPod synchronously when the images are
-// local and the caller has budget to spare. It returns false when the work
-// should go to the detached child instead: images missing, too little
-// budget, or only our own short bound ran out (a slow cold start).
+// ensureInProcess runs EnsureControlPod synchronously when the caller has no
+// deadline and the images are local. It returns false when the work should go
+// to the detached child instead: a deadline-bound caller, images missing, or
+// only our own short bound ran out (a slow cold start).
 func ensureInProcess(ctx context.Context, cli *engine.Client, boot string, w io.Writer) bool {
-	budget := controlSyncWindow(ctx)
-	if budget <= 0 {
+	if _, bounded := ctx.Deadline(); bounded {
 		return false
 	}
-	sctx, cancel := context.WithTimeout(ctx, budget)
+	sctx, cancel := context.WithTimeout(ctx, controlSyncBudget)
 	defer cancel()
 	if !controlImagesPresent(sctx, cli) {
 		return false
@@ -185,22 +188,6 @@ func failControl(w io.Writer, boot string, err error) {
 		st.WarnedBoot = boot
 	}
 	writeControlState(st)
-}
-
-// controlSyncWindow is how long the in-process ensure may run: at most
-// controlSyncBudget and never into the caller's last controlDeadlineMargin.
-// Zero means: no synchronous work, hand off to the child.
-func controlSyncWindow(ctx context.Context) time.Duration {
-	b := controlSyncBudget
-	if dl, ok := ctx.Deadline(); ok {
-		if left := time.Until(dl) - controlDeadlineMargin; left < b {
-			b = left
-		}
-		if b < controlMinSync && b < controlSyncBudget {
-			return 0
-		}
-	}
-	return b
 }
 
 // controlFailureClass buckets an EnsureControlPod error for controlReason.
@@ -232,16 +219,21 @@ func warnControl(w io.Writer, class string) {
 	fmt.Fprintf(w, "tainer: couldn't start the control dashboard yet (%s); it will retry next time tainer starts\n", controlReason(class))
 }
 
-// recordControlFailure stores a failed attempt for boot (used by the child).
+// recordControlFailure stores a failed attempt (used by the child). With an
+// unknown boot only the failure class is recorded: the parent's AttemptBoot
+// and LastAttempt stay, so the retry throttle keeps working.
 func recordControlFailure(boot string, err error) {
 	st := readControlState()
-	st.AttemptBoot, st.LastAttempt, st.LastError = boot, controlNow(), controlFailureClass(err)
+	if boot != "" {
+		st.AttemptBoot, st.LastAttempt = boot, controlNow()
+	}
+	st.LastError = controlFailureClass(err)
 	writeControlState(st)
 }
 
 // launchControlEnsureChild starts a detached `tainer control ensure` that
 // outlives this command. Its output goes to <BaseDir>/control-ensure.log.
-func launchControlEnsureChild() error {
+func launchControlEnsureChild(boot string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
@@ -255,6 +247,7 @@ func launchControlEnsureChild() error {
 	}
 	defer logFile.Close()
 	cmd := exec.Command(exe, "control", "ensure")
+	cmd.Env = append(os.Environ(), controlBootEnv+"="+boot)
 	cmd.Stdin = nil
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -298,11 +291,14 @@ func runControlEnsure() int {
 	cli, err := controlEngine(ctx)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		recordControlFailure("", err)
+		recordControlFailure(os.Getenv(controlBootEnv), err)
 		return 1
 	}
 	defer cli.Close()
 	boot := controlBootID(cli)
+	if boot == "" {
+		boot = os.Getenv(controlBootEnv)
+	}
 	if err := ensureControlPod(ctx, cli); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		recordControlFailure(boot, err)

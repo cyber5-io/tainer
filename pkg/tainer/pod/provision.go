@@ -153,7 +153,7 @@ func ensureControlPod(ctx context.Context, ops controlOps) error {
 		}
 	}
 
-	if err := ops.start(ctx, StartOptions{ManifestPath: manifestPath, ProjectDir: dir}); err != nil {
+	if err := ops.start(ctx, StartOptions{ManifestPath: manifestPath, ProjectDir: dir, PullMissingOnly: true}); err != nil {
 		return fmt.Errorf("%w: %w", ErrControlStart, err)
 	}
 	return nil

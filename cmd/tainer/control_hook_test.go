@@ -36,6 +36,7 @@ type hookFake struct {
 	ensures    int
 	presence   int
 	launches   int
+	launchBoot string
 	now        time.Time
 }
 
@@ -57,7 +58,7 @@ func newHookFake(t *testing.T) *hookFake {
 		}
 		return f.ensureErr
 	}
-	launchControlEnsure = func() error { f.launches++; return nil }
+	launchControlEnsure = func(boot string) error { f.launches++; f.launchBoot = boot; return nil }
 	controlNow = func() time.Time { return f.now }
 	return f
 }
@@ -124,20 +125,72 @@ func TestMissingImagesLaunchADetachedChild(t *testing.T) {
 func TestCallerKeepsItsBudget(t *testing.T) {
 	f := newHookFake(t)
 	f.ensureWait = true
-	controlSyncBudget = 50 * time.Millisecond
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	var w bytes.Buffer
 	start := time.Now()
 	ready(ctx, &w)
+	if el := time.Since(start); el > 200*time.Millisecond {
+		t.Errorf("hook took %v of a deadline-bound caller's time; it must hand off at once", el)
+	}
+	if dl, _ := ctx.Deadline(); time.Until(dl) < 29*time.Second {
+		t.Errorf("caller left with %v of 30s", time.Until(dl))
+	}
+	if f.ensures != 0 || f.presence != 0 || f.launches != 1 || w.Len() != 0 {
+		t.Errorf("deadline-bound caller: ensures=%d presence=%d launches=%d stderr=%q, want 0/0/1/silent", f.ensures, f.presence, f.launches, w.String())
+	}
+}
+
+func TestNoDeadlineRunsInProcessWithinItsBound(t *testing.T) {
+	f := newHookFake(t)
+	f.ensureWait = true
+	controlSyncBudget = 50 * time.Millisecond
+	var w bytes.Buffer
+	start := time.Now()
+	ready(context.Background(), &w)
 	if el := time.Since(start); el > time.Second {
-		t.Errorf("hook ran %v, want it bounded by the sync budget", el)
+		t.Errorf("in-process ensure ran %v, want it bounded by the sync budget", el)
 	}
-	if ctx.Err() != nil {
-		t.Errorf("caller context spent by the hook: %v", ctx.Err())
+	if f.ensures != 1 || f.launches != 1 || w.Len() != 0 {
+		t.Errorf("cut off by its bound: ensures=%d launches=%d stderr=%q, want 1/1/silent", f.ensures, f.launches, w.String())
 	}
-	if f.launches != 1 || w.Len() != 0 {
-		t.Errorf("an ensure cut off by its bound hands off silently: launches=%d stderr=%q", f.launches, w.String())
+}
+
+func TestChildGetsTheParentsBoot(t *testing.T) {
+	f := newHookFake(t)
+	f.present = false
+	var w bytes.Buffer
+	ready(context.Background(), &w)
+	if f.launchBoot != f.boot {
+		t.Errorf("child launched with boot %q, want %q", f.launchBoot, f.boot)
+	}
+}
+
+func TestChildConnectFailureKeepsTheThrottle(t *testing.T) {
+	f := newHookFake(t)
+	old := controlEngine
+	t.Cleanup(func() { controlEngine = old })
+	controlEngine = func(context.Context) (*engine.Client, error) { return nil, errors.New("unreachable") }
+
+	// With the parent's boot: the failure is recorded against it.
+	t.Setenv(controlBootEnv, f.boot)
+	writeControlState(controlState{AttemptBoot: f.boot, LastAttempt: f.now})
+	runControlEnsure()
+	if st := readControlState(); st.AttemptBoot != f.boot || st.LastError != "other" {
+		t.Errorf("with parent boot: state = %+v", st)
+	}
+	var w bytes.Buffer
+	ready(context.Background(), &w)
+	if f.launches != 0 || f.ensures != 0 {
+		t.Errorf("retried inside the window: launches=%d ensures=%d", f.launches, f.ensures)
+	}
+
+	// Without one: AttemptBoot is left as the parent wrote it.
+	t.Setenv(controlBootEnv, "")
+	writeControlState(controlState{AttemptBoot: "pid:7@7", LastAttempt: f.now})
+	runControlEnsure()
+	if st := readControlState(); st.AttemptBoot != "pid:7@7" {
+		t.Errorf("unknown boot clobbered AttemptBoot: %+v", st)
 	}
 }
 

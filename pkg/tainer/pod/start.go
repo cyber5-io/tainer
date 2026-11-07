@@ -33,6 +33,9 @@ type podCtx struct {
 type StartOptions struct {
 	ManifestPath string
 	ProjectDir   string // host directory containing tainer.yaml + app/ + data/
+	// PullMissingOnly skips the up-front pull for images already stored
+	// locally, so the pod can start offline. Set for the control pod only.
+	PullMissingOnly bool
 }
 
 // StartResult is what the CLI prints after a successful start.
@@ -165,6 +168,22 @@ func copyFileMode(src, dst string, mode os.FileMode) error {
 	return os.Rename(tmp, dst)
 }
 
+// pullImages pulls each ref in order. With missingOnly, refs that has
+// reports as local are skipped.
+func pullImages(ctx context.Context, refs []string, missingOnly bool,
+	has func(context.Context, string) bool, pull func(context.Context, string) error,
+) error {
+	for _, ref := range refs {
+		if missingOnly && has(ctx, ref) {
+			continue
+		}
+		if err := pull(ctx, ref); err != nil {
+			return fmt.Errorf("pull %s: %w", ref, err)
+		}
+	}
+	return nil
+}
+
 func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartResult, error) {
 	keyGenerated, err := ensureHostSetup()
 	if err != nil {
@@ -200,16 +219,23 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 		return nil, err
 	}
 
-	// Pull each role's image up-front. eng.Pull is idempotent — fast no-op
-	// when the image is already local. Without this, Create fails with
+	// Pull each role's image up-front. Without this, Create fails with
 	// "image not known" because the engine API doesn't auto-pull on create
-	// (only the docker CLI does).
+	// (only the docker CLI does). eng.Pull is NOT a local no-op: cyberstackd
+	// contacts the registry on every pull, so it fails offline even when the
+	// image is present. PullMissingOnly (the control pod) skips local refs.
 	report := progress.Reporter(ctx, "start", m.Project.Name)
 	report("pull", "pulling images", -1, false)
+	var refs []string
 	for _, role := range RolesForPod(m) {
-		if err := eng.Pull(ctx, ImageRef(m, role)); err != nil {
-			return nil, fmt.Errorf("pod start: pull %s: %w", role, err)
-		}
+		refs = append(refs, ImageRef(m, role))
+	}
+	hasImage := func(ctx context.Context, ref string) bool {
+		_, err := eng.ImageInspect(ctx, ref)
+		return err == nil
+	}
+	if err := pullImages(ctx, refs, opts.PullMissingOnly, hasImage, eng.Pull); err != nil {
+		return nil, fmt.Errorf("pod start: %w", err)
 	}
 
 	// Per-project DB credentials. Generated + persisted on first start;
