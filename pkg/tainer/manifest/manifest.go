@@ -259,6 +259,11 @@ func Load(path string) (*Manifest, error) {
 		if err := applyOverlay(m, overlayPath); err != nil {
 			return nil, err
 		}
+		// The overlay is a project file too (and may arrive with a
+		// clone): the merged result passes every check tainer.yaml does.
+		if err := m.validate(); err != nil {
+			return nil, fmt.Errorf("%s: %w", LocalOverlayName, err)
+		}
 	}
 	return m, nil
 }
@@ -385,18 +390,21 @@ func (m *Manifest) validate() error {
 		return fmt.Errorf("node version required for %s projects", m.Project.Type)
 	}
 
-	reserved := map[string]bool{"html": true, "data": true, "db": true}
+	if err := validateDomain(m.Project.Domain); err != nil {
+		return err
+	}
+
 	for _, mount := range m.Mounts {
-		if mount == "" {
-			return fmt.Errorf("mount name cannot be empty")
-		}
-		if strings.Contains(mount, "/") || strings.Contains(mount, "..") {
-			return fmt.Errorf("mount name must be a simple directory name: %q", mount)
-		}
-		if reserved[mount] {
-			return fmt.Errorf("mount name %q is reserved", mount)
+		if err := validateMountName(mount); err != nil {
+			return err
 		}
 	}
+
+	dir, err := cleanBuildDir(m.Runtime.BuildDir)
+	if err != nil {
+		return err
+	}
+	m.Runtime.BuildDir = dir
 
 	// Validate pod config for v2
 	if m.Version == 2 {

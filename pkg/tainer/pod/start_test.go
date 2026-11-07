@@ -13,13 +13,17 @@ func TestBuildMountsAppMountsWholeProject(t *testing.T) {
 	// The app container is the pod's dev shell (WordPress has an app
 	// role), so it mounts the whole project at /var/www — giving an ssh
 	// session the git repo, not just the docroot.
-	mounts := buildMounts(m, "/p/demo", RoleApp)
+	p := realDir(t)
+	mounts, err := buildMounts(m, p, RoleApp)
+	if err != nil {
+		t.Fatal(err)
+	}
 	wantProject := false
 	for _, mt := range mounts {
-		if mt.Source == "/p/demo" && mt.Target == "/var/www" {
+		if mt.Source == p && mt.Target == "/var/www" {
 			wantProject = true
 		}
-		if mt.Source == "/p/demo/app" {
+		if mt.Source == p+"/app" {
 			t.Errorf("legacy /app source should not appear: %+v", mt)
 		}
 	}
@@ -34,15 +38,19 @@ func TestBuildMountsWebEdgeIsIsolated(t *testing.T) {
 	}
 	// The web (caddy) container is the internet-facing edge — kept narrow
 	// to the docroot + data, and must never see the repo.
-	mounts := buildMounts(m, "/p/demo", RoleWeb)
+	p := realDir(t)
+	mounts, err := buildMounts(m, p, RoleWeb)
+	if err != nil {
+		t.Fatal(err)
+	}
 	wantHTML, wantData, sawRepo := false, false, false
 	for _, mt := range mounts {
 		switch {
-		case mt.Source == "/p/demo/html" && mt.Target == "/var/www/html":
+		case mt.Source == p+"/html" && mt.Target == "/var/www/html":
 			wantHTML = true
-		case mt.Source == "/p/demo/data" && mt.Target == "/var/www/data":
+		case mt.Source == p+"/data" && mt.Target == "/var/www/data":
 			wantData = true
-		case mt.Source == "/p/demo" && mt.Target == "/var/www":
+		case mt.Source == p && mt.Target == "/var/www":
 			sawRepo = true
 		}
 	}
@@ -62,13 +70,17 @@ func TestBuildMountsDBIsBindNotVolume(t *testing.T) {
 		Project: manifest.ProjectConfig{Type: manifest.TypeWordPress, Name: "demo"},
 		Runtime: manifest.RuntimeConfig{Database: manifest.DatabaseMariaDB},
 	}
-	mounts := buildMounts(m, "/p/demo", RoleDB)
+	p := realDir(t)
+	mounts, err := buildMounts(m, p, RoleDB)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(mounts) != 1 {
 		t.Fatalf("db mounts: got %d, want 1", len(mounts))
 	}
 	mt := mounts[0]
-	if mt.Source != "/p/demo/db" || mt.Target != "/var/lib/mysql" {
-		t.Errorf("db mount: got %+v, want bind /p/demo/db -> /var/lib/mysql", mt)
+	if mt.Source != p+"/db" || mt.Target != "/var/lib/mysql" {
+		t.Errorf("db mount: got %+v, want bind <project>/db -> /var/lib/mysql", mt)
 	}
 	if mt.Volume {
 		t.Errorf("db mount must be a bind, not a named volume: %+v", mt)
@@ -80,7 +92,11 @@ func TestBuildMountsDBPostgres(t *testing.T) {
 		Project: manifest.ProjectConfig{Type: manifest.TypeKompozi, Name: "blog"},
 		Runtime: manifest.RuntimeConfig{Database: manifest.DatabasePostgres},
 	}
-	mounts := buildMounts(m, "/p/blog", RoleDB)
+	p := realDir(t)
+	mounts, err := buildMounts(m, p, RoleDB)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(mounts) != 1 || mounts[0].Target != "/var/lib/postgresql/data" {
 		t.Errorf("postgres db mount: got %+v, want target /var/lib/postgresql/data", mounts)
 	}

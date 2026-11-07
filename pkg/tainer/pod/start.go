@@ -224,6 +224,15 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 		return nil, fmt.Errorf("pod start: %w", err)
 	}
 
+	// Check every role's project folders before anything is written into
+	// the project or any container is created: a project that links a
+	// folder outside itself is refused up front, not half-started.
+	for _, role := range RolesForPod(m) {
+		if _, err := buildMounts(m, opts.ProjectDir, role); err != nil {
+			return nil, err
+		}
+	}
+
 	// Per-project DB credentials. Generated + persisted on first start;
 	// loaded on subsequent starts. Skipped in smoke mode (busybox images
 	// don't read these env vars and writing the file pollutes ~).
@@ -372,7 +381,10 @@ func startContainer(
 	bindings []engine.PortMap, netMode string,
 ) (started bool, err error) {
 	envs := buildEnv(m, role, pctx)
-	mounts := buildMounts(m, opts.ProjectDir, role)
+	mounts, err := buildMounts(m, opts.ProjectDir, role)
+	if err != nil {
+		return false, err
+	}
 	access := resolveControlAccess(m, opts.ProjectDir)
 	gwMounts, gwEnv := access.gateway(role, engine.StateDir(), opts.ProjectDir)
 	ensureGatewayDirs(gwMounts)
@@ -607,19 +619,33 @@ func isSSHContainer(m *manifest.Manifest, role string) bool {
 	return role == RoleWeb
 }
 
-func buildMounts(m *manifest.Manifest, projectDir, role string) []engine.Mount {
-	var out []engine.Mount
+// buildMounts returns the project folders a role's container gets. Every
+// source is checked on disk first (see projectFolder): a folder that is a
+// link, or that resolves outside the project, is refused with an error
+// rather than mounted. Missing folders are created, never through a link.
+func buildMounts(m *manifest.Manifest, projectDir, role string) ([]engine.Mount, error) {
+	root, err := projectRoot(projectDir)
+	if err != nil {
+		return nil, err
+	}
+	base := m.ContainerMountBase()
+	type src struct {
+		rel, label, target string
+		readOnly           bool
+	}
+	var srcs []src
+	// ensure lists folders the runtime expects inside a whole-project
+	// mount: checked and created like the rest, but not mounted on their
+	// own.
+	var ensure []string
 	switch {
 	case isControlPod(m, projectDir) && role != RoleDB:
 		// The sealed control image carries the dashboard itself; the pod
 		// sees only its state directory. No docroot, no whole-project bind.
-		out = []engine.Mount{
-			{Source: projectDir + "/data", Target: m.ContainerMountBase() + "/data"},
-		}
+		// The web edge only reads it.
+		srcs = []src{{rel: "data", label: "data", target: base + "/data", readOnly: role == RoleWeb}}
 	case role == RoleDB:
-		out = []engine.Mount{
-			{Source: projectDir + "/db", Target: dbDataPath(m)},
-		}
+		srcs = []src{{rel: "db", label: "db", target: dbDataPath(m)}}
 	case isSSHContainer(m, role):
 		// The pod's dev shell (the app container, or web on app-less
 		// types). Mount the WHOLE project at /var/www so an interactive
@@ -630,51 +656,49 @@ func buildMounts(m *manifest.Manifest, projectDir, role string) []engine.Mount {
 		// it (.git, .env, tainer.yaml) is ever web-served. Safe for local
 		// dev — the repo is already on the developer's host; production
 		// deploys will need the isolated mount shape instead.
-		out = []engine.Mount{
-			{Source: projectDir, Target: m.ContainerMountBase()},
-		}
+		srcs = []src{{rel: "", label: "the project folder", target: base}}
+		ensure = []string{m.HostAppDir(), "data"}
 	default:
 		// Internet-facing edge (caddy web on app-having types) — kept
 		// narrow: only the docroot + data, never the repo, secrets, or
-		// db files.
-		out = []engine.Mount{
-			{Source: projectDir + "/" + m.HostAppDir(), Target: m.ContainerAppPath()},
-			{Source: projectDir + "/data", Target: m.ContainerMountBase() + "/data"},
+		// db files. Read-only: caddy only serves files; uploads and
+		// everything else are written by the app container.
+		srcs = []src{
+			{rel: m.HostAppDir(), label: m.HostAppDir(), target: m.ContainerAppPath(), readOnly: true},
+			{rel: "data", label: "data", target: base + "/data", readOnly: true},
 		}
 		for _, name := range m.Mounts {
-			out = append(out, engine.Mount{Source: projectDir + "/" + name, Target: m.ContainerMountBase() + "/" + name})
+			srcs = append(srcs, src{rel: name, label: name, target: base + "/" + name, readOnly: true})
 		}
 	}
-	// Clone-then-start UX: a project cloned from git carries
-	// tainer.yaml but not the (gitignored, often empty) data/, db/ or
-	// even html/ dirs — init created them for the original author but
-	// git doesn't transport empty directories. crun hard-fails on a
-	// bind mount whose source is missing, so ensure every mount
-	// source exists before the container spec goes anywhere near it.
-	// The whole-project mount only lists the parent, so also ensure the
-	// html/ and data/ subdirs the runtime expects.
-	sources := make([]string, 0, len(out)+2)
-	for _, mt := range out {
-		sources = append(sources, mt.Source)
-	}
-	if isSSHContainer(m, role) && role != RoleDB && !isControlPod(m, projectDir) {
-		sources = append(sources, projectDir+"/"+m.HostAppDir(), projectDir+"/data")
-	}
-	for _, s := range sources {
-		if _, err := os.Stat(s); os.IsNotExist(err) {
-			_ = os.MkdirAll(s, 0755)
+	// Clone-then-start UX: a project cloned from git carries tainer.yaml
+	// but not the (gitignored, often empty) data/, db/ or even html/ dirs.
+	// crun hard-fails on a bind mount whose source is missing, so
+	// projectFolder creates them — after checking each step is a real
+	// folder inside the project.
+	for _, rel := range ensure {
+		if _, err := projectFolder(root, rel, rel); err != nil {
+			return nil, err
 		}
+	}
+	out := make([]engine.Mount, 0, len(srcs)+1)
+	for _, s := range srcs {
+		path, err := projectFolder(root, s.rel, s.label)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, engine.Mount{Source: path, Target: s.target, ReadOnly: s.readOnly})
 	}
 	// SSH: stage the tainer public key into the pod's SSH container so
 	// its sshd (AuthorizedKeysFile /etc/ssh/tainer_authorized_keys)
-	// accepts sshpiperd's tainer-key auth. Added after the auto-create
-	// pass — this source is a file, not a dir.
+	// accepts sshpiperd's tainer-key auth. tainer's own file, not the
+	// project's.
 	if isSSHContainer(m, role) {
 		if fi, err := os.Stat(config.PublicKey()); err == nil && !fi.IsDir() {
 			out = append(out, engine.Mount{Source: config.PublicKey(), Target: "/etc/ssh/tainer_authorized_keys", ReadOnly: true})
 		}
 	}
-	return out
+	return out, nil
 }
 
 func dbDataPath(m *manifest.Manifest) string {

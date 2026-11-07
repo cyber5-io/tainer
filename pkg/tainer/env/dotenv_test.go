@@ -212,3 +212,30 @@ func TestGenerateAppEnvSkipsExistingAndNoDB(t *testing.T) {
 		t.Errorf("no-database project must not get an app .env")
 	}
 }
+
+// A cloned project can ship .env as a dangling link to a file outside the
+// project. The start-time .env generation must not create that file.
+func TestGenerateNeverWritesThroughALink(t *testing.T) {
+	m := &manifest.Manifest{
+		Project: manifest.ProjectConfig{Name: "site", Type: manifest.TypeNodeJS},
+		Runtime: manifest.RuntimeConfig{Node: "22", Database: manifest.DatabaseMariaDB},
+	}
+	creds := DBCreds{Name: "n", User: "u", Password: "p", RootPassword: "r"}
+	for name, gen := range map[string]func(string) error{
+		"project": func(p string) error { return GenerateWithCreds(m, p, creds) },
+		"app":     func(p string) error { return GenerateAppEnv(m, p, creds) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			proj, outside := t.TempDir(), t.TempDir()
+			target := filepath.Join(outside, "victim")
+			link := filepath.Join(proj, ".env")
+			if err := os.Symlink(target, link); err != nil {
+				t.Fatal(err)
+			}
+			_ = gen(link)
+			if _, err := os.Lstat(target); err == nil {
+				t.Fatal("wrote a file through the .env link")
+			}
+		})
+	}
+}

@@ -1,6 +1,7 @@
 package pod
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -62,11 +63,19 @@ func TestPinnedControlMountsOnlyData(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	m := controlManifest(t)
 	dir := config.ControlDir()
-	wantSrc := filepath.Join(dir, "data")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	realCtl, _ := filepath.EvalSymlinks(dir)
+	wantSrc := filepath.Join(realCtl, "data")
 	for _, role := range []string{RoleApp, RoleWeb} {
 		n := 0
-		for _, mt := range buildMounts(m, dir, role) {
-			if strings.HasSuffix(mt.Source, "/html") || mt.Source == dir {
+		mounts, err := buildMounts(m, dir, role)
+		if err != nil {
+			t.Fatalf("%s: %v", role, err)
+		}
+		for _, mt := range mounts {
+			if strings.HasSuffix(mt.Source, "/html") || mt.Source == dir || mt.Source == realCtl {
 				t.Errorf("%s: forbidden mount %+v", role, mt)
 			}
 			if mt.Source == wantSrc && mt.Target == "/var/www/data" {

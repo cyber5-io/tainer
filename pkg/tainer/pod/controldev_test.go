@@ -102,13 +102,18 @@ func TestMarkerPlusApprovalGrantsControlAccess(t *testing.T) {
 	}
 	// Still source-mounted like any nodejs project.
 	found := false
-	for _, mt := range buildMounts(m, dir, RoleApp) {
-		if mt.Source == dir && mt.Target == "/var/www" {
+	appMounts, err := buildMounts(m, dir, RoleApp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	realProj, _ := filepath.EvalSymlinks(dir)
+	for _, mt := range appMounts {
+		if mt.Source == realProj && mt.Target == "/var/www" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("marked project must keep the whole-project mount: %+v", buildMounts(m, dir, RoleApp))
+		t.Errorf("marked project must keep the whole-project mount: %+v", appMounts)
 	}
 	if s := controlAccessStamp(m, dir, RoleApp); s == "" {
 		t.Error("approved app container must carry an access stamp")

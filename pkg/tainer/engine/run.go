@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
@@ -75,8 +76,12 @@ func (c *Client) Run(ctx context.Context, spec RunSpec) (string, error) {
 	}
 
 	for _, m := range spec.Mounts {
+		src := m.Source
+		if !m.Volume {
+			src = hostBindSource(src)
+		}
 		mt := mount.Mount{
-			Source:   m.Source,
+			Source:   src,
 			Target:   m.Target,
 			ReadOnly: m.ReadOnly,
 		}
@@ -143,4 +148,24 @@ func (c *Client) Start(ctx context.Context, name string) error {
 		return fmt.Errorf("engine: start %s: %w", name, err)
 	}
 	return nil
+}
+
+// hostBindSource returns a bind source with the links in its parent folders
+// resolved. The runtime refuses sources that go through a link, so the
+// user's own links above a path (a dotfiles-managed ~/.config, a symlinked
+// projects folder) are resolved here. The last element is deliberately left
+// alone: a project folder swapped for a link after the pod layer checked it
+// is sent as the link, and the runtime refuses it, rather than being quietly
+// replaced by wherever the link points. A parent that can't be resolved is
+// passed through for the runtime to judge.
+func hostBindSource(src string) string {
+	dir, base := filepath.Split(filepath.Clean(src))
+	if base == "" || dir == "" {
+		return src
+	}
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return src
+	}
+	return filepath.Join(real, base)
 }

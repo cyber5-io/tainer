@@ -56,8 +56,8 @@ func GenerateAppEnv(m *manifest.Manifest, path string, creds DBCreds) error {
 	if !m.HasDatabase() {
 		return nil
 	}
-	if _, err := os.Stat(path); err == nil {
-		return nil // file exists, skip
+	if _, err := os.Lstat(path); err == nil {
+		return nil // file (or link) exists, skip
 	}
 
 	scheme := "mysql"
@@ -81,7 +81,7 @@ func GenerateAppEnv(m *manifest.Manifest, path string, creds DBCreds) error {
 		lines = append(lines, fmt.Sprintf("DATABASE_URI=%s", url))
 	}
 
-	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0644)
+	return writeNew(path, []byte(strings.Join(lines, "\n")+"\n"))
 }
 
 // GenerateWithCreds creates a .env file for the project using the given DB
@@ -90,8 +90,8 @@ func GenerateAppEnv(m *manifest.Manifest, path string, creds DBCreds) error {
 // secrets — same values the database container is initialized with. If the
 // file already exists, it is never overwritten (the user owns it).
 func GenerateWithCreds(m *manifest.Manifest, path string, creds DBCreds) error {
-	if _, err := os.Stat(path); err == nil {
-		return nil // file exists, skip
+	if _, err := os.Lstat(path); err == nil {
+		return nil // file (or link) exists, skip
 	}
 
 	var lines []string
@@ -176,5 +176,20 @@ func GenerateWithCreds(m *manifest.Manifest, path string, creds DBCreds) error {
 	}
 
 	content := strings.Join(lines, "\n") + "\n"
-	return os.WriteFile(path, []byte(content), 0644)
+	return writeNew(path, []byte(content))
+}
+
+// writeNew creates path, failing if anything — a file or a link — already
+// sits there. O_EXCL never follows a link, so a project can't point its
+// .env at a file outside itself and have tainer create it.
+func writeNew(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
