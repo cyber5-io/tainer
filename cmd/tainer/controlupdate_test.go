@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/imagecheck"
@@ -27,6 +28,7 @@ type fakeControlUpdate struct {
 	// recreated, i.e. the version the new containers resolve to.
 	versionAtUpdate string
 	log             []string
+	updateErr       error
 }
 
 func (f *fakeControlUpdate) ops() controlUpdateOps {
@@ -48,7 +50,14 @@ func (f *fakeControlUpdate) ops() controlUpdateOps {
 			f.log = append(f.log, "update")
 			f.updates = append(f.updates, opts)
 			f.versionAtUpdate = f.reg["control"].ImageVersion
+			if f.updateErr != nil {
+				return pod.UpdateResult{}, f.updateErr
+			}
 			return pod.UpdateResult{Started: true}, nil
+		},
+		lock: func(context.Context) (func(), error) {
+			f.log = append(f.log, "lock")
+			return func() { f.log = append(f.log, "unlock") }, nil
 		},
 		regGet: func(name string) (registry.Project, bool) { p, ok := f.reg[name]; return p, ok },
 		regPut: func(name string, p registry.Project) error { f.reg[name] = p; return nil },
@@ -85,8 +94,8 @@ func TestControlUpdateKeepsDataAndRecordsTheVersion(t *testing.T) {
 	if f.running != "1.1.0" {
 		t.Errorf("checked running version %q, want the recorded 1.1.0", f.running)
 	}
-	if strings.Join(f.log, ",") != "check,pull,update" {
-		t.Fatalf("order = %v, want the new image pulled before the pod is recreated", f.log)
+	if strings.Join(f.log, ",") != "lock,check,pull,update,unlock" {
+		t.Fatalf("order = %v, want the new image pulled before the pod is recreated, all under the ensure lock", f.log)
 	}
 	if len(f.pulled) != 1 || f.pulled[0] != "ghcr.io/cyber5-io/tainer-control:1.2.0" {
 		t.Fatalf("pulled %v, want the versioned stable image", f.pulled)
@@ -163,5 +172,79 @@ func TestOtherProjectsUpdateWithoutControlCheck(t *testing.T) {
 	}
 	if strings.Join(f.log, ",") != "update" || f.updates[0].ProjectDir != "/p/blog" {
 		t.Fatalf("log = %v updates = %+v", f.log, f.updates)
+	}
+}
+
+func TestControlUpdateFailureRestoresTheVersion(t *testing.T) {
+	f := &fakeControlUpdate{state: imagecheck.ControlUpdate, updateErr: errors.New("overlay busy")}
+	controlFolder(t, f, "1.1.0")
+	_, _, err := updateProject(context.Background(), "control", "", "", f.ops())
+	if err == nil || !strings.Contains(err.Error(), "overlay busy") {
+		t.Fatalf("err = %v, want the update failure", err)
+	}
+	if f.versionAtUpdate != "1.2.0" {
+		t.Errorf("recreate saw %q, want the new version", f.versionAtUpdate)
+	}
+	if got := f.reg["control"].ImageVersion; got != "1.1.0" {
+		t.Fatalf("ImageVersion after a failed update = %q, want the previous 1.1.0", got)
+	}
+	if f.log[len(f.log)-1] != "unlock" {
+		t.Errorf("lock not released: %v", f.log)
+	}
+}
+
+func TestControlUpdateWaitsForTheEnsureLock(t *testing.T) {
+	f := &fakeControlUpdate{state: imagecheck.ControlUpToDate}
+	controlFolder(t, f, "1.1.0")
+	release, ok, err := tryLock(controlLockPath())
+	if err != nil || !ok {
+		t.Fatalf("hold lock: ok=%v err=%v", ok, err)
+	}
+	ops := f.ops()
+	ops.lock = waitControlLock
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := updateProject(context.Background(), "control", "", "", ops)
+		done <- err
+	}()
+	select {
+	case <-done:
+		t.Fatal("update ran while the ensure lock was held")
+	case <-time.After(300 * time.Millisecond):
+	}
+	release()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("update never took the released lock")
+	}
+	if len(f.updates) != 1 {
+		t.Fatalf("updates = %d", len(f.updates))
+	}
+	// While an update holds it, an ensure child can't take it.
+	rel, _ := waitControlLock(context.Background())
+	defer rel()
+	if _, ok, _ := tryLock(controlLockPath()); ok {
+		t.Error("the ensure child took the lock during an update")
+	}
+}
+
+func TestControlLockWaitHonoursContext(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if err := config.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	release, ok, err := tryLock(controlLockPath())
+	if err != nil || !ok {
+		t.Fatal(err)
+	}
+	defer release()
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if _, err := waitControlLock(ctx); err == nil {
+		t.Fatal("waitControlLock returned without the lock")
 	}
 }

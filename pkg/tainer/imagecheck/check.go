@@ -159,7 +159,7 @@ func Run(ctx context.Context, d Deps, projects map[string]registry.Project) (Rep
 			errs = append(errs, pl.err.Error())
 		}
 		if pl.control != "" {
-			pr.Control = &ControlCheck{Running: pl.control}
+			pr.Control = &ControlCheck{Running: pl.control, State: ControlUnknown}
 			if c, err := CheckControl(ctx, d, pl.control); err != nil {
 				errs = append(errs, err.Error())
 			} else {

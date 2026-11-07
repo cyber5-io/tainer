@@ -22,6 +22,8 @@ type controlUpdateOps struct {
 	update func(ctx context.Context, opts pod.StartOptions) (pod.UpdateResult, error)
 	regGet func(name string) (registry.Project, bool)
 	regPut func(name string, p registry.Project) error
+	// lock waits for the control lock the ensure also takes.
+	lock func(ctx context.Context) (release func(), err error)
 }
 
 func liveControlUpdateOps(eng *engine.Client) controlUpdateOps {
@@ -35,6 +37,7 @@ func liveControlUpdateOps(eng *engine.Client) controlUpdateOps {
 		},
 		regGet: registry.Get,
 		regPut: registry.Put,
+		lock:   waitControlLock,
 	}
 }
 
@@ -60,6 +63,14 @@ func updateProject(ctx context.Context, name, manifestPath, projectDir string, o
 		res, err = ops.update(ctx, pod.StartOptions{ManifestPath: manifestPath, ProjectDir: projectDir})
 		return res, "", err
 	}
+	// Hold the ensure's lock throughout, so it never recreates the pod from
+	// the old version between this update's remove and start.
+	release, err := ops.lock(ctx)
+	if err != nil {
+		return res, "", err
+	}
+	defer release()
+
 	dir := config.ControlDir()
 	p, ok := ops.regGet(name)
 	if !ok {
@@ -69,6 +80,7 @@ func updateProject(ctx context.Context, name, manifestPath, projectDir string, o
 	if err != nil {
 		return res, "", fmt.Errorf("couldn't check for a newer control dashboard: %w", err)
 	}
+	prev := p
 	switch c.State {
 	case imagecheck.ControlUpdate:
 		if err := ops.pull(ctx, pod.ControlImageRef(c.Stable)); err != nil {
@@ -82,6 +94,13 @@ func updateProject(ctx context.Context, name, manifestPath, projectDir string, o
 		note = controlHeldNote(c)
 	}
 	res, err = ops.update(ctx, pod.StartOptions{ManifestPath: filepath.Join(dir, manifest.FileName), ProjectDir: dir})
+	if err != nil && p.ImageVersion != prev.ImageVersion {
+		// The old dashboard may still be running: record what runs, so the
+		// next check offers the update again.
+		if rerr := ops.regPut(name, prev); rerr != nil {
+			err = fmt.Errorf("%w (and restoring the recorded version failed: %v)", err, rerr)
+		}
+	}
 	return res, note, err
 }
 

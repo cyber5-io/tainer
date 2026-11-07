@@ -72,6 +72,31 @@ type controlState struct {
 	WarnedBoot  string    `json:"warnedBoot,omitempty"`
 }
 
+// controlLockPath serialises everything that recreates the control pod: the
+// ensure (in-process or the detached child) and a control update.
+func controlLockPath() string { return filepath.Join(config.BaseDir(), "control-ensure.lock") }
+
+// waitControlLock blocks until it holds the control lock or ctx ends.
+func waitControlLock(ctx context.Context) (func(), error) {
+	if err := config.EnsureDirs(); err != nil {
+		return nil, err
+	}
+	for {
+		release, ok, err := tryLock(controlLockPath())
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			return release, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("waiting for the control dashboard to finish starting: %w", ctx.Err())
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
 func controlStatePath() string { return filepath.Join(config.BaseDir(), "control-state.json") }
 
 func readControlState() controlState {
@@ -164,6 +189,14 @@ func ensureInProcess(ctx context.Context, cli *engine.Client, boot string, w io.
 	defer cancel()
 	if !controlImagesPresent(sctx, cli) {
 		return false
+	}
+	// The child or a control update holds the lock: it owns the pod for now.
+	release, ok, lerr := tryLock(controlLockPath())
+	if lerr == nil && !ok {
+		return true
+	}
+	if lerr == nil {
+		defer release()
 	}
 	err := ensureControlPod(sctx, cli)
 	if err == nil {
@@ -276,7 +309,7 @@ func runControlEnsure() int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	release, ok, err := tryLock(filepath.Join(config.BaseDir(), "control-ensure.lock"))
+	release, ok, err := tryLock(controlLockPath())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1

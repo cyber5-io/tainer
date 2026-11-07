@@ -25,6 +25,8 @@ const (
 	ControlUpToDate         = "up-to-date"
 	ControlUpdate           = "update"
 	ControlNeedsNewerTainer = "needs-newer-tainer"
+	// ControlUnknown: the channel couldn't be checked (see the pod's error).
+	ControlUnknown = "unknown"
 )
 
 // ControlCheck is the control pod's version check against the stable channel.

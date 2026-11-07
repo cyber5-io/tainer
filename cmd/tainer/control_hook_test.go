@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/pod"
 	"github.com/cyber5-io/tainer/pkg/tainer/runtime"
@@ -326,5 +327,25 @@ func TestOnlyOneChildRuns(t *testing.T) {
 	defer release()
 	if _, ok2, _ := tryLock(lock); ok2 {
 		t.Error("a second child took the lock while the first holds it")
+	}
+}
+
+func TestInProcessEnsureSkipsWhileAnUpdateHoldsTheLock(t *testing.T) {
+	f := newHookFake(t)
+	if err := config.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	release, ok, err := tryLock(controlLockPath())
+	if err != nil || !ok {
+		t.Fatalf("hold lock: ok=%v err=%v", ok, err)
+	}
+	var w bytes.Buffer
+	ready(context.Background(), &w)
+	release()
+	if f.ensures != 0 {
+		t.Fatalf("ensure ran %d times while the lock was held", f.ensures)
+	}
+	if w.Len() != 0 {
+		t.Errorf("no warning expected, got %q", w.String())
 	}
 }

@@ -130,6 +130,9 @@ func TestControlCheckErrorsAreUnknown(t *testing.T) {
 	if rep.Unknown != 1 || !strings.Contains(p.Error, "offline") {
 		t.Fatalf("rep = %+v pod = %+v", rep, p)
 	}
+	if p.Control.State != ControlUnknown || p.Control.Running != "1.0.0" || p.UpdateAvailable {
+		t.Fatalf("failed check control = %+v", p.Control)
+	}
 
 	f, _ = controlFakes(map[string]string{})
 	rep, p = runControl(t, f, "", "1.3.0")
