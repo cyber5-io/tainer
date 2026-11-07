@@ -153,7 +153,8 @@ func (c *Client) Start(ctx context.Context, name string) error {
 // hostBindSource returns a bind source with the links in its parent folders
 // resolved. The runtime refuses sources that go through a link, so the
 // user's own links above a path (a dotfiles-managed ~/.config, a symlinked
-// projects folder) are resolved here. The last element is deliberately left
+// projects folder) are resolved here, and the parent folders are spelled as
+// they are on disk (see CanonicalDir). The last element is deliberately left
 // alone: a project folder swapped for a link after the pod layer checked it
 // is sent as the link, and the runtime refuses it, rather than being quietly
 // replaced by wherever the link points. A parent that can't be resolved is
@@ -163,7 +164,7 @@ func hostBindSource(src string) string {
 	if base == "" || dir == "" {
 		return src
 	}
-	real, err := filepath.EvalSymlinks(dir)
+	real, err := CanonicalDir(dir)
 	if err != nil {
 		return src
 	}

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 )
 
 // A project folder can come from anywhere (a git clone, a zip), so the
@@ -16,22 +18,24 @@ import (
 
 // projectRoot resolves the project folder itself. Links above the project
 // (~/Sites -> ~/dev/sites) are the user's own and are allowed; everything
-// is then checked against, and mounted from, the real path.
+// is then checked against, and mounted from, the real path — spelled as it
+// is on disk, so `cd /users/leni/dev/proj` on a case-insensitive disk still
+// gives mounts under the home folder's exact spelling.
 func projectRoot(projectDir string) (string, error) {
 	abs, err := filepath.Abs(projectDir)
 	if err != nil {
 		return "", fmt.Errorf("project folder %s: %w", projectDir, err)
 	}
-	root, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return "", fmt.Errorf("project folder %s: %w", projectDir, err)
-	}
-	fi, err := os.Stat(root)
+	fi, err := os.Stat(abs)
 	if err != nil {
 		return "", fmt.Errorf("project folder %s: %w", projectDir, err)
 	}
 	if !fi.IsDir() {
 		return "", fmt.Errorf("project folder %s is not a folder", projectDir)
+	}
+	root, err := engine.CanonicalDir(abs)
+	if err != nil {
+		return "", fmt.Errorf("project folder %s: %w", projectDir, err)
 	}
 	return root, nil
 }

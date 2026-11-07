@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 )
@@ -211,6 +212,37 @@ func assertCleanCopy(t *testing.T, msg string) {
 	for _, w := range []string{"podman", "docker", "engine", "container", " vm"} {
 		if strings.Contains(low, w) {
 			t.Errorf("user-facing message mentions %q: %s", w, msg)
+		}
+	}
+}
+
+// `cd /users/leni/dev/proj && tainer start` works on a case-insensitive
+// disk, but the runtime compares bind sources with the shared home folder by
+// exact spelling: every mount is sent with the project spelled as on disk.
+func TestBuildMountsUseTheOnDiskSpelling(t *testing.T) {
+	proj := filepath.Join(realDir(t), "Proj")
+	if err := os.Mkdir(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	typed := strings.ToLower(proj)
+	if typed == proj {
+		typed = strings.ToUpper(proj)
+	}
+	if _, err := os.Stat(typed); err != nil {
+		t.Skip("this disk is case-sensitive")
+	}
+	for _, role := range allRoles {
+		mounts, err := buildMounts(wpManifest(), typed, role)
+		if err != nil {
+			t.Fatalf("%s: %v", role, err)
+		}
+		for _, mt := range mounts {
+			if strings.HasPrefix(mt.Source, filepath.Dir(config.PublicKey())) {
+				continue
+			}
+			if !strings.HasPrefix(mt.Source, proj) {
+				t.Errorf("%s: mount source %s not spelled as on disk (%s)", role, mt.Source, proj)
+			}
 		}
 	}
 }
