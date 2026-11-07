@@ -1,7 +1,9 @@
 package registry
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -10,7 +12,6 @@ func setupTestRegistry(t *testing.T) string {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	os.MkdirAll(filepath.Join(dir, "tainer"), 0755)
-	registry = nil
 	return dir
 }
 
@@ -127,8 +128,6 @@ func TestPersistence(t *testing.T) {
 	setupTestRegistry(t)
 	Add("persistent", "/tmp/p", "nodejs", "p.tainer.me")
 
-	// Force reload from disk
-	registry = nil
 	p, ok := Get("persistent")
 	if !ok {
 		t.Fatal("project should survive reload from disk")
@@ -149,8 +148,68 @@ func TestPutReplacesEntryVerbatim(t *testing.T) {
 	if err := Put("control", want); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
-	registry = nil // force a reload from disk
+
 	if got, _ := Get("control"); got != want {
 		t.Errorf("Get after Put = %+v, want %+v", got, want)
+	}
+}
+
+// TestHelperRegistryWriter is not a test: it is the body of a separate tainer
+// process for TestConcurrentProcessesKeepEveryEntry.
+func TestHelperRegistryWriter(t *testing.T) {
+	prefix := os.Getenv("TAINER_TEST_REGISTRY_WRITER")
+	if prefix == "" {
+		t.Skip("helper process only")
+	}
+	for i := 0; i < 15; i++ {
+		if err := Put(fmt.Sprintf("%s-%d", prefix, i), Project{Path: "/p/" + prefix}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// Several tainer processes (a command and the detached control child) write
+// the registry at once: no process may wipe another's entries.
+func TestConcurrentProcessesKeepEveryEntry(t *testing.T) {
+	dir := setupTestRegistry(t)
+	const procs = 6
+	var cmds []*exec.Cmd
+	for p := 0; p < procs; p++ {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestHelperRegistryWriter$")
+		cmd.Env = append(os.Environ(), "XDG_CONFIG_HOME="+dir, fmt.Sprintf("TAINER_TEST_REGISTRY_WRITER=w%d", p))
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		cmds = append(cmds, cmd)
+	}
+	for _, c := range cmds {
+		if err := c.Wait(); err != nil {
+			t.Fatalf("writer: %v", err)
+		}
+	}
+	if got := len(All()); got != procs*15 {
+		t.Fatalf("registry has %d entries after concurrent writers, want %d", got, procs*15)
+	}
+}
+
+// Another process's write is seen by this one, not shadowed by a cache.
+func TestReadsSeeOtherProcessesWrites(t *testing.T) {
+	dir := setupTestRegistry(t)
+	if err := Put("mine", Project{Path: "/a"}); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperRegistryWriter$")
+	cmd.Env = append(os.Environ(), "XDG_CONFIG_HOME="+dir, "TAINER_TEST_REGISTRY_WRITER=other")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("writer: %v\n%s", err, out)
+	}
+	if _, ok := Get("other-0"); !ok {
+		t.Fatal("this process doesn't see the other process's entry")
+	}
+	if err := Put("mine-2", Project{Path: "/b"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := Get("other-14"); !ok {
+		t.Fatal("this process's write wiped the other process's entries")
 	}
 }

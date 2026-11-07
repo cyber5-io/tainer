@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+
+	"github.com/cyber5-io/tainer/pkg/tainer/filelock"
 )
 
 // PodIDMin and PodIDMax bound the auto-allocator pool. The displayed
@@ -34,7 +36,22 @@ type slotsFile struct {
 	Pods map[string]*SlotEntry `json:"pods"`
 }
 
+// registryMu serialises this process's goroutines; withSlots adds a file
+// lock so tainer processes running side by side (a command and the detached
+// control child) never read-modify-write slots.json over each other.
 var registryMu sync.Mutex
+
+// withSlots runs fn holding both locks. fn reads and writes the file itself.
+func withSlots(path string, fn func() error) error {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	release, err := filelock.Lock(path + ".lock")
+	if err != nil {
+		return fmt.Errorf("lock %s: %w", path, err)
+	}
+	defer release()
+	return fn()
+}
 
 // AllocatePodID returns the existing pod ID for `name` if one is recorded,
 // else allocates the lowest free integer in [PodIDMin, PodIDMax]. Persists
@@ -45,22 +62,23 @@ func AllocatePodID(name string) (int, error) {
 }
 
 // AllocatePodIDAt is AllocatePodID with an explicit file path (for tests).
-func AllocatePodIDAt(path, name string) (int, error) {
-	registryMu.Lock()
-	defer registryMu.Unlock()
-	f, err := loadSlots(path)
+func AllocatePodIDAt(path, name string) (id int, err error) {
+	err = withSlots(path, func() error {
+		f, err := loadSlots(path)
+		if err != nil {
+			return err
+		}
+		if entry, ok := f.Pods[name]; ok {
+			id = entry.PodID
+			return nil
+		}
+		if id, err = pickFreeID(f); err != nil {
+			return err
+		}
+		f.Pods[name] = &SlotEntry{PodID: id}
+		return saveSlots(path, f)
+	})
 	if err != nil {
-		return 0, err
-	}
-	if entry, ok := f.Pods[name]; ok {
-		return entry.PodID, nil
-	}
-	id, err := pickFreeID(f)
-	if err != nil {
-		return 0, err
-	}
-	f.Pods[name] = &SlotEntry{PodID: id}
-	if err := saveSlots(path, f); err != nil {
 		return 0, err
 	}
 	return id, nil
@@ -71,17 +89,17 @@ func AllocatePodIDAt(path, name string) (int, error) {
 func FreePodID(name string) error { return FreePodIDAt(SlotsPath(), name) }
 
 func FreePodIDAt(path, name string) error {
-	registryMu.Lock()
-	defer registryMu.Unlock()
-	f, err := loadSlots(path)
-	if err != nil {
-		return err
-	}
-	if _, ok := f.Pods[name]; !ok {
-		return nil
-	}
-	delete(f.Pods, name)
-	return saveSlots(path, f)
+	return withSlots(path, func() error {
+		f, err := loadSlots(path)
+		if err != nil {
+			return err
+		}
+		if _, ok := f.Pods[name]; !ok {
+			return nil
+		}
+		delete(f.Pods, name)
+		return saveSlots(path, f)
+	})
 }
 
 // LookupPodID returns the assigned pod ID for `name`, or 0 if unknown.
@@ -110,21 +128,21 @@ func PinTCPPort(pod, role string, port int) error {
 }
 
 func PinTCPPortAt(path, pod, role string, port int) error {
-	registryMu.Lock()
-	defer registryMu.Unlock()
-	f, err := loadSlots(path)
-	if err != nil {
-		return err
-	}
-	entry, ok := f.Pods[pod]
-	if !ok {
-		return fmt.Errorf("pin: pod %q not allocated yet", pod)
-	}
-	if entry.TCPPins == nil {
-		entry.TCPPins = map[string]int{}
-	}
-	entry.TCPPins[role] = port
-	return saveSlots(path, f)
+	return withSlots(path, func() error {
+		f, err := loadSlots(path)
+		if err != nil {
+			return err
+		}
+		entry, ok := f.Pods[pod]
+		if !ok {
+			return fmt.Errorf("pin: pod %q not allocated yet", pod)
+		}
+		if entry.TCPPins == nil {
+			entry.TCPPins = map[string]int{}
+		}
+		entry.TCPPins[role] = port
+		return saveSlots(path, f)
+	})
 }
 
 // LookupPinnedPort returns the recorded pinned port for (pod, role), or 0.
@@ -173,9 +191,14 @@ func saveSlots(path string, f *slotsFile) error {
 		return err
 	}
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		os.Remove(tmp)
 		return err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 func pickFreeID(f *slotsFile) (int, error) {
