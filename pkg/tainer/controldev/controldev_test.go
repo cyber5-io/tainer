@@ -175,10 +175,16 @@ func TestConcurrentChangesAreNeverLost(t *testing.T) {
 			}
 		}(i, d)
 	}
+	// Drain every result before failing: returning early would restore
+	// XDG_CONFIG_HOME while goroutines still write, sending them to the real config.
+	var first error
 	for range dirs {
-		if err := <-errs; err != nil {
-			t.Fatal(err)
+		if err := <-errs; err != nil && first == nil {
+			first = err
 		}
+	}
+	if first != nil {
+		t.Fatal(first)
 	}
 	for i, d := range dirs {
 		if got, want := Approved(d), i >= n/2; got != want {
