@@ -3,6 +3,7 @@ package pod
 import (
 	"errors"
 	"fmt"
+	goruntime "runtime"
 	"strings"
 )
 
@@ -17,9 +18,22 @@ type BusyRemovalError struct {
 	Err  error
 }
 
+// busyGOOS picks the restart advice; tests override it.
+var busyGOOS = goruntime.GOOS
+
 func (e *BusyRemovalError) Error() string {
-	return fmt.Sprintf(`couldn't %s %s's %s — its files are still in use. Run "tainer restart %s" or try again in a minute; if it keeps happening, restart tainer from the menu bar.`,
-		e.Verb, e.Pod, e.Role, e.Pod)
+	retry := "Try again in a minute"
+	if e.Verb != "remove" {
+		// A restart recreates the part; for destroy it would only bring
+		// back what the user is removing.
+		retry = fmt.Sprintf(`Run "tainer restart %s" or try again in a minute`, e.Pod)
+	}
+	restart := "restart tainer"
+	if busyGOOS == "darwin" {
+		restart += " from the menu bar"
+	}
+	return fmt.Sprintf("couldn't %s %s's %s — its files are still in use. %s; if it keeps happening, %s.",
+		e.Verb, e.Pod, e.Role, retry, restart)
 }
 
 func (e *BusyRemovalError) Unwrap() error { return e.Err }

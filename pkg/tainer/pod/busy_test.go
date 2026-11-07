@@ -12,7 +12,7 @@ var rawBusy = errors.New(`engine: remove tainer-control-app: Error response from
 func TestRemoveErrBusyBecomesPlainMessage(t *testing.T) {
 	for _, raw := range []error{rawBusy, errors.New("engine: remove x: unlinkat /x: device or resource busy")} {
 		err := removeErr("control", Container{Name: "tainer-control-app", Role: "app"}, "replace", raw)
-		want := `couldn't replace control's app — its files are still in use. Run "tainer restart control" or try again in a minute; if it keeps happening, restart tainer from the menu bar.`
+		want := `couldn't replace control's app — its files are still in use. Run "tainer restart control" or try again in a minute; if it keeps happening, restart tainer` + restartWhere() + "."
 		if err == nil || err.Error() != want {
 			t.Fatalf("err = %q\nwant  %q", err, want)
 		}
@@ -32,6 +32,33 @@ func TestRemoveErrRoleFallsBackToName(t *testing.T) {
 	err := removeErr("shop", Container{Name: "tainer-shop-db"}, "remove", rawBusy)
 	if err == nil || !strings.HasPrefix(err.Error(), "couldn't remove shop's db — ") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func restartWhere() string {
+	if busyGOOS == "darwin" {
+		return " from the menu bar"
+	}
+	return ""
+}
+
+func TestBusyAdvicePerVerbAndOS(t *testing.T) {
+	orig := busyGOOS
+	defer func() { busyGOOS = orig }()
+	cases := []struct {
+		goos, verb, want string
+	}{
+		{"darwin", "replace", `couldn't replace shop's app — its files are still in use. Run "tainer restart shop" or try again in a minute; if it keeps happening, restart tainer from the menu bar.`},
+		{"linux", "replace", `couldn't replace shop's app — its files are still in use. Run "tainer restart shop" or try again in a minute; if it keeps happening, restart tainer.`},
+		{"darwin", "remove", `couldn't remove shop's app — its files are still in use. Try again in a minute; if it keeps happening, restart tainer from the menu bar.`},
+		{"windows", "remove", `couldn't remove shop's app — its files are still in use. Try again in a minute; if it keeps happening, restart tainer.`},
+	}
+	for _, c := range cases {
+		busyGOOS = c.goos
+		got := (&BusyRemovalError{Pod: "shop", Role: "app", Verb: c.verb, Err: rawBusy}).Error()
+		if got != c.want {
+			t.Errorf("%s/%s:\n got %q\nwant %q", c.goos, c.verb, got, c.want)
+		}
 	}
 }
 
