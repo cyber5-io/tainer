@@ -56,6 +56,7 @@ tainer itself needs no authentication and only acts on existing pods on that mac
 
 - The CLI ensures the control pod exists and is running every time it brings the runtime up (the path that spawns cyberstackd), and the menu bar app's start path goes through the same code. Users never run `tainer start control`.
 - It stays pinned: `stop`, `destroy`, `init` of `control` remain refused for users (existing `IsPinnedProject` guards).
+- Every platform tainer runs on gets it — macOS and Linux alike (Leni, 2026-11-07: "the control pod is part of tainer, as the menu app is"). The trigger therefore can't be "tainer spawned the runtime" (on Linux systemd starts cyberstackd): tainer ensures the control pod once per runtime boot, after any command connects to the runtime; a first image download runs in a detached background process so the user's command is never held up.
 - First run on a machine that already has a hand-registered `control` project (Leni's): re-point the registry entry to the new folder, copy `data/settings.json` and `data/thumbnails/` from the old project folder if present, and leave the old checkout untouched. Leni then renames her checkout's project (§5).
 
 ### 4. Releases, pinning and updates
