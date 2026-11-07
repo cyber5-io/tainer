@@ -228,7 +228,7 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 	report("pull", "pulling images", -1, false)
 	var refs []string
 	for _, role := range RolesForPod(m) {
-		refs = append(refs, ImageRef(m, role))
+		refs = append(refs, ImageRefIn(m, role, opts.ProjectDir))
 	}
 	hasImage := func(ctx context.Context, ref string) bool {
 		_, err := eng.ImageInspect(ctx, ref)
@@ -387,7 +387,8 @@ func startContainer(
 ) (started bool, err error) {
 	envs := buildEnv(m, role, pctx)
 	mounts := buildMounts(m, opts.ProjectDir, role)
-	gwMounts, gwEnv := gatewayInjection(m.Project.Name, role, engine.StateDir(), opts.ProjectDir)
+	access := resolveControlAccess(m, opts.ProjectDir)
+	gwMounts, gwEnv := access.gateway(role, engine.StateDir(), opts.ProjectDir)
 	ensureGatewayDirs(gwMounts)
 	mounts = append(mounts, gwMounts...)
 	envs = append(envs, gwEnv...)
@@ -399,6 +400,10 @@ func startContainer(
 		LabelDomain:       m.Project.Domain,
 		LabelManifestPath: opts.ManifestPath,
 		LabelManifestHash: mhash,
+	}
+	stamp := access.stamp(role)
+	if stamp != "" {
+		labels[LabelControlAccess] = stamp
 	}
 	// Emit one published-port label per binding, keyed by the binding's
 	// own role rather than this container's role. Under shared-netns the
@@ -422,7 +427,7 @@ func startContainer(
 	}
 	parent, oom, res := podCgroupSettings(m.Project.Name, role, budgetMem, budgetCPU)
 	spec := engine.RunSpec{
-		Image:        ImageRef(m, role),
+		Image:        imageRef(m, role, access),
 		Name:         ContainerName(m.Project.Name, role),
 		NetworkMode:  netMode,
 		Cmd:          smokeCmd(role),
@@ -446,14 +451,24 @@ func startContainer(
 	// re-resolves the leader PID and rewrites the follower's config.json
 	// at Start time, so a stale /proc/<pid>/ns/net no longer wedges the
 	// restart and we no longer destroy + recreate followers each cycle.
+	//
+	// Control access is the exception: it is re-checked at every start, and a
+	// container made under another decision (a revoked or new approval, a
+	// changed count on the control pod) is recreated, since its mounts and
+	// env were fixed at creation.
 	insp, ierr := eng.Inspect(ctx, spec.Name)
-	if ierr == nil {
+	switch {
+	case ierr == nil && accessChanged(insp, stamp):
+		if err := eng.Remove(ctx, spec.Name, true); err != nil {
+			return false, err
+		}
+	case ierr == nil:
 		if insp.State != nil && insp.State.Running {
 			return false, nil // already up — nothing to do
 		}
 		// Container exists but is stopped — start it in place.
 		return true, eng.Start(ctx, spec.Name)
-	} else if !isNotFound(ierr) {
+	case !isNotFound(ierr):
 		return false, ierr
 	}
 	_, err = eng.Run(ctx, spec)

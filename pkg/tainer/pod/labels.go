@@ -24,6 +24,9 @@ const (
 	LabelDomain       = "tainer.domain"
 	LabelManifestPath = "tainer.manifest-path"
 	LabelManifestHash = "tainer.manifest-hash"
+	// LabelControlAccess records the control-access decision an app
+	// container was created under (see controlAccessStamp).
+	LabelControlAccess = "tainer.control-access"
 	// LabelPublishPrefix is concatenated with the role to form the full
 	// label key (e.g. "tainer.published.db" = "30070").
 	LabelPublishPrefix = "tainer.published."

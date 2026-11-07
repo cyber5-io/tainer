@@ -70,7 +70,7 @@ func Update(ctx context.Context, eng *engine.Client, opts StartOptions, uopt Upd
 	report := progress.Reporter(ctx, "update", m.Project.Name)
 	report("pull", "pulling images", -1, false)
 	for _, role := range RolesForPod(m) {
-		if err := eng.Pull(ctx, ImageRef(m, role)); err != nil {
+		if err := eng.Pull(ctx, ImageRefIn(m, role, opts.ProjectDir)); err != nil {
 			return UpdateResult{}, fmt.Errorf("update: pull %s: %w", role, err)
 		}
 	}

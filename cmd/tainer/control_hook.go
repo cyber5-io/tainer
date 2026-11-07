@@ -291,13 +291,18 @@ func launchControlEnsureChild(boot string) error {
 	return cmd.Process.Release()
 }
 
-// cmdControl handles `tainer control …`. `ensure` is internal (spawned by
-// the runtime-ready hook) and deliberately absent from help.
+// cmdControl handles `tainer control …`, which stays out of the main help.
+// `ensure` is internal (spawned by the runtime-ready hook); `dev` manages
+// dashboard checkouts approved for the control pod's access (documented in
+// the tainer-control repo).
 func cmdControl(args []string) {
 	if len(args) == 1 && args[0] == "ensure" {
 		os.Exit(runControlEnsure())
 	}
-	usage()
+	if len(args) >= 1 && args[0] == "dev" {
+		os.Exit(runControlDev(context.Background(), args[1:], os.Stdout, os.Stderr, liveControlDevOps()))
+	}
+	fmt.Fprintln(os.Stderr, controlDevUsage)
 	os.Exit(2)
 }
 

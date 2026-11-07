@@ -108,8 +108,9 @@ func main() {
 	case "watch":
 		cmdWatch(os.Args[2:])
 	case "control":
-		// Internal: `tainer control ensure` is spawned by the runtime-ready
-		// hook; not listed in usage().
+		// Not listed in usage(): `tainer control ensure` is internal (spawned
+		// by the runtime-ready hook); `tainer control dev …` is for dashboard
+		// developers and documented in the tainer-control repo.
 		cmdControl(os.Args[2:])
 	case "api":
 		cmdAPI(os.Args[2:])

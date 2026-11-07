@@ -163,7 +163,28 @@ func legacyWebTag(m *manifest.Manifest) string {
 //
 // The registry prefix defaults to ghcr.io/cyber5-io and can be overridden
 // by setting TAINER_IMAGE_REPO (e.g. localhost:5000/myorg).
+//
+// A checkout marked control-dev resolves against its registered folder; use
+// ImageRefIn where the project's folder is known.
 func ImageRef(m *manifest.Manifest, role string) string {
+	dir := ""
+	if m.Project.ControlDev {
+		if p, ok := registry.Get(m.Project.Name); ok {
+			dir = p.Path
+		}
+	}
+	return ImageRefIn(m, role, dir)
+}
+
+// ImageRefIn is ImageRef for the project in projectDir: a marked checkout
+// approved at that path runs the control runtime image.
+func ImageRefIn(m *manifest.Manifest, role, projectDir string) string {
+	return imageRef(m, role, resolveControlAccess(m, projectDir))
+}
+
+// imageRef resolves the image given an already-made access decision, so one
+// container's image, mounts and env all follow the same check.
+func imageRef(m *manifest.Manifest, role string, access controlAccess) string {
 	repo := imageRepo()
 	if smokeImages() {
 		// Smoke goal is to validate orchestration plumbing
@@ -206,6 +227,11 @@ func ImageRef(m *manifest.Manifest, role string) string {
 				recorded = p.ImageVersion
 			}
 			return ControlImageRef(controlVersion(recorded))
+		}
+		if access.granted {
+			// An approved dashboard checkout: source-mounted like any nodejs
+			// project, on the control runtime base (Chromium for previews).
+			return fmt.Sprintf("%s/tainer-control-app:node-%s", repo, m.Runtime.Node)
 		}
 		return fmt.Sprintf("%s/tainer-%s-app:node-%s", repo, m.Project.Type, m.Runtime.Node)
 	case RoleDB:

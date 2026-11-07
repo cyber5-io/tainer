@@ -6,10 +6,12 @@ import (
 	"testing"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
+	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 )
 
 func TestControlPodGetsGatewayMounts(t *testing.T) {
-	mounts, env := gatewayInjection("control", RoleApp, "/home/u/.cyberstack", "/p/control")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	mounts, env := gatewayInjection(controlManifest(t), RoleApp, "/home/u/.cyberstack", "/p/control")
 	if len(mounts) != 1 {
 		t.Fatalf("want 1 mount, got %+v", mounts)
 	}
@@ -40,13 +42,15 @@ func TestControlPodGetsGatewayMounts(t *testing.T) {
 }
 
 func TestGatewayInjectionSkipped(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	cases := []struct{ project, role, dir string }{
 		{"blog", RoleApp, "/home/u/.cyberstack"},
 		{"control", RoleWeb, "/home/u/.cyberstack"},
 		{"control", RoleApp, ""},
 	}
 	for _, c := range cases {
-		mounts, env := gatewayInjection(c.project, c.role, c.dir, "/p/x")
+		m := &manifest.Manifest{Project: manifest.ProjectConfig{Name: c.project, Type: manifest.TypeNodeJS}}
+		mounts, env := gatewayInjection(m, c.role, c.dir, "/p/x")
 		if len(mounts) != 0 || len(env) != 0 {
 			t.Errorf("%+v: expected no injection, got %+v %v", c, mounts, env)
 		}
@@ -54,7 +58,8 @@ func TestGatewayInjectionSkipped(t *testing.T) {
 }
 
 func TestGatewayNeverMountsStateRoot(t *testing.T) {
-	mounts, _ := gatewayInjection("control", RoleApp, "/home/u/.cyberstack", "/p/control")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	mounts, _ := gatewayInjection(controlManifest(t), RoleApp, "/home/u/.cyberstack", "/p/control")
 	for _, mt := range mounts {
 		if mt.Source == "/home/u/.cyberstack" {
 			t.Errorf("state directory root must never be mounted: %+v", mt)

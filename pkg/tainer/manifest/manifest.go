@@ -79,6 +79,11 @@ type ProjectConfig struct {
 	Type     ProjectType `yaml:"type"`
 	Domain   string      `yaml:"domain"`
 	AutoOpen *bool       `yaml:"auto-open,omitempty"`
+	// ControlDev marks a checkout of the control dashboard. On its own it
+	// grants nothing: the folder must also be approved on this machine
+	// (`tainer control dev allow`) before the project gets the control
+	// pod's access.
+	ControlDev bool `yaml:"control-dev,omitempty"`
 }
 
 type PHPLimits struct {
