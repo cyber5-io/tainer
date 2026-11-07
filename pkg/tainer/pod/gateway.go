@@ -1,11 +1,13 @@
 package pod
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 
 	"github.com/cyber5-io/tainer/pkg/tainer"
+	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/controldev"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
@@ -24,6 +26,10 @@ const gatewayTarget = "/run/tainer/control"
 // checkouts are approved on this machine, so it can show a notice while any is.
 const controlDevAccessEnv = "TAINER_CONTROL_DEV_ACCESS"
 
+// stampGranted is the LabelControlAccess value of an approved checkout's app
+// container.
+const stampGranted = "granted"
+
 // controlAccess is one access decision for a pod, made once per start so a
 // container's image, mounts, env and stamp all agree.
 type controlAccess struct {
@@ -38,11 +44,55 @@ type controlAccess struct {
 // folder the user approved on this machine. The marker alone grants nothing,
 // and neither does an approval for another folder. Evaluated at every
 // container create and start.
+//
+// Only the built-in folder (config.ControlDir()) is the control pod: a project
+// named control anywhere else gets nothing. A checkout must be a nodejs
+// project, the dashboard's own type.
 func resolveControlAccess(m *manifest.Manifest, projectDir string) controlAccess {
 	if tainer.IsPinnedProject(m.Project.Name) {
-		return controlAccess{granted: true, pinned: true, devCount: controldev.Count()}
+		if isControlFolder(projectDir) {
+			return controlAccess{granted: true, pinned: true, devCount: controldev.Count()}
+		}
+		return controlAccess{}
 	}
-	return controlAccess{granted: m.Project.ControlDev && projectDir != "" && controldev.Approved(projectDir)}
+	return controlAccess{granted: m.Project.ControlDev && m.Project.Type == manifest.TypeNodeJS &&
+		projectDir != "" && controldev.Approved(projectDir)}
+}
+
+// isControlFolder reports whether dir is the built-in control pod's folder.
+func isControlFolder(dir string) bool {
+	if dir == "" {
+		return false
+	}
+	a, err1 := controldev.Canonical(dir)
+	b, err2 := controldev.Canonical(config.ControlDir())
+	return err1 == nil && err2 == nil && a == b
+}
+
+// isControlPod reports whether m in projectDir is the built-in control pod.
+func isControlPod(m *manifest.Manifest, projectDir string) bool {
+	return tainer.IsPinnedProject(m.Project.Name) && isControlFolder(projectDir)
+}
+
+// checkControlName refuses a project that uses the built-in dashboard's
+// reserved name from any other folder.
+func checkControlName(m *manifest.Manifest, projectDir string) error {
+	if !tainer.IsPinnedProject(m.Project.Name) || isControlFolder(projectDir) {
+		return nil
+	}
+	return fmt.Errorf("the name %q is reserved for the built-in dashboard — rename the project in %s (e.g. control-dev)",
+		m.Project.Name, filepath.Join(projectDir, manifest.FileName))
+}
+
+// restartPolicyFor is a container's restart policy. An approved checkout's
+// app container never restarts by itself: the runtime would bring it back
+// (after a crash or when tainer starts) without tainer re-checking the
+// approval, so only a tainer start, which checks it, may run it again.
+func restartPolicyFor(a controlAccess, role string) string {
+	if a.granted && !a.pinned && role == RoleApp {
+		return "no"
+	}
+	return "unless-stopped"
 }
 
 func hasControlAccess(m *manifest.Manifest, projectDir string) bool {
@@ -94,7 +144,7 @@ func (a controlAccess) stamp(role string) string {
 	case a.pinned:
 		return ""
 	default:
-		return "granted"
+		return stampGranted
 	}
 }
 

@@ -5,13 +5,14 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 )
 
 func TestControlPodGetsGatewayMounts(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	mounts, env := gatewayInjection(controlManifest(t), RoleApp, "/home/u/.cyberstack", "/p/control")
+	mounts, env := gatewayInjection(controlManifest(t), RoleApp, "/home/u/.cyberstack", config.ControlDir())
 	if len(mounts) != 1 {
 		t.Fatalf("want 1 mount, got %+v", mounts)
 	}
@@ -28,7 +29,7 @@ func TestControlPodGetsGatewayMounts(t *testing.T) {
 			want[e] = true
 		}
 	}
-	want["TAINER_PROJECT_PATH=/p/control"] = false
+	want["TAINER_PROJECT_PATH="+config.ControlDir()] = false
 	for _, e := range env {
 		if _, ok := want[e]; ok {
 			want[e] = true
@@ -59,7 +60,7 @@ func TestGatewayInjectionSkipped(t *testing.T) {
 
 func TestGatewayNeverMountsStateRoot(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	mounts, _ := gatewayInjection(controlManifest(t), RoleApp, "/home/u/.cyberstack", "/p/control")
+	mounts, _ := gatewayInjection(controlManifest(t), RoleApp, "/home/u/.cyberstack", config.ControlDir())
 	for _, mt := range mounts {
 		if mt.Source == "/home/u/.cyberstack" {
 			t.Errorf("state directory root must never be mounted: %+v", mt)

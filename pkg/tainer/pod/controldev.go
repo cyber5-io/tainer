@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/cyber5-io/tainer/pkg/tainer"
 	"github.com/cyber5-io/tainer/pkg/tainer/controldev"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
@@ -25,7 +24,7 @@ func reconcileControlAccess(ctx context.Context, ops controlOps, manifestPath, p
 	if err != nil {
 		return err
 	}
-	if tainer.IsPinnedProject(m.Project.Name) {
+	if isControlPod(m, projectDir) {
 		return nil // the built-in pod is EnsureControlPod's
 	}
 	app := ContainerName(m.Project.Name, RoleApp)

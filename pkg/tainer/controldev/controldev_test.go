@@ -151,3 +151,38 @@ func TestCorruptFileApprovesNothing(t *testing.T) {
 		t.Fatal("allow must not silently overwrite an unreadable approvals file")
 	}
 }
+
+func TestConcurrentChangesAreNeverLost(t *testing.T) {
+	setup(t)
+	const n = 40
+	dirs := make([]string, n)
+	for i := range dirs {
+		dirs[i] = t.TempDir()
+	}
+	// Half start approved and get revoked, half get approved, all at once.
+	for _, d := range dirs[:n/2] {
+		if err := Allow(d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	errs := make(chan error, n)
+	for i, d := range dirs {
+		go func(i int, d string) {
+			if i < n/2 {
+				errs <- Revoke(d)
+			} else {
+				errs <- Allow(d)
+			}
+		}(i, d)
+	}
+	for range dirs {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, d := range dirs {
+		if got, want := Approved(d), i >= n/2; got != want {
+			t.Errorf("%d: approved=%v, want %v (a concurrent change was lost)", i, got, want)
+		}
+	}
+}

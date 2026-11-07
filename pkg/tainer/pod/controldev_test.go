@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/controldev"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 	"github.com/cyber5-io/tainer/pkg/tainer/registry"
@@ -143,7 +144,7 @@ func TestImageRefUsesTheRegisteredFolder(t *testing.T) {
 func TestControlPodGetsTheDevAccessCount(t *testing.T) {
 	devHome(t)
 	ctl := controlManifest(t)
-	dir := filepath.Join(t.TempDir(), "control")
+	dir := config.ControlDir()
 	_, env := gatewayInjection(ctl, RoleApp, "/home/u/.cyberstack", dir)
 	if !slices.Contains(env, "TAINER_CONTROL_DEV_ACCESS=0") {
 		t.Errorf("no approvals: env = %v", env)
@@ -312,5 +313,145 @@ func TestAllowRecreatesARunningDevPodWithAccess(t *testing.T) {
 	}
 	if len(f.removed) != 1 || len(f.starts) != 1 {
 		t.Errorf("removed=%v starts=%d, want the app recreated", f.removed, len(f.starts))
+	}
+}
+
+func TestDevContainersDoNotRestartThemselves(t *testing.T) {
+	dir := devHome(t)
+	if err := controldev.Allow(dir); err != nil {
+		t.Fatal(err)
+	}
+	dev := resolveControlAccess(devProject(true), dir)
+	if got := restartPolicyFor(dev, RoleApp); got != "no" {
+		t.Errorf("approved checkout app: %q, want no (the runtime must not bring it back unchecked)", got)
+	}
+	if got := restartPolicyFor(dev, RoleWeb); got != "unless-stopped" {
+		t.Errorf("approved checkout web: %q", got)
+	}
+	ctl := resolveControlAccess(controlManifest(t), config.ControlDir())
+	if got := restartPolicyFor(ctl, RoleApp); got != "unless-stopped" {
+		t.Errorf("control pod app: %q, want unless-stopped", got)
+	}
+	plain := resolveControlAccess(devProject(false), dir)
+	if got := restartPolicyFor(plain, RoleApp); got != "unless-stopped" {
+		t.Errorf("plain project: %q", got)
+	}
+}
+
+func TestDevAccessNeedsNodejs(t *testing.T) {
+	dir := devHome(t)
+	if err := controldev.Allow(dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, typ := range []manifest.ProjectType{manifest.TypeWordPress, manifest.TypePHP, manifest.TypeNextJS} {
+		m := devProject(true)
+		m.Project.Type = typ
+		m.Runtime.PHP = "8.3"
+		if hasControlAccess(m, dir) {
+			t.Errorf("%s: an approved, marked folder of another type must get nothing", typ)
+		}
+		if mounts, env := gatewayInjection(m, RoleApp, "/home/u/.cyberstack", dir); len(mounts)+len(env) != 0 {
+			t.Errorf("%s: gateway injection %+v %v", typ, mounts, env)
+		}
+	}
+}
+
+func TestControlNamedElsewhereIsNotPinned(t *testing.T) {
+	dir := devHome(t)
+	m := controlManifest(t)
+	m.Project.ControlDev = true
+	if err := controldev.Allow(dir); err != nil { // even hand-approved
+		t.Fatal(err)
+	}
+	if hasControlAccess(m, dir) {
+		t.Fatal("a project named control outside the built-in folder must get no control access")
+	}
+	if got := ImageRefIn(m, RoleApp, dir); got != "ghcr.io/cyber5-io/tainer-nodejs-app:node-22" {
+		t.Errorf("image = %q, want the plain nodejs image", got)
+	}
+	if mounts, env := gatewayInjection(m, RoleApp, "/home/u/.cyberstack", dir); len(mounts)+len(env) != 0 {
+		t.Errorf("gateway injection %+v %v", mounts, env)
+	}
+	if err := checkControlName(m, dir); err == nil || !strings.Contains(err.Error(), "rename") {
+		t.Errorf("start must refuse it with a rename hint, got %v", err)
+	}
+}
+
+func TestBuiltInControlPodIsStillPinned(t *testing.T) {
+	devHome(t)
+	m := controlManifest(t)
+	dir := config.ControlDir()
+	if !hasControlAccess(m, dir) || checkControlName(m, dir) != nil {
+		t.Fatal("the built-in control pod must keep its access")
+	}
+	if got := ImageRefIn(m, RoleApp, dir); got != "ghcr.io/cyber5-io/tainer-control:1.0.0" {
+		t.Errorf("image = %q", got)
+	}
+	if got := ImageRef(m, RoleApp); got != "ghcr.io/cyber5-io/tainer-control:1.0.0" {
+		t.Errorf("ImageRef = %q", got)
+	}
+	if checkControlName(devProject(true), dir) != nil {
+		t.Error("other names are never refused")
+	}
+}
+
+// grantedDev registers a restored, token-holding dev app container in f.
+func grantedDev(f *fakeControl, project, manifestPath string) string {
+	name := ContainerName(project, RoleApp)
+	insp := devContainer(manifestPath, "granted", true)
+	insp.Config.Labels[LabelPod] = project
+	insp.Config.Labels[LabelRole] = RoleApp
+	f.containers[name] = insp
+	return name
+}
+
+func TestBootEnsureRemovesARestoredRevokedDevContainer(t *testing.T) {
+	controlTestHome(t)
+	dir := t.TempDir()
+	mf := writeDevManifest(t, dir)
+	f := newFakeControl()
+	name := grantedDev(f, "control-dev", mf) // approval revoked while tainer was down
+	if err := ensureControlPod(context.Background(), f.ops()); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(f.removed, name) {
+		t.Errorf("removed = %v, want %s", f.removed, name)
+	}
+}
+
+func TestBootEnsureRemovesDevContainersOfGoneOrUnmarkedFolders(t *testing.T) {
+	controlTestHome(t)
+	f := newFakeControl()
+	gone := grantedDev(f, "gone", filepath.Join(t.TempDir(), "missing", "tainer.yaml"))
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "tainer.yaml"), "version: 1\nproject:\n  name: unmarked\n  type: nodejs\n  domain: x.tainer.me\nruntime:\n  node: \"22\"\n  database: none\n")
+	if err := controldev.Allow(dir); err != nil {
+		t.Fatal(err)
+	}
+	unmarked := grantedDev(f, "unmarked", filepath.Join(dir, "tainer.yaml"))
+	if err := ensureControlPod(context.Background(), f.ops()); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{gone, unmarked} {
+		if !slices.Contains(f.removed, n) {
+			t.Errorf("%s not removed: %v", n, f.removed)
+		}
+	}
+}
+
+func TestBootEnsureKeepsAnApprovedDevContainer(t *testing.T) {
+	controlTestHome(t)
+	dir := t.TempDir()
+	mf := writeDevManifest(t, dir)
+	if err := controldev.Allow(dir); err != nil {
+		t.Fatal(err)
+	}
+	f := newFakeControl()
+	name := grantedDev(f, "control-dev", mf)
+	if err := ensureControlPod(context.Background(), f.ops()); err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(f.removed, name) {
+		t.Errorf("approved dev container removed: %v", f.removed)
 	}
 }

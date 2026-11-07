@@ -53,6 +53,15 @@ func (f *fakeControl) ops() controlOps {
 			f.starts = append(f.starts, opts)
 			return f.startErr
 		},
+		listGranted: func(_ context.Context) ([]container.Summary, error) {
+			var out []container.Summary
+			for name, c := range f.containers {
+				if c.Config != nil && c.Config.Labels[LabelControlAccess] == "granted" {
+					out = append(out, container.Summary{Names: []string{"/" + name}, Labels: c.Config.Labels})
+				}
+			}
+			return out, nil
+		},
 		regGet: func(name string) (registry.Project, bool) { p, ok := f.reg[name]; return p, ok },
 		regPut: func(name string, p registry.Project) error { f.reg[name] = p; return nil },
 	}

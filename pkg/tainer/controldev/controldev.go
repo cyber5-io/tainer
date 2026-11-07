@@ -78,6 +78,29 @@ func load() (approvals, error) {
 	return a, nil
 }
 
+// update runs change on the approvals under an exclusive lock, saving the
+// result when change reports a modification, so concurrent allow and revoke
+// never lose each other's change.
+func update(change func(a *approvals) (bool, error)) error {
+	if err := os.MkdirAll(filepath.Dir(Path()), 0o755); err != nil {
+		return err
+	}
+	release, err := lockFile(Path() + ".lock")
+	if err != nil {
+		return err
+	}
+	defer release()
+	a, err := load()
+	if err != nil {
+		return err
+	}
+	changed, err := change(&a)
+	if err != nil || !changed {
+		return err
+	}
+	return save(a)
+}
+
 // save writes the approvals file atomically (temp file + rename), 0600.
 func save(a approvals) error {
 	if err := os.MkdirAll(filepath.Dir(Path()), 0o755); err != nil {
@@ -123,15 +146,13 @@ func Allow(path string) error {
 	if err != nil {
 		return err
 	}
-	a, err := load()
-	if err != nil {
-		return err
-	}
-	if slices.Contains(a.Approved, p) {
-		return nil
-	}
-	a.Approved = append(a.Approved, p)
-	return save(a)
+	return update(func(a *approvals) (bool, error) {
+		if slices.Contains(a.Approved, p) {
+			return false, nil
+		}
+		a.Approved = append(a.Approved, p)
+		return true, nil
+	})
 }
 
 // Revoke removes path's approval; ErrNotApproved when it had none.
@@ -140,16 +161,14 @@ func Revoke(path string) error {
 	if err != nil {
 		return err
 	}
-	a, err := load()
-	if err != nil {
-		return err
-	}
-	i := slices.Index(a.Approved, p)
-	if i < 0 {
-		return ErrNotApproved
-	}
-	a.Approved = slices.Delete(a.Approved, i, i+1)
-	return save(a)
+	return update(func(a *approvals) (bool, error) {
+		i := slices.Index(a.Approved, p)
+		if i < 0 {
+			return false, ErrNotApproved
+		}
+		a.Approved = slices.Delete(a.Approved, i, i+1)
+		return true, nil
+	})
 }
 
 // List returns the approved folders in the order they were approved.

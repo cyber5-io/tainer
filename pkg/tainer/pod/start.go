@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/cyber5-io/tainer/pkg/tainer"
 	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
@@ -192,6 +191,9 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 
 	m, err := manifest.Load(opts.ManifestPath)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkControlName(m, opts.ProjectDir); err != nil {
 		return nil, err
 	}
 
@@ -421,7 +423,7 @@ func startContainer(
 	// in the smoke is a signal we want to investigate, not paper
 	// over with a retry loop (which trips crun's container-id
 	// reuse limitation).
-	restartPolicy := "unless-stopped"
+	restartPolicy := restartPolicyFor(access, role)
 	if smokeImages() {
 		restartPolicy = "no"
 	}
@@ -621,7 +623,7 @@ func isSSHContainer(m *manifest.Manifest, role string) bool {
 func buildMounts(m *manifest.Manifest, projectDir, role string) []engine.Mount {
 	var out []engine.Mount
 	switch {
-	case tainer.IsPinnedProject(m.Project.Name) && role != RoleDB:
+	case isControlPod(m, projectDir) && role != RoleDB:
 		// The sealed control image carries the dashboard itself; the pod
 		// sees only its state directory. No docroot, no whole-project bind.
 		out = []engine.Mount{
@@ -668,7 +670,7 @@ func buildMounts(m *manifest.Manifest, projectDir, role string) []engine.Mount {
 	for _, mt := range out {
 		sources = append(sources, mt.Source)
 	}
-	if isSSHContainer(m, role) && role != RoleDB && !tainer.IsPinnedProject(m.Project.Name) {
+	if isSSHContainer(m, role) && role != RoleDB && !isControlPod(m, projectDir) {
 		sources = append(sources, projectDir+"/"+m.HostAppDir(), projectDir+"/data")
 	}
 	for _, s := range sources {

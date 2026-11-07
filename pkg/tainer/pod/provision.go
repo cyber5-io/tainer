@@ -25,8 +25,10 @@ type controlOps struct {
 	pull     func(ctx context.Context, ref string) error
 	hasImage func(ctx context.Context, ref string) bool
 	start    func(ctx context.Context, opts StartOptions) error
-	regGet   func(name string) (registry.Project, bool)
-	regPut   func(name string, p registry.Project) error
+	// listGranted lists containers stamped with dev control access.
+	listGranted func(ctx context.Context) ([]container.Summary, error)
+	regGet      func(name string) (registry.Project, bool)
+	regPut      func(name string, p registry.Project) error
 }
 
 // ErrControlDownload and ErrControlStart classify EnsureControlPod failures
@@ -51,6 +53,21 @@ func liveControlOps(eng *engine.Client) controlOps {
 		start: func(ctx context.Context, opts StartOptions) error {
 			_, err := Start(ctx, eng, opts)
 			return err
+		},
+		listGranted: func(ctx context.Context) ([]container.Summary, error) {
+			// Filter on the pod label (as List does) and match the stamp
+			// here, so a runtime without value filters can't widen this.
+			all, err := eng.ContainerList(ctx, container.ListOptions{All: true, Filters: engine.LabelFilter(LabelPod, "")})
+			if err != nil {
+				return nil, err
+			}
+			var out []container.Summary
+			for _, c := range all {
+				if c.Labels[LabelControlAccess] == stampGranted {
+					out = append(out, c)
+				}
+			}
+			return out, nil
 		},
 		regGet: registry.Get,
 		regPut: registry.Put,
@@ -87,7 +104,7 @@ func controlImagesPresent(ctx context.Context, ops controlOps) bool {
 		return false
 	}
 	for _, role := range RolesForPod(m) {
-		if !ops.hasImage(ctx, ImageRef(m, role)) {
+		if !ops.hasImage(ctx, ImageRefIn(m, role, config.ControlDir())) {
 			return false
 		}
 	}
@@ -95,6 +112,17 @@ func controlImagesPresent(ctx context.Context, ops controlOps) bool {
 }
 
 func ensureControlPod(ctx context.Context, ops controlOps) error {
+	// First, before anything that can fail offline: the runtime restores
+	// containers on its own at boot, so drop any dev checkout's container
+	// that holds control access its folder no longer has.
+	sweepErr := sweepDevAccess(ctx, ops)
+	if err := ensureBuiltInControlPod(ctx, ops); err != nil {
+		return errors.Join(err, sweepErr)
+	}
+	return sweepErr
+}
+
+func ensureBuiltInControlPod(ctx context.Context, ops controlOps) error {
 	m, err := manifest.ParseBytes(ControlManifestYAML())
 	if err != nil {
 		return fmt.Errorf("control definition: %w", err)
@@ -141,7 +169,7 @@ func ensureControlPod(ctx context.Context, ops controlOps) error {
 	// Download missing images before tearing anything down: if they can't
 	// be fetched (offline), an old dashboard keeps running until next time.
 	for _, role := range roles {
-		ref := ImageRef(m, role)
+		ref := ImageRefIn(m, role, dir)
 		if ops.hasImage(ctx, ref) {
 			continue
 		}
@@ -287,4 +315,45 @@ func pathExists(p string) bool {
 func isRegular(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && st.Mode().IsRegular()
+}
+
+// sweepDevAccess removes every container stamped with dev control access
+// whose folder no longer grants it: approval revoked, marker or folder gone,
+// project renamed. Removed containers come back only through a tainer start,
+// which checks the approval again. Runs once per runtime boot.
+func sweepDevAccess(ctx context.Context, ops controlOps) error {
+	if ops.listGranted == nil {
+		return nil
+	}
+	cs, err := ops.listGranted(ctx)
+	if err != nil {
+		return fmt.Errorf("check dashboard checkouts: %w", err)
+	}
+	var errs []error
+	for _, c := range cs {
+		project, role := c.Labels[LabelPod], c.Labels[LabelRole]
+		if project == "" || role == "" {
+			continue
+		}
+		if devAccessStillGranted(c.Labels[LabelManifestPath], project, role) {
+			continue
+		}
+		if err := ops.remove(ctx, ContainerName(project, role)); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// devAccessStillGranted reports whether the folder a granted container was
+// created from still grants that container its access.
+func devAccessStillGranted(manifestPath, project, role string) bool {
+	if manifestPath == "" {
+		return false
+	}
+	m, err := manifest.Load(manifestPath)
+	if err != nil || m.Project.Name != project {
+		return false
+	}
+	return controlAccessStamp(m, filepath.Dir(manifestPath), role) == stampGranted
 }

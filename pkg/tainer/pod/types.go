@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/cyber5-io/tainer/pkg/tainer"
+	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 	"github.com/cyber5-io/tainer/pkg/tainer/registry"
 )
@@ -168,7 +169,9 @@ func legacyWebTag(m *manifest.Manifest) string {
 // ImageRefIn where the project's folder is known.
 func ImageRef(m *manifest.Manifest, role string) string {
 	dir := ""
-	if m.Project.ControlDev {
+	if tainer.IsPinnedProject(m.Project.Name) {
+		dir = config.ControlDir()
+	} else if m.Project.ControlDev {
 		if p, ok := registry.Get(m.Project.Name); ok {
 			dir = p.Path
 		}
@@ -220,7 +223,7 @@ func imageRef(m *manifest.Manifest, role string, access controlAccess) string {
 		if m.IsPHP() {
 			return fmt.Sprintf("%s/tainer-%s-app:php-%s", repo, m.Project.Type, m.Runtime.PHP)
 		}
-		if tainer.IsPinnedProject(m.Project.Name) {
+		if access.pinned {
 			// The built-in control pod runs the sealed control image.
 			recorded := ""
 			if p, ok := registry.Get(m.Project.Name); ok {

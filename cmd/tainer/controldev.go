@@ -122,6 +122,10 @@ func controlDevAllow(ctx context.Context, dir string, stdout, stderr io.Writer, 
 		fmt.Fprintf(stderr, "tainer: %s isn't a control dashboard checkout — its tainer.yaml needs `control-dev: true` under project:\n", dir)
 		return 1
 	}
+	if m.Project.Type != manifest.TypeNodeJS {
+		fmt.Fprintf(stderr, "tainer: only nodejs projects can be dashboard checkouts — %s is a %s project\n", dir, m.Project.Type)
+		return 1
+	}
 	if tainer.IsPinnedProject(m.Project.Name) {
 		fmt.Fprintf(stderr, "tainer: %q is the built-in dashboard's name — rename the project in %s first (e.g. control-dev)\n", m.Project.Name, filepath.Join(dir, manifest.FileName))
 		return 1
@@ -155,11 +159,19 @@ func controlDevRevoke(ctx context.Context, dir string, stdout, stderr io.Writer,
 		return 1
 	}
 	fmt.Fprintf(stdout, "Revoked: %s\n", dir)
-	// Applied at once, bringing tainer up if needed: a pod that was running
-	// when tainer stopped comes back with it, and must not come back with
-	// the access.
-	if err := ops.apply(ctx, dir, true); err != nil {
-		fmt.Fprintln(stderr, "tainer: revoked, but couldn't restart the affected pods yet; it applies the next time they start")
+	name := ""
+	if m, err := manifest.Load(filepath.Join(dir, manifest.FileName)); err == nil {
+		name = m.Project.Name
+	}
+	// Applied at once to a running tainer. A stopped one is left alone:
+	// checkout containers with access never restart by themselves, and the
+	// once-per-boot ensure removes any whose approval is gone.
+	if err := ops.apply(ctx, dir, false); err != nil {
+		if name != "" {
+			fmt.Fprintf(stderr, "tainer: revoked, but couldn't apply it to the running pod — run `tainer stop %s` now\n", name)
+		} else {
+			fmt.Fprintf(stderr, "tainer: revoked, but couldn't apply it to the running pod — stop the project that was in %s now\n", dir)
+		}
 		return 1
 	}
 	return 0

@@ -162,8 +162,8 @@ func TestRevokeRemovesThePath(t *testing.T) {
 	if controldev.Approved(dir) {
 		t.Fatal("still approved")
 	}
-	if len(f.applied) != 1 || !f.boots[0] {
-		t.Errorf("revoke must apply at once, bringing tainer up if needed: %v %v", f.applied, f.boots)
+	if len(f.applied) != 1 || f.boots[0] {
+		t.Errorf("revoke must apply at once to a running tainer without starting one: %v %v", f.applied, f.boots)
 	}
 	if code, _, _ := runDev(t, &devFake{}, "", "revoke", dir); code == 0 {
 		t.Error("revoking an unapproved folder must fail")
@@ -203,5 +203,41 @@ func TestControlStaysOutOfMainHelp(t *testing.T) {
 	buf.ReadFrom(r)
 	if strings.Contains(buf.String(), "control") {
 		t.Errorf("main help mentions control:\n%s", buf.String())
+	}
+}
+
+func TestAllowRefusesOtherProjectTypes(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	body := "version: 1\nproject:\n  name: blog\n  type: wordpress\n  domain: blog.tainer.me\n  control-dev: true\nruntime:\n  php: \"8.3\"\n  database: mariadb\n"
+	if err := os.WriteFile(filepath.Join(dir, "tainer.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs := runDev(t, &devFake{tty: true}, "y\n", "allow", dir)
+	if code == 0 || controldev.Approved(dir) {
+		t.Fatal("a wordpress folder must be refused")
+	}
+	if !strings.Contains(errs, "nodejs") {
+		t.Errorf("stderr = %q", errs)
+	}
+}
+
+func TestRevokeFailureTellsTheUserToStopThePod(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := devCheckout(t, "control-dev", true)
+	if err := controldev.Allow(dir); err != nil {
+		t.Fatal(err)
+	}
+	ops := (&devFake{}).ops("")
+	ops.apply = func(context.Context, string, bool) error { return os.ErrDeadlineExceeded }
+	var out, errb bytes.Buffer
+	if code := runControlDev(context.Background(), []string{"revoke", dir}, &out, &errb, ops); code == 0 {
+		t.Fatal("a failed apply must fail the command")
+	}
+	if !strings.Contains(errb.String(), "tainer stop control-dev") || strings.Contains(errb.String(), "next time") {
+		t.Errorf("stderr = %q", errb.String())
+	}
+	if controldev.Approved(dir) {
+		t.Error("the approval is still removed")
 	}
 }
