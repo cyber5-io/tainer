@@ -394,10 +394,8 @@ func (m *Manifest) validate() error {
 		return err
 	}
 
-	for _, mount := range m.Mounts {
-		if err := validateMountName(mount); err != nil {
-			return err
-		}
+	if err := validateMounts(m.Mounts); err != nil {
+		return err
 	}
 
 	dir, err := cleanBuildDir(m.Runtime.BuildDir)

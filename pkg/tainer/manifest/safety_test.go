@@ -118,3 +118,26 @@ func TestDomainMustBeAHostname(t *testing.T) {
 		}
 	}
 }
+
+// On a case-insensitive disk (APFS default) "DB" is the db folder, so the
+// reserved names and duplicates are compared ignoring case (T4), and mount
+// names use the same plain characters as build-dir (T5).
+func TestMountNamesIgnoreCaseAndUsePlainCharacters(t *testing.T) {
+	refused := [][]string{
+		{"DB"}, {"Data"}, {"HTML"}, {"hTmL"},
+		{"media", "Media"}, {"uploads", "uploads"},
+		{"my files"}, {"a{b}"}, {"$HOME"}, {"x'y"}, {"tab\tname"}, {"café"}, {"a:b"},
+	}
+	for _, mounts := range refused {
+		m := &Manifest{Version: 2, Project: ProjectConfig{Name: "site", Type: TypeWordPress}, Runtime: RuntimeConfig{PHP: "8.4", Database: DatabaseMariaDB}, Mounts: mounts}
+		m.defaults()
+		if err := m.validate(); err == nil {
+			t.Errorf("mounts %q: accepted, want refused", mounts)
+		}
+	}
+	m := &Manifest{Version: 2, Project: ProjectConfig{Name: "site", Type: TypeWordPress}, Runtime: RuntimeConfig{PHP: "8.4", Database: DatabaseMariaDB}, Mounts: []string{"Media", "uploads", "A-b_c.1"}}
+	m.defaults()
+	if err := m.validate(); err != nil {
+		t.Errorf("plain mounts refused: %v", err)
+	}
+}

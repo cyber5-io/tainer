@@ -15,19 +15,44 @@ import (
 // reservedMounts are the folders tainer itself mounts.
 var reservedMounts = map[string]bool{"html": true, "data": true, "db": true}
 
+// mountNamePattern is the character set a mount name may use: the same
+// plain characters as build-dir, without the separator.
+var mountNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
 // validateMountName accepts exactly one plain folder name directly inside
-// the project: not empty, no separators, not "." or "..", no leading dot
-// (".git", ".ssh", ".env" stay private), and not one tainer reserves.
+// the project: not empty, only letters, numbers, '.', '_' and '-', not "."
+// or "..", no leading dot (".git", ".ssh", ".env" stay private), and not
+// one tainer reserves. Reserved names are compared ignoring case: on a
+// case-insensitive disk "DB" is the db folder.
 func validateMountName(name string) error {
 	switch {
 	case name == "":
 		return fmt.Errorf("mount name cannot be empty")
-	case strings.ContainsAny(name, "/\\\x00"), name == ".", name == "..":
+	case name == ".", name == "..", strings.ContainsAny(name, "/\\\x00"):
 		return fmt.Errorf("mount name must be a simple folder name inside the project: %q", name)
 	case strings.HasPrefix(name, "."):
 		return fmt.Errorf("mount name %q cannot start with a dot", name)
-	case reservedMounts[name]:
+	case !mountNamePattern.MatchString(name):
+		return fmt.Errorf("mount name %q: use only letters, numbers, '.', '_' and '-'", name)
+	case reservedMounts[strings.ToLower(name)]:
 		return fmt.Errorf("mount name %q is reserved", name)
+	}
+	return nil
+}
+
+// validateMounts checks every mount name and refuses two that differ only
+// in case, since on a case-insensitive disk they are the same folder.
+func validateMounts(names []string) error {
+	seen := make(map[string]string, len(names))
+	for _, name := range names {
+		if err := validateMountName(name); err != nil {
+			return err
+		}
+		key := strings.ToLower(name)
+		if prev, ok := seen[key]; ok {
+			return fmt.Errorf("mount %q is listed twice (as %q)", name, prev)
+		}
+		seen[key] = name
 	}
 	return nil
 }
