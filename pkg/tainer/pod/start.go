@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cyber5-io/tainer/pkg/tainer"
 	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
@@ -579,6 +580,12 @@ func isSSHContainer(m *manifest.Manifest, role string) bool {
 func buildMounts(m *manifest.Manifest, projectDir, role string) []engine.Mount {
 	var out []engine.Mount
 	switch {
+	case tainer.IsPinnedProject(m.Project.Name) && role != RoleDB:
+		// The sealed control image carries the dashboard itself; the pod
+		// sees only its state directory. No docroot, no whole-project bind.
+		out = []engine.Mount{
+			{Source: projectDir + "/data", Target: m.ContainerMountBase() + "/data"},
+		}
 	case role == RoleDB:
 		out = []engine.Mount{
 			{Source: projectDir + "/db", Target: dbDataPath(m)},
@@ -620,7 +627,7 @@ func buildMounts(m *manifest.Manifest, projectDir, role string) []engine.Mount {
 	for _, mt := range out {
 		sources = append(sources, mt.Source)
 	}
-	if isSSHContainer(m, role) && role != RoleDB {
+	if isSSHContainer(m, role) && role != RoleDB && !tainer.IsPinnedProject(m.Project.Name) {
 		sources = append(sources, projectDir+"/"+m.HostAppDir(), projectDir+"/data")
 	}
 	for _, s := range sources {

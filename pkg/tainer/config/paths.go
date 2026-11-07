@@ -26,6 +26,7 @@ func CertFile() string        { return filepath.Join(CertsDir(), "tainer.me.crt"
 func KeyFile() string         { return filepath.Join(CertsDir(), "tainer.me.key") }
 func PrivateKey() string      { return filepath.Join(KeysDir(), "tainer_rsa") }
 func PublicKey() string       { return filepath.Join(KeysDir(), "tainer_rsa.pub") }
+func ControlDir() string      { return filepath.Join(BaseDir(), "control") }
 func SSHPiperHostKey() string { return filepath.Join(KeysDir(), "sshpiper_host_ed25519") }
 
 func EnsureDirs() error {

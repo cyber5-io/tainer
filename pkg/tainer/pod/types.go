@@ -7,6 +7,7 @@ import (
 
 	"github.com/cyber5-io/tainer/pkg/tainer"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
+	"github.com/cyber5-io/tainer/pkg/tainer/registry"
 )
 
 // RolesForType returns the ordered set of roles that compose a pod of
@@ -199,9 +200,12 @@ func ImageRef(m *manifest.Manifest, role string) string {
 			return fmt.Sprintf("%s/tainer-%s-app:php-%s", repo, m.Project.Type, m.Runtime.PHP)
 		}
 		if tainer.IsPinnedProject(m.Project.Name) {
-			// The control pod's app image adds a headless browser for pod
-			// previews; no other project carries one.
-			return fmt.Sprintf("%s/tainer-control-app:node-%s", repo, m.Runtime.Node)
+			// The built-in control pod runs the sealed control image.
+			recorded := ""
+			if p, ok := registry.Get(m.Project.Name); ok {
+				recorded = p.ImageVersion
+			}
+			return ControlImageRef(controlVersion(recorded))
 		}
 		return fmt.Sprintf("%s/tainer-%s-app:node-%s", repo, m.Project.Type, m.Runtime.Node)
 	case RoleDB:

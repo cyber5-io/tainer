@@ -16,6 +16,9 @@ type Project struct {
 	Type    string `json:"type"`
 	Domain  string `json:"domain"`
 	Created string `json:"created"`
+	// ImageVersion is the sealed control image version last provisioned
+	// (control pod only).
+	ImageVersion string `json:"imageVersion,omitempty"`
 }
 
 type registryData struct {
