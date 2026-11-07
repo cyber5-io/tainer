@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/config"
@@ -36,7 +38,36 @@ type controlOps struct {
 var (
 	ErrControlDownload = errors.New("control image download failed")
 	ErrControlStart    = errors.New("control pod start failed")
+	// ErrControlUnavailable: the registry refused or doesn't have the image
+	// (401/403/404) — it isn't published yet, rather than us being offline.
+	ErrControlUnavailable = errors.New("control image not available")
 )
+
+// ErrControlNameTaken: the user has their own project named control (allowed
+// before the name was reserved). tainer leaves it alone and doesn't set up
+// the dashboard until the user renames it. Returned as *ControlNameTakenError.
+var ErrControlNameTaken = errors.New("a project of yours is named control")
+
+// ControlNameTakenError names the folder of the user's own control project.
+type ControlNameTakenError struct{ Path string }
+
+func (e *ControlNameTakenError) Error() string {
+	return fmt.Sprintf("%v (%s)", ErrControlNameTaken, e.Path)
+}
+
+func (e *ControlNameTakenError) Is(target error) bool { return target == ErrControlNameTaken }
+
+// unavailableImage matches a registry's 401/403/404 answer as the runtime
+// reports it (its pull errors carry the registry's words, not a status).
+var unavailableImage = regexp.MustCompile(`(?i)manifest unknown|name unknown|unauthorized|\bdenied\b|forbidden|not found|\b40[134]\b`)
+
+// downloadErr classifies a failed control image pull.
+func downloadErr(role string, err error) error {
+	if unavailableImage.MatchString(err.Error()) {
+		return fmt.Errorf("%w: %s: %w", ErrControlUnavailable, role, err)
+	}
+	return fmt.Errorf("%w: %s: %w", ErrControlDownload, role, err)
+}
 
 // writeManifestFile is a seam for tests.
 var writeManifestFile = os.WriteFile
@@ -80,12 +111,16 @@ func liveControlOps(eng *engine.Client) controlOps {
 //   - creates ControlDir() and its data/ (0755) and (re)writes tainer.yaml
 //     when missing or different from the built-in definition; existing
 //     data/ contents are never touched;
-//   - migrates a hand-registered control project: its data/settings.json and
-//     data/thumbnails/ are copied over (only when absent here), the old folder
-//     is left untouched, and the registry entry is re-pointed to ControlDir()
-//     keeping its recorded image version;
-//   - replaces control containers created from another folder or with an
-//     html/ bind mount (the pre-sealed-image shape), pulling the images
+//   - migrates a hand-registered dashboard (a control project that is the
+//     nodejs app on my.tainer.me, or marked control-dev): its
+//     data/settings.json and data/thumbnails/ are copied over (only when
+//     absent here), the old folder is left untouched, and the registry entry
+//     is re-pointed to ControlDir() keeping its recorded image version;
+//   - leaves a user's own project named control (folder, pod, data, entry)
+//     untouched and returns ErrControlNameTaken until it is renamed;
+//   - replaces control containers created from another folder, with an
+//     html/ bind mount (the pre-sealed-image shape), from another definition
+//     or (app) from another image than this build wants, pulling the images
 //     first so an offline run leaves the old dashboard up;
 //   - starts the pod when any of its containers is missing or stopped.
 func EnsureControlPod(ctx context.Context, eng *engine.Client) error {
@@ -149,7 +184,7 @@ func ensureBuiltInControlPod(ctx context.Context, ops controlOps) error {
 			needStart = true
 			continue
 		}
-		if staleControlContainer(insp, manifestPath) {
+		if staleControlContainer(insp, manifestPath) || outdatedControlContainer(insp, m, role, dir) {
 			stale = true
 		}
 		if insp.State == nil || !insp.State.Running {
@@ -174,7 +209,7 @@ func ensureBuiltInControlPod(ctx context.Context, ops controlOps) error {
 			continue
 		}
 		if err := ops.pull(ctx, ref); err != nil {
-			return fmt.Errorf("%w: %s: %w", ErrControlDownload, role, err)
+			return downloadErr(role, err)
 		}
 	}
 
@@ -215,8 +250,11 @@ func writeControlFolder(dir, manifestPath string) error {
 	return nil
 }
 
-// pointRegistryAtControlDir registers the control project at dir, migrating
-// settings and thumbnails from a previously registered folder first.
+// pointRegistryAtControlDir registers the control project at dir. A folder
+// registered as control before is migrated only when it is the dashboard
+// (settings and thumbnails copied first). A user's own project named control
+// is never touched: ErrControlNameTaken. One whose folder no longer has a
+// tainer.yaml is stale; its name is taken over without copying anything.
 func pointRegistryAtControlDir(ops controlOps, m *manifest.Manifest, dir string) error {
 	name := m.Project.Name
 	p, ok := ops.regGet(name)
@@ -224,8 +262,13 @@ func pointRegistryAtControlDir(ops controlOps, m *manifest.Manifest, dir string)
 		return nil
 	}
 	if ok && p.Path != "" {
-		if err := migrateControlData(filepath.Join(p.Path, "data"), filepath.Join(dir, "data")); err != nil {
-			return err
+		switch isDashboard, stale := dashboardEntry(p); {
+		case isDashboard:
+			if err := migrateControlData(filepath.Join(p.Path, "data"), filepath.Join(dir, "data")); err != nil {
+				return err
+			}
+		case !stale:
+			return &ControlNameTakenError{Path: p.Path}
 		}
 	}
 	if !ok {
@@ -239,6 +282,36 @@ func pointRegistryAtControlDir(ops controlOps, m *manifest.Manifest, dir string)
 	}
 	return nil
 }
+
+// dashboardEntry reports whether a registered control project is the control
+// dashboard — its tainer.yaml marks it control-dev, or it is the nodejs app on
+// my.tainer.me — and whether it is stale (no tainer.yaml left). A tainer.yaml
+// that can't be read is judged by the registry entry, and is never stale.
+func dashboardEntry(p registry.Project) (isDashboard, stale bool) {
+	mf := filepath.Join(p.Path, manifest.FileName)
+	if !pathExists(mf) {
+		return p.Type == string(manifest.TypeNodeJS) && p.Domain == controlDomain, true
+	}
+	if m, err := manifest.Load(mf); err == nil {
+		return m.Project.ControlDev || (m.Project.Type == manifest.TypeNodeJS && m.Project.Domain == controlDomain), false
+	}
+	return p.Type == string(manifest.TypeNodeJS) && p.Domain == controlDomain, false
+}
+
+// ControlNameConflict returns a *ControlNameTakenError when the registered
+// control project p is the user's own rather than the dashboard, else nil.
+func ControlNameConflict(p registry.Project) error {
+	if p.Path == "" || p.Path == config.ControlDir() {
+		return nil
+	}
+	if isDashboard, stale := dashboardEntry(p); !isDashboard && !stale {
+		return &ControlNameTakenError{Path: p.Path}
+	}
+	return nil
+}
+
+// controlDomain is the dashboard's domain, from the built-in definition.
+const controlDomain = "my.tainer.me"
 
 // migrateControlData copies settings.json and thumbnails/ from oldData into
 // newData, each only when absent in newData. oldData is only read.
@@ -305,6 +378,37 @@ func staleControlContainer(insp container.InspectResponse, manifestPath string) 
 		}
 	}
 	return false
+}
+
+// outdatedControlContainer reports whether a control container was made by
+// another tainer build: its definition hash differs from the built-in one, or
+// the app runs another image than the one this build wants (a tainer upgrade
+// that raised the pinned version, or an update that recorded a newer one).
+func outdatedControlContainer(insp container.InspectResponse, m *manifest.Manifest, role, dir string) bool {
+	if insp.Config == nil {
+		return true
+	}
+	if insp.Config.Labels[LabelManifestHash] != ManifestHash(m) {
+		return true
+	}
+	if role != RoleApp {
+		return false
+	}
+	have := containerImage(insp)
+	return have != "" && have != ImageRefIn(m, RoleApp, dir)
+}
+
+// containerImage is the image ref a container was created from. The runtime
+// reports it at the top level and leaves Config.Image empty; a Docker-style
+// API reports it in Config.Image (its top-level Image is the image ID).
+func containerImage(insp container.InspectResponse) string {
+	if insp.Config != nil && insp.Config.Image != "" {
+		return insp.Config.Image
+	}
+	if insp.ContainerJSONBase != nil && !strings.HasPrefix(insp.Image, "sha256:") {
+		return insp.Image
+	}
+	return ""
 }
 
 func pathExists(p string) bool {

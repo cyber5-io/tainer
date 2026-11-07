@@ -30,6 +30,7 @@ type Container struct {
 	Role          string
 	Name          string
 	State         string
+	Image         string // the image ref it was created from
 	IP            string
 	PublishedPort int
 }
@@ -100,6 +101,7 @@ func List(ctx context.Context, eng *engine.Client) ([]Pod, error) {
 			Role:          role,
 			Name:          nm,
 			State:         c.State,
+			Image:         c.Image,
 			PublishedPort: published,
 		})
 	}

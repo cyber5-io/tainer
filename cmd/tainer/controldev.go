@@ -141,7 +141,7 @@ func controlDevAllow(ctx context.Context, dir string, stdout, stderr io.Writer, 
 		fmt.Fprintln(stderr, "tainer:", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "Approved. %s gets the control pod's access when it starts; `tainer control dev revoke` takes it away.\n", m.Project.Name)
+	fmt.Fprintf(stdout, "Approved. %s gets the control pod's access when it starts. Deleting the folder doesn't take the approval away — run `tainer control dev revoke`.\n", m.Project.Name)
 	if err := ops.apply(ctx, dir, false); err != nil {
 		fmt.Fprintf(stderr, "tainer: approved, but couldn't restart the affected pods yet; run `tainer restart %s`\n", m.Project.Name)
 		return 1
@@ -199,12 +199,9 @@ func applyControlDev(ctx context.Context, dir string, boot bool) error {
 			errs = append(errs, err)
 		}
 	}
-	release, err := waitControlLock(ctx)
-	if err != nil {
-		return errors.Join(append(errs, err)...)
-	}
-	defer release()
-	if err := ensureControlPod(ctx, eng); err != nil {
+	if _, err := recreateControl(ctx, controlBootID(eng), waitForControlLock, true, func(ctx context.Context) error {
+		return ensureControlPod(ctx, eng)
+	}); err != nil {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)

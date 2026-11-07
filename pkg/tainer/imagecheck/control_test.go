@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 	"github.com/cyber5-io/tainer/pkg/tainer/pod"
 	"github.com/cyber5-io/tainer/pkg/tainer/registry"
@@ -19,7 +20,11 @@ const stableRef = "ghcr.io/cyber5-io/tainer-control:stable"
 // registers it with the recorded image version.
 func controlProject(t *testing.T, recorded string) registry.Project {
 	t.Helper()
-	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := config.ControlDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, manifest.FileName), pod.ControlManifestYAML(), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -189,5 +194,50 @@ func TestCheckControlReadsStableLabels(t *testing.T) {
 	want := ControlCheck{Running: "1.0.0", Stable: "1.1.0", MinTainer: "1.2.0", State: ControlUpdate}
 	if c != want {
 		t.Fatalf("CheckControl = %+v, want %+v", c, want)
+	}
+}
+
+// The check reports the version the app actually runs, read from its image
+// tag: a tainer upgrade that raised the pin, before the pod moved to it, is an
+// update — not "up to date" on the strength of the recorded version.
+func TestControlRunningIsReadFromTheAppImage(t *testing.T) {
+	f, _ := controlFakes(labelsFor("1.0.0", ""))
+	f.pods[0].Containers[1].Image = "ghcr.io/cyber5-io/tainer-control:0.9.0"
+	rep, p := runControl(t, f, "", "1.3.0")
+	if p.Control.Running != "0.9.0" || p.Control.State != ControlUpdate || rep.Available != 1 {
+		t.Fatalf("control = %+v, available %d; want running 0.9.0 offered 1.0.0", p.Control, rep.Available)
+	}
+	for _, r := range p.Roles {
+		if r.Role == "app" && r.Image != "ghcr.io/cyber5-io/tainer-control:0.9.0" {
+			t.Errorf("app role image = %q, want what runs", r.Image)
+		}
+	}
+}
+
+func TestControlRunningFallsBackWithoutAVersionTag(t *testing.T) {
+	f, _ := controlFakes(labelsFor("1.2.0", ""))
+	f.pods[0].Containers[1].Image = "ghcr.io/cyber5-io/tainer-control:stable"
+	_, p := runControl(t, f, "1.2.0", "1.3.0")
+	if p.Control.Running != "1.2.0" || p.Control.State != ControlUpToDate {
+		t.Fatalf("control = %+v, want the recorded 1.2.0", p.Control)
+	}
+}
+
+// A user's own project named control (registered elsewhere) is checked like
+// any pod, not as the dashboard.
+func TestAControlProjectElsewhereIsNotTheDashboard(t *testing.T) {
+	f, calls := controlFakes(labelsFor("1.2.0", ""))
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	body := "version: 2\nproject:\n  name: control\n  type: php\n  domain: control.test\nruntime:\n  php: \"8.3\"\n  database: mariadb\n"
+	if err := os.WriteFile(filepath.Join(dir, manifest.FileName), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Run(context.Background(), f.deps(), map[string]registry.Project{"control": {Path: dir}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Pods) != 1 || rep.Pods[0].Control != nil || *calls != 0 {
+		t.Fatalf("user's control checked as the dashboard: %+v (label reads %d)", rep.Pods, *calls)
 	}
 }

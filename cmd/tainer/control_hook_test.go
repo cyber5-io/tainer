@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -348,4 +350,114 @@ func TestInProcessEnsureSkipsWhileAnUpdateHoldsTheLock(t *testing.T) {
 	if w.Len() != 0 {
 		t.Errorf("no warning expected, got %q", w.String())
 	}
+}
+
+func TestUnavailableImageIsNotCalledOffline(t *testing.T) {
+	f := newHookFake(t)
+	f.ensureErr = fmt.Errorf("%w: app: %w", pod.ErrControlUnavailable, errors.New("engine: pull x: manifest unknown"))
+	var w bytes.Buffer
+	ready(context.Background(), &w)
+	want := "tainer: couldn't start the control dashboard yet (it isn't available yet); it will retry next time tainer starts\n"
+	if w.String() != want {
+		t.Errorf("warning = %q\nwant      %q", w.String(), want)
+	}
+}
+
+// A user's own project named control blocks the dashboard: one plain message
+// per boot saying how to fix it, never "couldn't start … will retry".
+func TestUsersOwnControlProjectGetsOneRenameMessage(t *testing.T) {
+	f := newHookFake(t)
+	f.ensureErr = fmt.Errorf("register: %w", &pod.ControlNameTakenError{Path: "/Users/me/sites/control"})
+	var w bytes.Buffer
+	ready(context.Background(), &w)
+	f.now = f.now.Add(11 * time.Minute)
+	ready(context.Background(), &w)
+	want := "tainer: your project \"control\" in /Users/me/sites/control has the name tainer needs for its dashboard — rename it (change project.name in its tainer.yaml) and tainer will set up my.tainer.me\n"
+	if w.String() != want {
+		t.Errorf("stderr = %q\nwant     %q", w.String(), want)
+	}
+	for _, word := range bannedWords {
+		if strings.Contains(strings.ToLower(w.String()), word) {
+			t.Errorf("message says %q", word)
+		}
+	}
+}
+
+// The detached child records the conflict for the next command to show.
+func TestChildNameConflictIsShownByALaterCommand(t *testing.T) {
+	f := newHookFake(t)
+	f.present = false
+	var w bytes.Buffer
+	ready(context.Background(), &w)
+	recordControlFailure(f.boot, &pod.ControlNameTakenError{Path: "/srv/control"})
+	ready(context.Background(), &w)
+	if !strings.Contains(w.String(), `your project "control" in /srv/control`) {
+		t.Errorf("stderr = %q", w.String())
+	}
+}
+
+// TestHelperInterruptedRecreate is not a test: it is a tainer process that
+// starts a control recreate and never finishes it, for
+// TestInterruptedRecreateIsRedoneByTheNextCommand.
+func TestHelperInterruptedRecreate(t *testing.T) {
+	marker := os.Getenv("TAINER_TEST_RECREATE")
+	if marker == "" {
+		t.Skip("helper process only")
+	}
+	_, _ = recreateControl(context.Background(), "pid:100@1", waitForControlLock, true, func(context.Context) error {
+		_ = os.WriteFile(marker, nil, 0o644) // the pod is down now
+		time.Sleep(time.Minute)              // killed before it comes back
+		return nil
+	})
+}
+
+// A control update killed between taking the pod down and bringing it back
+// (SIGTERM from the gateway, a crash) is redone by the very next command,
+// even inside the retry window: my.tainer.me isn't left down until the next
+// runtime boot.
+func TestInterruptedRecreateIsRedoneByTheNextCommand(t *testing.T) {
+	f := newHookFake(t)
+	writeControlState(controlState{EnsuredBoot: f.boot, AttemptBoot: f.boot, LastAttempt: f.now})
+	marker := filepath.Join(t.TempDir(), "down")
+	child := exec.Command(os.Args[0], "-test.run=^TestHelperInterruptedRecreate$")
+	child.Env = append(os.Environ(), "TAINER_TEST_RECREATE="+marker)
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for !pathExistsForTest(marker) {
+		if time.Now().After(deadline) {
+			child.Process.Kill()
+			t.Fatal("helper never started its recreate")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// While it runs, other commands leave the pod to it.
+	var w bytes.Buffer
+	ready(context.Background(), &w)
+	if f.ensures != 0 {
+		t.Fatalf("ensured while another process was recreating: %d", f.ensures)
+	}
+
+	if err := child.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	_ = child.Wait()
+
+	ready(context.Background(), &w)
+	if f.ensures != 1 {
+		t.Fatalf("after the interrupted recreate: ensures=%d, want 1 at once", f.ensures)
+	}
+	if st := readControlState(); st.EnsuredBoot != f.boot || st.Recreating {
+		t.Errorf("state = %+v, want this boot ensured again", st)
+	}
+	if w.Len() != 0 {
+		t.Errorf("no warning expected, got %q", w.String())
+	}
+}
+
+func pathExistsForTest(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }

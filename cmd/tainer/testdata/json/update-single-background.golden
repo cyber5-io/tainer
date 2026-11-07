@@ -1,0 +1,9 @@
+{
+  "mode": "project",
+  "pod": "control",
+  "updated": true,
+  "started": true,
+  "background": true,
+  "note": "Updating tainer control in the background; my.tainer.me will reload",
+  "elapsedMs": 20
+}

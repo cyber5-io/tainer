@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/cyber5-io/tainer/pkg/tainer"
@@ -114,13 +115,19 @@ func Switch(ctx context.Context, raw string) (*SwitchResult, error) {
 			res.Failed = append(res.Failed, name+" (manifest path unknown)")
 			continue
 		}
-		if _, err := pod.Start(ctx2, eng2, pod.StartOptions{ManifestPath: manifestPath}); err != nil {
+		if _, err := pod.Start(ctx2, eng2, restartOptions(manifestPath)); err != nil {
 			res.Failed = append(res.Failed, fmt.Sprintf("%s: %v", name, err))
 			continue
 		}
 		res.Restarted = append(res.Restarted, name)
 	}
 	return res, nil
+}
+
+// restartOptions starts a pod from the folder its tainer.yaml is in, so its
+// bind mounts (and an approved checkout's access) resolve as at its last start.
+func restartOptions(manifestPath string) pod.StartOptions {
+	return pod.StartOptions{ManifestPath: manifestPath, ProjectDir: filepath.Dir(manifestPath)}
 }
 
 // podsToRestart drops the pinned control pod from the restart list: the

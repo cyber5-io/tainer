@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/config"
+	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/imagecheck"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 	"github.com/cyber5-io/tainer/pkg/tainer/pod"
@@ -29,6 +31,8 @@ type fakeControlUpdate struct {
 	versionAtUpdate string
 	log             []string
 	updateErr       error
+	launches        int
+	launchErr       error
 }
 
 func (f *fakeControlUpdate) ops() controlUpdateOps {
@@ -55,9 +59,14 @@ func (f *fakeControlUpdate) ops() controlUpdateOps {
 			}
 			return pod.UpdateResult{Started: true}, nil
 		},
-		lock: func(context.Context) (func(), error) {
+		lock: func(context.Context) (func(), bool, error) {
 			f.log = append(f.log, "lock")
-			return func() { f.log = append(f.log, "unlock") }, nil
+			return func() { f.log = append(f.log, "unlock") }, true, nil
+		},
+		launch: func() error {
+			f.log = append(f.log, "launch")
+			f.launches++
+			return f.launchErr
 		},
 		regGet: func(name string) (registry.Project, bool) { p, ok := f.reg[name]; return p, ok },
 		regPut: func(name string, p registry.Project) error { f.reg[name] = p; return nil },
@@ -87,9 +96,8 @@ func TestControlUpdateKeepsDataAndRecordsTheVersion(t *testing.T) {
 	f := &fakeControlUpdate{state: imagecheck.ControlUpdate}
 	dir := controlFolder(t, f, "1.1.0")
 
-	res, note, err := updateProject(context.Background(), "control", "/elsewhere/tainer.yaml", "/elsewhere", f.ops())
-	if err != nil || !res.Started || note != "" {
-		t.Fatalf("updateProject = %+v, %q, %v", res, note, err)
+	if err := controlUpdateWorker(context.Background(), "pid:1@1", f.ops()); err != nil {
+		t.Fatalf("worker: %v", err)
 	}
 	if f.running != "1.1.0" {
 		t.Errorf("checked running version %q, want the recorded 1.1.0", f.running)
@@ -121,9 +129,9 @@ func TestControlUpdateKeepsDataAndRecordsTheVersion(t *testing.T) {
 func TestControlUpdateHeldBackNeedsNewerTainer(t *testing.T) {
 	f := &fakeControlUpdate{state: imagecheck.ControlNeedsNewerTainer}
 	controlFolder(t, f, "1.1.0")
-	res, note, err := updateProject(context.Background(), "control", "", "", f.ops())
+	res, note, err := updateControl(context.Background(), f.ops())
 	if err != nil || !res.Started {
-		t.Fatalf("updateProject = %+v, %v", res, err)
+		t.Fatalf("updateControl = %+v, %v", res, err)
 	}
 	if len(f.pulled) != 0 || f.reg["control"].ImageVersion != "1.1.0" {
 		t.Fatalf("held image was pulled or recorded: pulled %v, version %q", f.pulled, f.reg["control"].ImageVersion)
@@ -144,7 +152,7 @@ func TestControlUpdateHeldBackNeedsNewerTainer(t *testing.T) {
 func TestControlUpdateUpToDateKeepsVersion(t *testing.T) {
 	f := &fakeControlUpdate{state: imagecheck.ControlUpToDate}
 	controlFolder(t, f, "1.3.0")
-	if _, _, err := updateProject(context.Background(), "control", "", "", f.ops()); err != nil {
+	if _, _, err := updateControl(context.Background(), f.ops()); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.pulled) != 0 || f.reg["control"].ImageVersion != "1.3.0" {
@@ -155,7 +163,7 @@ func TestControlUpdateUpToDateKeepsVersion(t *testing.T) {
 func TestControlUpdateCheckFailureStopsTheUpdate(t *testing.T) {
 	f := &fakeControlUpdate{checkErr: errors.New("offline")}
 	controlFolder(t, f, "")
-	_, _, err := updateProject(context.Background(), "control", "", "", f.ops())
+	_, _, err := updateControl(context.Background(), f.ops())
 	if err == nil || !strings.Contains(err.Error(), "offline") {
 		t.Fatalf("err = %v", err)
 	}
@@ -166,9 +174,9 @@ func TestControlUpdateCheckFailureStopsTheUpdate(t *testing.T) {
 
 func TestOtherProjectsUpdateWithoutControlCheck(t *testing.T) {
 	f := &fakeControlUpdate{state: imagecheck.ControlUpdate, reg: map[string]registry.Project{}}
-	_, _, err := updateProject(context.Background(), "blog", "/p/blog/tainer.yaml", "/p/blog", f.ops())
-	if err != nil {
-		t.Fatal(err)
+	out, err := updateProject(context.Background(), "blog", "/p/blog/tainer.yaml", "/p/blog", f.ops())
+	if err != nil || out.Background || !out.Started {
+		t.Fatalf("updateProject = %+v, %v", out, err)
 	}
 	if strings.Join(f.log, ",") != "update" || f.updates[0].ProjectDir != "/p/blog" {
 		t.Fatalf("log = %v updates = %+v", f.log, f.updates)
@@ -178,7 +186,7 @@ func TestOtherProjectsUpdateWithoutControlCheck(t *testing.T) {
 func TestControlUpdateFailureRestoresTheVersion(t *testing.T) {
 	f := &fakeControlUpdate{state: imagecheck.ControlUpdate, updateErr: errors.New("overlay busy")}
 	controlFolder(t, f, "1.1.0")
-	_, _, err := updateProject(context.Background(), "control", "", "", f.ops())
+	err := controlUpdateWorker(context.Background(), "pid:1@1", f.ops())
 	if err == nil || !strings.Contains(err.Error(), "overlay busy") {
 		t.Fatalf("err = %v, want the update failure", err)
 	}
@@ -201,11 +209,10 @@ func TestControlUpdateWaitsForTheEnsureLock(t *testing.T) {
 		t.Fatalf("hold lock: ok=%v err=%v", ok, err)
 	}
 	ops := f.ops()
-	ops.lock = waitControlLock
+	ops.lock = waitForControlLock
 	done := make(chan error, 1)
 	go func() {
-		_, _, err := updateProject(context.Background(), "control", "", "", ops)
-		done <- err
+		done <- controlUpdateWorker(context.Background(), "pid:1@1", ops)
 	}()
 	select {
 	case <-done:
@@ -246,5 +253,125 @@ func TestControlLockWaitHonoursContext(t *testing.T) {
 	defer cancel()
 	if _, err := waitControlLock(ctx); err == nil {
 		t.Fatal("waitControlLock returned without the lock")
+	}
+}
+
+// The dashboard asks for its own update through the gateway, and recreating
+// the control pod ends that request (and the command's process group). So
+// `tainer update control` only hands the work to a detached worker and
+// returns at once, before anything is pulled, recorded or torn down.
+func TestControlUpdateRunsDetachedAndReturnsAtOnce(t *testing.T) {
+	f := &fakeControlUpdate{state: imagecheck.ControlUpdate}
+	controlFolder(t, f, "1.1.0")
+	out, err := updateProject(context.Background(), "control", "/elsewhere/tainer.yaml", "/elsewhere", f.ops())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(f.log, ",") != "launch" {
+		t.Fatalf("log = %v, want only the worker launched", f.log)
+	}
+	if !out.Background || !out.Started || out.Note != "Updating tainer control in the background; my.tainer.me will reload" {
+		t.Errorf("outcome = %+v", out)
+	}
+	if f.reg["control"].ImageVersion != "1.1.0" {
+		t.Errorf("version recorded before the worker ran: %q", f.reg["control"].ImageVersion)
+	}
+	for _, banned := range []string{"podman", "docker", "engine", "VM", "container"} {
+		if strings.Contains(out.Note, banned) {
+			t.Errorf("note %q mentions %q", out.Note, banned)
+		}
+	}
+}
+
+func TestControlUpdateLaunchFailureIsAnError(t *testing.T) {
+	f := &fakeControlUpdate{launchErr: errors.New("no exe")}
+	controlFolder(t, f, "1.1.0")
+	if _, err := updateProject(context.Background(), "control", "", "", f.ops()); err == nil {
+		t.Fatal("a worker that didn't start must fail the command")
+	}
+}
+
+// A user's own project named control is not the dashboard: no worker, a
+// message saying how to free the name.
+func TestControlUpdateRefusesAUsersOwnControlProject(t *testing.T) {
+	f := &fakeControlUpdate{}
+	controlFolder(t, f, "")
+	mine := t.TempDir()
+	if err := os.WriteFile(filepath.Join(mine, manifest.FileName), []byte("version: 2\nproject:\n  name: control\n  type: php\n  domain: control.test\nruntime:\n  php: \"8.3\"\n  database: mariadb\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.reg["control"] = registry.Project{Path: mine, Type: "php", Domain: "control.test"}
+	_, err := updateProject(context.Background(), "control", "", "", f.ops())
+	if err == nil || !strings.Contains(err.Error(), "rename it") || !strings.Contains(err.Error(), mine) || f.launches != 0 {
+		t.Fatalf("err = %v launches = %d", err, f.launches)
+	}
+}
+
+// In --all the control pod goes last: its update reloads the dashboard.
+func TestUpdateAllDoesTheControlPodLast(t *testing.T) {
+	got := strings.Join(updateAllOrder([]string{"shop", "control", "blog", "zeta"}), ",")
+	if got != "blog,shop,zeta,control" {
+		t.Errorf("order = %s", got)
+	}
+}
+
+// The worker's recreate clears this boot's "ensured" stamp before touching
+// the pod and sets it again on success.
+func TestControlUpdateWorkerStampsTheBoot(t *testing.T) {
+	f := &fakeControlUpdate{state: imagecheck.ControlUpdate}
+	controlFolder(t, f, "1.1.0")
+	writeControlState(controlState{EnsuredBoot: "pid:1@1"})
+	var during controlState
+	ops := f.ops()
+	inner := ops.update
+	ops.update = func(ctx context.Context, opts pod.StartOptions) (pod.UpdateResult, error) {
+		during = readControlState()
+		return inner(ctx, opts)
+	}
+	if err := controlUpdateWorker(context.Background(), "pid:1@1", ops); err != nil {
+		t.Fatal(err)
+	}
+	if during.EnsuredBoot != "" || !during.Recreating {
+		t.Errorf("state while recreating = %+v, want the boot not ensured", during)
+	}
+	if st := readControlState(); st.EnsuredBoot != "pid:1@1" || st.Recreating {
+		t.Errorf("state after = %+v, want ensured again", st)
+	}
+}
+
+// A failed worker update leaves the boot un-ensured with no retry throttle:
+// the next command brings the dashboard back.
+func TestFailedControlUpdateIsRedoneByTheNextCommand(t *testing.T) {
+	h := newHookFake(t)
+	f := &fakeControlUpdate{state: imagecheck.ControlUpdate, updateErr: errors.New("overlay busy")}
+	controlFolder(t, f, "1.1.0")
+	writeControlState(controlState{EnsuredBoot: h.boot, AttemptBoot: h.boot, LastAttempt: h.now})
+	if err := controlUpdateWorker(context.Background(), h.boot, f.ops()); err == nil {
+		t.Fatal("want the update failure")
+	}
+	var w bytes.Buffer
+	ready(context.Background(), &w)
+	if h.ensures != 1 {
+		t.Fatalf("next command ensures=%d, want 1 (the pod may be down)", h.ensures)
+	}
+}
+
+// `tainer control update` (the detached worker) updates and records the boot.
+func TestControlUpdateWorkerCommand(t *testing.T) {
+	h := newHookFake(t)
+	f := &fakeControlUpdate{state: imagecheck.ControlUpdate}
+	controlFolder(t, f, "1.1.0")
+	oldEngine, oldOps := controlEngine, controlUpdateOpsFor
+	t.Cleanup(func() { controlEngine, controlUpdateOpsFor = oldEngine, oldOps })
+	controlEngine = func(context.Context) (*engine.Client, error) { return &engine.Client{}, nil }
+	controlUpdateOpsFor = func(*engine.Client) controlUpdateOps { return f.ops() }
+	if code := runControlUpdate(); code != 0 {
+		t.Fatalf("runControlUpdate = %d", code)
+	}
+	if f.reg["control"].ImageVersion != "1.2.0" || len(f.updates) != 1 {
+		t.Fatalf("worker didn't update: %+v, updates %d", f.reg["control"], len(f.updates))
+	}
+	if st := readControlState(); st.EnsuredBoot != h.boot {
+		t.Errorf("state = %+v, want boot %s ensured", st, h.boot)
 	}
 }

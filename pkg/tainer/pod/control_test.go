@@ -78,3 +78,21 @@ func TestPinnedControlMountsOnlyData(t *testing.T) {
 		}
 	}
 }
+
+// The built-in definition is written in the current (v2) format, like new
+// projects, so a start never rewrites it and the ensure never flips it back.
+func TestControlManifestIsV2(t *testing.T) {
+	raw := ControlManifestYAML()
+	if !strings.HasPrefix(string(raw), "version: 2\n") {
+		t.Fatalf("built-in definition must start with version: 2, got %q", raw)
+	}
+	path := filepath.Join(t.TempDir(), manifest.FileName)
+	writeFile(t, path, string(raw))
+	migrated, err := manifest.PersistV2Migration(path)
+	if err != nil || migrated {
+		t.Fatalf("PersistV2Migration = %v, %v; want a no-op on the built-in definition", migrated, err)
+	}
+	if got := readFile(t, path); got != string(raw) {
+		t.Errorf("definition rewritten:\n%s", got)
+	}
+}

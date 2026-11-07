@@ -12,7 +12,7 @@ import (
 const controlImageVersion = "1.0.0"
 
 // controlManifestYAML is the built-in definition of the control pod.
-const controlManifestYAML = `version: 1
+const controlManifestYAML = `version: 2
 project:
   name: control
   type: nodejs

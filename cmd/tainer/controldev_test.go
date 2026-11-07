@@ -117,6 +117,9 @@ func TestAllowShowsTheFolderAndWarningAndRecordsOnYes(t *testing.T) {
 	if !controldev.Approved(dir) {
 		t.Fatal("yes must record the approval")
 	}
+	if !strings.Contains(out, "Deleting the folder doesn't take the approval away — run `tainer control dev revoke`.") {
+		t.Errorf("success text must say deleting the folder doesn't revoke:\n%s", out)
+	}
 	if len(f.applied) != 1 || f.applied[0] != canon || f.boots[0] {
 		t.Errorf("apply = %v boots=%v, want once for the folder without starting tainer", f.applied, f.boots)
 	}

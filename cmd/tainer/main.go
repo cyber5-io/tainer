@@ -35,6 +35,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"golang.org/x/term"
 
+	"github.com/cyber5-io/tainer/pkg/tainer"
 	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/doctor"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
@@ -3166,8 +3167,7 @@ func runUpdateSingle(outMode tui.OutputMode, positional []string) {
 	started := time.Now()
 	label := "updating images for " + projectName
 
-	var res pod.UpdateResult
-	var note string
+	var res updateOutcome
 	run := func() error {
 		ctx, cancel := ctxWithTimeout(10 * time.Minute)
 		defer cancel()
@@ -3176,22 +3176,26 @@ func runUpdateSingle(outMode tui.OutputMode, positional []string) {
 			return engineErr(err)
 		}
 		defer eng.Close()
-		res, note, err = updateProject(ctx, projectName, manifestPath, projectDir, liveControlUpdateOps(eng))
+		res, err = updateProject(ctx, projectName, manifestPath, projectDir, liveControlUpdateOps(eng))
 		return err
 	}
 
 	switch outMode {
 	case tui.ModeJSON:
 		err := run()
-		emitUpdateSingleJSON(projectName, res.Started, note, err, time.Since(started))
+		emitUpdateSingleJSON(projectName, res, err, time.Since(started))
 		if err != nil {
 			os.Exit(1)
 		}
 	case tui.ModePlain:
 		fmt.Printf("%s...\n", label)
 		must(run())
-		if note != "" {
-			fmt.Println(note)
+		if res.Background {
+			fmt.Println(res.Note)
+			return
+		}
+		if res.Note != "" {
+			fmt.Println(res.Note)
 		}
 		fmt.Printf("updated %s%s   (%.1fs)\n", projectName, stillStoppedNote(res.Started), time.Since(started).Seconds())
 	default:
@@ -3201,8 +3205,14 @@ func runUpdateSingle(outMode tui.OutputMode, positional []string) {
 			tui.BookendCloseError(time.Since(started), "Failed", err.Error())
 			os.Exit(1)
 		}
-		if note != "" {
-			fmt.Println("  " + tui.MarkWarn() + note)
+		if res.Background {
+			fmt.Println("  " + tui.MarkInfo() + res.Note)
+			fmt.Println()
+			tui.BookendClose(time.Since(started), "Updating", "in the background")
+			return
+		}
+		if res.Note != "" {
+			fmt.Println("  " + tui.MarkWarn() + res.Note)
 		}
 		if res.Started {
 			tui.BookendClose(time.Since(started), "Updated")
@@ -3223,25 +3233,29 @@ func stillStoppedNote(started bool) string {
 
 // emitUpdateSingleJSON prints the result document, or the error envelope when
 // err is set; the caller exits 1 in that case.
-func emitUpdateSingleJSON(projectName string, started bool, note string, err error, elapsed time.Duration) {
+// A control pod update going on in the background reports background:true
+// (and its note); the dashboard reloads when it lands.
+func emitUpdateSingleJSON(projectName string, res updateOutcome, err error, elapsed time.Duration) {
 	if err != nil {
 		jsonFail(errCodeOr(err, "update-failed"), err.Error())
 		return
 	}
 	out := struct {
-		Mode      string `json:"mode"`
-		Pod       string `json:"pod"`
-		Updated   bool   `json:"updated"`
-		Started   bool   `json:"started"`
-		Note      string `json:"note,omitempty"`
-		ElapsedMs int64  `json:"elapsedMs"`
+		Mode       string `json:"mode"`
+		Pod        string `json:"pod"`
+		Updated    bool   `json:"updated"`
+		Started    bool   `json:"started"`
+		Background bool   `json:"background,omitempty"`
+		Note       string `json:"note,omitempty"`
+		ElapsedMs  int64  `json:"elapsedMs"`
 	}{
-		Mode:      "project",
-		Pod:       projectName,
-		Updated:   true,
-		Started:   started,
-		Note:      note,
-		ElapsedMs: elapsed.Milliseconds(),
+		Mode:       "project",
+		Pod:        projectName,
+		Updated:    true,
+		Started:    res.Started,
+		Background: res.Background,
+		Note:       res.Note,
+		ElapsedMs:  elapsed.Milliseconds(),
 	}
 	jsonDoc(out)
 }
@@ -3249,12 +3263,13 @@ func emitUpdateSingleJSON(projectName string, started bool, note string, err err
 // updateAllPodResult is one row in the --all summary; same shape used
 // by all three output modes.
 type updateAllPodResult struct {
-	Name      string `json:"name"`
-	Updated   bool   `json:"updated"`
-	Started   bool   `json:"started"`
-	Note      string `json:"note,omitempty"`
-	Error     string `json:"error,omitempty"`
-	ElapsedMs int64  `json:"elapsedMs"`
+	Name       string `json:"name"`
+	Updated    bool   `json:"updated"`
+	Started    bool   `json:"started"`
+	Background bool   `json:"background,omitempty"`
+	Note       string `json:"note,omitempty"`
+	Error      string `json:"error,omitempty"`
+	ElapsedMs  int64  `json:"elapsedMs"`
 }
 
 // runUpdateAll iterates every registered project and updates each.
@@ -3284,7 +3299,7 @@ func runUpdateAll(outMode tui.OutputMode) {
 	for n := range all {
 		names = append(names, n)
 	}
-	sort.Strings(names)
+	names = updateAllOrder(names)
 
 	overallStarted := time.Now()
 	results := make([]updateAllPodResult, 0, len(names))
@@ -3312,8 +3327,7 @@ func runUpdateAll(outMode tui.OutputMode) {
 		started := time.Now()
 		label := "updating " + name
 
-		var upd pod.UpdateResult
-		var note string
+		var upd updateOutcome
 		runErr := func() error {
 			ctx, cancel := ctxWithTimeout(10 * time.Minute)
 			defer cancel()
@@ -3322,7 +3336,7 @@ func runUpdateAll(outMode tui.OutputMode) {
 				return engineErr(err)
 			}
 			defer eng.Close()
-			upd, note, err = updateProject(ctx, name, manifestPath, p.Path, liveControlUpdateOps(eng))
+			upd, err = updateProject(ctx, name, manifestPath, p.Path, liveControlUpdateOps(eng))
 			return err
 		}
 
@@ -3338,11 +3352,12 @@ func runUpdateAll(outMode tui.OutputMode) {
 		}
 
 		res := updateAllPodResult{
-			Name:      name,
-			Updated:   err == nil,
-			Started:   err == nil && upd.Started,
-			Note:      note,
-			ElapsedMs: time.Since(started).Milliseconds(),
+			Name:       name,
+			Updated:    err == nil,
+			Started:    err == nil && upd.Started,
+			Background: err == nil && upd.Background,
+			Note:       upd.Note,
+			ElapsedMs:  time.Since(started).Milliseconds(),
 		}
 		if err != nil {
 			res.Error = err.Error()
@@ -3351,7 +3366,11 @@ func runUpdateAll(outMode tui.OutputMode) {
 		results = append(results, res)
 
 		if outMode == tui.ModeStyled && res.Note != "" {
-			fmt.Println("  " + tui.MarkWarn() + res.Note)
+			mark := tui.MarkWarn()
+			if res.Background {
+				mark = tui.MarkInfo()
+			}
+			fmt.Println("  " + mark + res.Note)
 		}
 		if outMode == tui.ModeStyled && res.Updated && !res.Started {
 			muted := lipgloss.NewStyle().Foreground(tui.Colors().Muted)
@@ -3361,9 +3380,12 @@ func runUpdateAll(outMode tui.OutputMode) {
 			if res.Note != "" {
 				fmt.Println(res.Note)
 			}
-			if res.Updated {
+			switch {
+			case res.Background:
+				// The note already says it is under way.
+			case res.Updated:
 				fmt.Printf("updated %s%s   (%.1fs)\n", name, stillStoppedNote(res.Started), float64(res.ElapsedMs)/1000)
-			} else {
+			default:
 				fmt.Printf("failed %s: %s\n", name, res.Error)
 			}
 		}
@@ -3395,6 +3417,21 @@ func runUpdateAll(outMode tui.OutputMode) {
 	if anyFailed {
 		os.Exit(1)
 	}
+}
+
+// updateAllOrder sorts names for a stable run and puts the control pod last:
+// its update goes to a detached worker and reloads the dashboard, so every
+// other pod is done (and reported) by then.
+func updateAllOrder(names []string) []string {
+	out := append([]string(nil), names...)
+	sort.Slice(out, func(i, j int) bool {
+		pi, pj := tainer.IsPinnedProject(out[i]), tainer.IsPinnedProject(out[j])
+		if pi != pj {
+			return pj
+		}
+		return out[i] < out[j]
+	})
+	return out
 }
 
 func emitUpdateAllJSON(results []updateAllPodResult, total time.Duration) {

@@ -69,12 +69,83 @@ type controlState struct {
 	AttemptBoot string    `json:"attemptBoot,omitempty"` // boot of the last unfinished/failed attempt
 	LastAttempt time.Time `json:"lastAttempt,omitempty"`
 	LastError   string    `json:"lastError,omitempty"` // failure class, see controlReason
-	WarnedBoot  string    `json:"warnedBoot,omitempty"`
+	// Conflict is the folder of the user's own project named control, when
+	// that is what keeps the dashboard from being set up (class "name-taken").
+	Conflict   string `json:"conflict,omitempty"`
+	WarnedBoot string `json:"warnedBoot,omitempty"`
+	// Recreating is set while something has the control pod torn down (see
+	// recreateControl). Still set with the control lock free means that
+	// recreate was cut short, and the next command brings the pod back.
+	Recreating bool `json:"recreating,omitempty"`
 }
 
 // controlLockPath serialises everything that recreates the control pod: the
 // ensure (in-process or the detached child) and a control update.
 func controlLockPath() string { return filepath.Join(config.BaseDir(), "control-ensure.lock") }
+
+// controlLocker takes the control lock. ok is false when the caller should
+// skip its work because another process holds the lock.
+type controlLocker func(ctx context.Context) (release func(), ok bool, err error)
+
+// waitForControlLock waits for the control lock (updates, dev changes).
+func waitForControlLock(ctx context.Context) (func(), bool, error) {
+	release, err := waitControlLock(ctx)
+	return release, err == nil, err
+}
+
+// tryControlLock takes the control lock only if it is free (the ensure).
+func tryControlLock(context.Context) (func(), bool, error) {
+	if err := config.EnsureDirs(); err != nil {
+		return nil, false, err
+	}
+	return tryLock(controlLockPath())
+}
+
+// controlLockFree reports whether nothing holds the control lock right now.
+func controlLockFree() bool {
+	release, ok, err := tryLock(controlLockPath())
+	if err != nil || !ok {
+		return false
+	}
+	release()
+	return true
+}
+
+// recreateControl is the one way anything tears the control pod down and
+// brings it back — an update, a dev approval change, the once-per-boot
+// ensure. Holding the control lock, it clears this boot's "ensured" stamp
+// before fn runs and sets it again only when fn succeeds, so a recreate that
+// fails or is cut short (the process killed between remove and start) is
+// redone by the next tainer command instead of leaving my.tainer.me down
+// until the next runtime boot. retryNow also lifts the retry throttle after a
+// failure (an ensure records its own failure and keeps the throttle). ran is
+// false when lock says another process holds the lock.
+func recreateControl(ctx context.Context, boot string, lock controlLocker, retryNow bool, fn func(context.Context) error) (ran bool, err error) {
+	release, ok, err := lock(ctx)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, nil
+	}
+	defer release()
+
+	st := readControlState()
+	st.EnsuredBoot, st.Recreating = "", true
+	writeControlState(st)
+
+	err = fn(ctx)
+
+	st = readControlState()
+	st.Recreating = false
+	if err == nil {
+		st.EnsuredBoot, st.LastError, st.Conflict = boot, "", ""
+	} else if retryNow {
+		st.AttemptBoot = ""
+	}
+	writeControlState(st)
+	return true, err
+}
 
 // waitControlLock blocks until it holds the control lock or ctx ends.
 func waitControlLock(ctx context.Context) (func(), error) {
@@ -155,11 +226,15 @@ func onRuntimeReady(ctx context.Context, cli *engine.Client, w io.Writer) {
 	if boot != "" && st.EnsuredBoot == boot {
 		return
 	}
+	if st.Recreating && controlLockFree() {
+		// A recreate was cut short with the pod down: bring it back now.
+		st.AttemptBoot = ""
+	}
 	now := controlNow()
 	if st.AttemptBoot == boot && now.Sub(st.LastAttempt) < controlRetryEvery {
 		// An attempt for this boot is running in a child or failed recently.
 		if st.LastError != "" && st.WarnedBoot != boot {
-			warnControl(w, st.LastError)
+			warnControl(w, st)
 			st.WarnedBoot = boot
 			writeControlState(st)
 		}
@@ -191,18 +266,14 @@ func ensureInProcess(ctx context.Context, cli *engine.Client, boot string, w io.
 		return false
 	}
 	// The child or a control update holds the lock: it owns the pod for now.
-	release, ok, lerr := tryLock(controlLockPath())
-	if lerr == nil && !ok {
-		return true
-	}
-	if lerr == nil {
-		defer release()
-	}
-	err := ensureControlPod(sctx, cli)
+	ran, err := recreateControl(sctx, boot, tryControlLock, false, func(ctx context.Context) error {
+		return ensureControlPod(ctx, cli)
+	})
 	if err == nil {
-		st := readControlState()
-		st.EnsuredBoot, st.LastError = boot, ""
-		writeControlState(st)
+		return true // done, or another process holds the lock and owns the pod
+	}
+	if !ran {
+		failControl(w, boot, err) // couldn't take the lock
 		return true
 	}
 	if sctx.Err() != nil && ctx.Err() == nil {
@@ -215,9 +286,10 @@ func ensureInProcess(ctx context.Context, cli *engine.Client, boot string, w io.
 // failControl records a failed attempt for boot and warns once per boot.
 func failControl(w io.Writer, boot string, err error) {
 	st := readControlState()
-	st.AttemptBoot, st.LastAttempt, st.LastError = boot, controlNow(), controlFailureClass(err)
+	st.AttemptBoot, st.LastAttempt = boot, controlNow()
+	st.LastError, st.Conflict = controlFailureClass(err), controlConflict(err)
 	if st.WarnedBoot != boot {
-		warnControl(w, st.LastError)
+		warnControl(w, st)
 		st.WarnedBoot = boot
 	}
 	writeControlState(st)
@@ -226,6 +298,10 @@ func failControl(w io.Writer, boot string, err error) {
 // controlFailureClass buckets an EnsureControlPod error for controlReason.
 func controlFailureClass(err error) string {
 	switch {
+	case errors.Is(err, pod.ErrControlNameTaken):
+		return "name-taken"
+	case errors.Is(err, pod.ErrControlUnavailable):
+		return "unavailable"
 	case errors.Is(err, pod.ErrControlDownload):
 		return "download"
 	case errors.Is(err, pod.ErrControlStart):
@@ -241,6 +317,8 @@ func controlReason(class string) string {
 	switch class {
 	case "download":
 		return "couldn't download it — are you offline?"
+	case "unavailable":
+		return "it isn't available yet"
 	case "start":
 		return "it didn't start"
 	default:
@@ -248,8 +326,27 @@ func controlReason(class string) string {
 	}
 }
 
-func warnControl(w io.Writer, class string) {
-	fmt.Fprintf(w, "tainer: couldn't start the control dashboard yet (%s); it will retry next time tainer starts\n", controlReason(class))
+// controlConflict is the folder of the user's own control project, if err is
+// that conflict.
+func controlConflict(err error) string {
+	var taken *pod.ControlNameTakenError
+	if errors.As(err, &taken) {
+		return taken.Path
+	}
+	return ""
+}
+
+// controlRenameMessage tells the user how to free the name control.
+func controlRenameMessage(path string) string {
+	return fmt.Sprintf("your project \"control\" in %s has the name tainer needs for its dashboard — rename it (change project.name in its tainer.yaml) and tainer will set up my.tainer.me", path)
+}
+
+func warnControl(w io.Writer, st controlState) {
+	if st.LastError == "name-taken" {
+		fmt.Fprintf(w, "tainer: %s\n", controlRenameMessage(st.Conflict))
+		return
+	}
+	fmt.Fprintf(w, "tainer: couldn't start the control dashboard yet (%s); it will retry next time tainer starts\n", controlReason(st.LastError))
 }
 
 // recordControlFailure stores a failed attempt (used by the child). With an
@@ -260,13 +357,21 @@ func recordControlFailure(boot string, err error) {
 	if boot != "" {
 		st.AttemptBoot, st.LastAttempt = boot, controlNow()
 	}
-	st.LastError = controlFailureClass(err)
+	st.LastError, st.Conflict = controlFailureClass(err), controlConflict(err)
 	writeControlState(st)
 }
 
 // launchControlEnsureChild starts a detached `tainer control ensure` that
 // outlives this command. Its output goes to <BaseDir>/control-ensure.log.
 func launchControlEnsureChild(boot string) error {
+	return launchDetached([]string{"control", "ensure"}, "control-ensure.log", []string{controlBootEnv + "=" + boot})
+}
+
+// launchDetached starts `tainer <args>` in its own session, so it outlives
+// this command, its terminal and its process group (the dashboard's gateway
+// ends the whole group of a command whose caller went away). Output goes to
+// <BaseDir>/<logName>.
+func launchDetached(args []string, logName string, env []string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
@@ -274,13 +379,13 @@ func launchControlEnsureChild(boot string) error {
 	if err := config.EnsureDirs(); err != nil {
 		return err
 	}
-	logFile, err := os.OpenFile(filepath.Join(config.BaseDir(), "control-ensure.log"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	logFile, err := os.OpenFile(filepath.Join(config.BaseDir(), logName), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
 	defer logFile.Close()
-	cmd := exec.Command(exe, "control", "ensure")
-	cmd.Env = append(os.Environ(), controlBootEnv+"="+boot)
+	cmd := exec.Command(exe, args...)
+	cmd.Env = append(os.Environ(), env...)
 	cmd.Stdin = nil
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -292,12 +397,16 @@ func launchControlEnsureChild(boot string) error {
 }
 
 // cmdControl handles `tainer control …`, which stays out of the main help.
-// `ensure` is internal (spawned by the runtime-ready hook); `dev` manages
+// `ensure` and `update` are internal (spawned by the runtime-ready hook and
+// by `tainer update`); `dev` manages
 // dashboard checkouts approved for the control pod's access (documented in
 // the tainer-control repo).
 func cmdControl(args []string) {
 	if len(args) == 1 && args[0] == "ensure" {
 		os.Exit(runControlEnsure())
+	}
+	if len(args) == 1 && args[0] == "update" {
+		os.Exit(runControlUpdate())
 	}
 	if len(args) >= 1 && args[0] == "dev" {
 		os.Exit(runControlDev(context.Background(), args[1:], os.Stdout, os.Stderr, liveControlDevOps()))
@@ -314,15 +423,9 @@ func runControlEnsure() int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	release, ok, err := tryLock(controlLockPath())
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
+	if !controlLockFree() {
+		return 0 // another child (or an update) is already on it
 	}
-	if !ok {
-		return 0 // another child is already on it
-	}
-	defer release()
 
 	ctx, cancel := context.WithTimeout(context.Background(), controlChildBudget)
 	defer cancel()
@@ -337,13 +440,14 @@ func runControlEnsure() int {
 	if boot == "" {
 		boot = os.Getenv(controlBootEnv)
 	}
-	if err := ensureControlPod(ctx, cli); err != nil {
+	ran, err := recreateControl(ctx, boot, tryControlLock, false, func(ctx context.Context) error {
+		return ensureControlPod(ctx, cli)
+	})
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		recordControlFailure(boot, err)
 		return 1
 	}
-	st := readControlState()
-	st.EnsuredBoot, st.LastError = boot, ""
-	writeControlState(st)
+	_ = ran // false: another child (or an update) took the lock meanwhile
 	return 0
 }

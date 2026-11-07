@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cyber5-io/tainer/pkg/tainer"
+	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 	"github.com/cyber5-io/tainer/pkg/tainer/pod"
@@ -119,9 +120,11 @@ func Run(ctx context.Context, d Deps, projects map[string]registry.Project) (Rep
 			plans = append(plans, pl)
 			continue
 		}
-		pinned := tainer.IsPinnedProject(n)
+		// Only the built-in pod in its own folder is the dashboard; a user's
+		// project that happens to be named control is checked like any other.
+		pinned := tainer.IsPinnedProject(n) && projects[n].Path == config.ControlDir()
 		if pinned {
-			pl.control = pod.ControlVersion(projects[n].ImageVersion)
+			pl.control = runningControlVersion(ep, projects[n].ImageVersion)
 		}
 		for _, role := range pod.RolesForPod(m) {
 			if pinned && role == pod.RoleApp {
@@ -199,6 +202,23 @@ func Run(ctx context.Context, d Deps, projects map[string]registry.Project) (Rep
 		rep.Pods = append(rep.Pods, pr)
 	}
 	return rep, nil
+}
+
+// runningControlVersion is the control image version the pod's app actually
+// runs, read from its image tag. Without a version tag to read (no app
+// container, a channel tag) it is the version the registry records.
+func runningControlVersion(p pod.Pod, recorded string) string {
+	for _, c := range p.Containers {
+		if c.Role != pod.RoleApp {
+			continue
+		}
+		if i := strings.LastIndex(c.Image, ":"); i >= 0 && !strings.Contains(c.Image[i:], "/") {
+			if tag := c.Image[i+1:]; semverOf(tag) != "" {
+				return trimV(tag)
+			}
+		}
+	}
+	return pod.ControlVersion(recorded)
 }
 
 func checkRefs(ctx context.Context, d Deps, refs map[string]struct{}) map[string]refResult {
