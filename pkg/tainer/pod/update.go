@@ -56,7 +56,7 @@ func Update(ctx context.Context, eng *engine.Client, opts StartOptions, uopt Upd
 		report("pull", "pulling base images", -1, false)
 		for _, role := range RolesForType(uopt.BaseType) {
 			if err := eng.Pull(ctx, ImageRef(m, role)); err != nil {
-				return UpdateResult{}, fmt.Errorf("update --base: pull %s: %w", role, err)
+				return UpdateResult{}, &engine.DownloadError{Ref: ImageRef(m, role), Cause: err}
 			}
 		}
 		report("pull", "base images updated", 100, true)
@@ -71,7 +71,7 @@ func Update(ctx context.Context, eng *engine.Client, opts StartOptions, uopt Upd
 	report("pull", "pulling images", -1, false)
 	for _, role := range RolesForPod(m) {
 		if err := eng.Pull(ctx, ImageRefIn(m, role, opts.ProjectDir)); err != nil {
-			return UpdateResult{}, fmt.Errorf("update: pull %s: %w", role, err)
+			return UpdateResult{}, &engine.DownloadError{Ref: ImageRefIn(m, role, opts.ProjectDir), Cause: err}
 		}
 	}
 	report("pull", "images updated", -1, false)

@@ -125,8 +125,9 @@ func updateControl(ctx context.Context, ops controlUpdateOps) (res pod.UpdateRes
 	prev := p
 	switch c.State {
 	case imagecheck.ControlUpdate:
-		if err := ops.pull(ctx, pod.ControlImageRef(c.Stable)); err != nil {
-			return res, "", fmt.Errorf("download control dashboard %s: %w", c.Stable, err)
+		ref := pod.ControlImageRef(c.Stable)
+		if err := ops.pull(ctx, ref); err != nil {
+			return res, "", &engine.DownloadError{Ref: ref, Cause: err}
 		}
 		p.ImageVersion = c.Stable
 		if err := ops.regPut(name, p); err != nil {

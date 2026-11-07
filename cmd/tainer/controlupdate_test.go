@@ -25,6 +25,7 @@ type fakeControlUpdate struct {
 	running  string // version the check was asked about
 	reg      map[string]registry.Project
 	pulled   []string
+	pullErr  error
 	updates  []pod.StartOptions
 	// versionAtUpdate is the registry's ImageVersion when the pod was
 	// recreated, i.e. the version the new containers resolve to.
@@ -48,7 +49,7 @@ func (f *fakeControlUpdate) ops() controlUpdateOps {
 		pull: func(_ context.Context, ref string) error {
 			f.log = append(f.log, "pull")
 			f.pulled = append(f.pulled, ref)
-			return nil
+			return f.pullErr
 		},
 		update: func(_ context.Context, opts pod.StartOptions) (pod.UpdateResult, error) {
 			f.log = append(f.log, "update")
@@ -425,5 +426,21 @@ func TestControlUpdateWorkerLeavesAUsersControlPodAlone(t *testing.T) {
 	}
 	if len(f.updates) != 0 || len(f.pulled) != 0 || f.reg["control"].Path != mine {
 		t.Fatalf("user's pod touched: updates=%d pulled=%v reg=%+v", len(f.updates), f.pulled, f.reg["control"])
+	}
+}
+
+func TestControlUpdateDownloadFailureIsPlain(t *testing.T) {
+	f := &fakeControlUpdate{state: imagecheck.ControlUpdate, pullErr: errors.New("engine: pull x: podman docker VM container")}
+	controlFolder(t, f, "1.1.0")
+	err := controlUpdateWorker(context.Background(), "pid:1@1", f.ops())
+	if err == nil {
+		t.Fatal("want error")
+	}
+	var de *engine.DownloadError
+	if !errors.As(err, &de) {
+		t.Fatalf("err = %v, want a DownloadError", err)
+	}
+	if !strings.Contains(err.Error(), "are you offline?") {
+		t.Errorf("err = %q", err)
 	}
 }

@@ -74,7 +74,11 @@ func ensureWeb(ctx context.Context, eng *engine.Client, extraHTTPPorts []int) er
 			}
 		}
 		if !sameBindings {
-			// Bindings changed: recreate.
+			// Bindings changed: recreate. Fetch the image first so a failed
+			// download (offline) leaves the running router untouched.
+			if err := eng.EnsureImages(ctx, caddyImage); err != nil {
+				return fmt.Errorf("router web: %w", err)
+			}
 			if err := eng.Remove(ctx, WebContainerName, true); err != nil {
 				return fmt.Errorf("router web: remove for recreate: %w", err)
 			}
@@ -280,7 +284,11 @@ func ensureSSH(ctx context.Context, eng *engine.Client) error {
 			return nil
 		}
 		// Port changed (e.g. Remote Login toggled): recreate so the new
-		// binding takes effect.
+		// binding takes effect. Fetch the image first so a failed download
+		// (offline) leaves the running router untouched.
+		if err := eng.EnsureImages(ctx, sshpiperImage); err != nil {
+			return fmt.Errorf("router ssh: %w", err)
+		}
 		if err := eng.Remove(ctx, SSHContainerName, true); err != nil {
 			return fmt.Errorf("router ssh: remove for recreate: %w", err)
 		}

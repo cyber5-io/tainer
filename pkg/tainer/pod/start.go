@@ -209,12 +209,18 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 	// image is present. Only missing images are pulled; `tainer update` is
 	// how newer ones arrive.
 	report := progress.Reporter(ctx, "start", m.Project.Name)
-	report("pull", "pulling images", -1, false)
 	var refs []string
 	for _, role := range RolesForPod(m) {
 		refs = append(refs, ImageRefIn(m, role, opts.ProjectDir))
 	}
-	if err := eng.EnsureImages(ctx, refs...); err != nil {
+	missing, err := eng.MissingImages(ctx, refs...)
+	if err != nil {
+		return nil, fmt.Errorf("pod start: %w", err)
+	}
+	if len(missing) > 0 {
+		report("pull", "pulling images", -1, false)
+	}
+	if err := eng.EnsureImages(ctx, missing...); err != nil {
 		return nil, fmt.Errorf("pod start: %w", err)
 	}
 

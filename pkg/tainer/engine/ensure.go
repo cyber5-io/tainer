@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -19,16 +20,36 @@ func (e *DownloadError) Error() string {
 
 func (e *DownloadError) Unwrap() error { return e.Cause }
 
+// MissingImages returns the refs that has reports as absent locally. A has
+// error means the runtime could not answer; it is returned untouched rather
+// than treated as "missing".
+func MissingImages(ctx context.Context, refs []string,
+	has func(context.Context, string) (bool, error),
+) ([]string, error) {
+	var missing []string
+	for _, ref := range refs {
+		ok, err := has(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			missing = append(missing, ref)
+		}
+	}
+	return missing, nil
+}
+
 // EnsureImages downloads only the refs that has reports as missing. Images
 // already stored locally are never pulled, so everything keeps starting
 // offline; `tainer update` is how newer images arrive.
 func EnsureImages(ctx context.Context, refs []string,
-	has func(context.Context, string) bool, pull func(context.Context, string) error,
+	has func(context.Context, string) (bool, error), pull func(context.Context, string) error,
 ) error {
-	for _, ref := range refs {
-		if has(ctx, ref) {
-			continue
-		}
+	missing, err := MissingImages(ctx, refs, has)
+	if err != nil {
+		return err
+	}
+	for _, ref := range missing {
 		if err := pull(ctx, ref); err != nil {
 			return &DownloadError{Ref: ref, Cause: err}
 		}
@@ -36,11 +57,23 @@ func EnsureImages(ctx context.Context, refs []string,
 	return nil
 }
 
+func (c *Client) hasImage(ctx context.Context, ref string) (bool, error) {
+	_, err := c.ImageInspect(ctx, ref)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, ErrImageNotFound) {
+		return false, nil
+	}
+	return false, err
+}
+
+// MissingImages returns the refs not stored locally.
+func (c *Client) MissingImages(ctx context.Context, refs ...string) ([]string, error) {
+	return MissingImages(ctx, refs, c.hasImage)
+}
+
 // EnsureImages pulls only the refs not already stored locally.
 func (c *Client) EnsureImages(ctx context.Context, refs ...string) error {
-	has := func(ctx context.Context, ref string) bool {
-		_, err := c.ImageInspect(ctx, ref)
-		return err == nil
-	}
-	return EnsureImages(ctx, refs, has, c.Pull)
+	return EnsureImages(ctx, refs, c.hasImage, c.Pull)
 }
