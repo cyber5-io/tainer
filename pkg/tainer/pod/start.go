@@ -67,6 +67,11 @@ type TCPSvcResult struct {
 // tainer_rsa. These helpers all existed but were never wired into start — the
 // dev machine just always had the files. All are idempotent (no-op if present).
 func ensureHostSetup() (bool, error) {
+	// Checked before anything is created there: a settings folder outside
+	// the home folder can't be shared with the router or the pods.
+	if err := config.CheckInsideHome(); err != nil {
+		return false, err
+	}
 	if err := config.EnsureDirs(); err != nil {
 		return false, fmt.Errorf("pod start: create config dirs: %w", err)
 	}
