@@ -375,3 +375,55 @@ func TestControlUpdateWorkerCommand(t *testing.T) {
 		t.Errorf("state = %+v, want boot %s ensured", st, h.boot)
 	}
 }
+
+// userControlFolder is a 1.3.0 user's own site named control.
+func userControlFolder(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	body := "version: 2\nproject:\n  name: control\n  type: php\n  domain: control.test\nruntime:\n  php: \"8.3\"\n  database: mariadb\n"
+	if err := os.WriteFile(filepath.Join(dir, manifest.FileName), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// `tainer start`/`restart` in the user's own control folder refuse before
+// anything runs — restart's stop half included — with the very message the
+// once-per-boot warning shows.
+func TestStartInAUsersControlFolderSaysTheSameRenameMessage(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := userControlFolder(t)
+	t.Chdir(dir)
+	if real, err := os.Getwd(); err == nil {
+		dir = real
+	}
+	_, _, _, err := startTarget(nil)
+	if err == nil {
+		t.Fatal("start must refuse a user's project named control")
+	}
+	var hook bytes.Buffer
+	warnControl(&hook, controlState{LastError: "name-taken", Conflict: dir})
+	if "tainer: "+err.Error()+"\n" != hook.String() {
+		t.Errorf("start says %q\nhook says  %q", err.Error(), hook.String())
+	}
+	if errCodeOr(err, "") != "project-name-taken" {
+		t.Errorf("code = %q", errCodeOr(err, ""))
+	}
+	if _, ok := registry.Get("control"); ok {
+		t.Error("a refused start must not register the project")
+	}
+}
+
+// The update worker never touches a user's own control pod.
+func TestControlUpdateWorkerLeavesAUsersControlPodAlone(t *testing.T) {
+	f := &fakeControlUpdate{state: imagecheck.ControlUpdate}
+	controlFolder(t, f, "")
+	mine := userControlFolder(t)
+	f.reg["control"] = registry.Project{Path: mine, Type: "php", Domain: "control.test"}
+	if err := controlUpdateWorker(context.Background(), "pid:1@1", f.ops()); err == nil {
+		t.Fatal("want a refusal")
+	}
+	if len(f.updates) != 0 || len(f.pulled) != 0 || f.reg["control"].Path != mine {
+		t.Fatalf("user's pod touched: updates=%d pulled=%v reg=%+v", len(f.updates), f.pulled, f.reg["control"])
+	}
+}

@@ -337,9 +337,7 @@ func controlConflict(err error) string {
 }
 
 // controlRenameMessage tells the user how to free the name control.
-func controlRenameMessage(path string) string {
-	return fmt.Sprintf("your project \"control\" in %s has the name tainer needs for its dashboard — rename it (change project.name in its tainer.yaml) and tainer will set up my.tainer.me", path)
-}
+func controlRenameMessage(path string) string { return pod.ControlRenameMessage(path) }
 
 func warnControl(w io.Writer, st controlState) {
 	if st.LastError == "name-taken" {

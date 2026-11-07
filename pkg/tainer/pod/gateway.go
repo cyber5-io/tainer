@@ -1,7 +1,6 @@
 package pod
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -75,13 +74,18 @@ func isControlPod(m *manifest.Manifest, projectDir string) bool {
 }
 
 // checkControlName refuses a project that uses the built-in dashboard's
-// reserved name from any other folder.
+// reserved name from any other folder: *ControlNameTakenError, whose message
+// is the one the runtime-ready warning shows.
 func checkControlName(m *manifest.Manifest, projectDir string) error {
 	if !tainer.IsPinnedProject(m.Project.Name) || isControlFolder(projectDir) {
 		return nil
 	}
-	return fmt.Errorf("the name %q is reserved for the built-in dashboard — rename the project in %s (e.g. control-dev)",
-		m.Project.Name, filepath.Join(projectDir, manifest.FileName))
+	return &ControlNameTakenError{Path: projectDir}
+}
+
+// CheckControlName is checkControlName for the CLI's start/restart.
+func CheckControlName(m *manifest.Manifest, projectDir string) error {
+	return checkControlName(m, projectDir)
 }
 
 // restartPolicyFor is a container's restart policy. An approved checkout's

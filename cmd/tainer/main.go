@@ -1257,11 +1257,8 @@ func emitInitJSON(projectName, manifestPath string, steps []initcmd.Step) {
 // by `start` and `restart` so the registry backfill cannot drift between them:
 // restart is stop + start, and both must register a cwd-resolved project.
 func resolveStartTarget(args []string) (manifestPath, projectDir, projectName string) {
-	var err error
-	manifestPath, projectDir, err = locateManifest(args)
+	manifestPath, projectDir, m, err := startTarget(args)
 	must(err)
-	m, err := manifest.Load(manifestPath)
-	must(withCode("manifest-invalid", err))
 	projectName = m.Project.Name
 
 	// Backfill the registry for cwd-resolved projects that reached start
@@ -1288,6 +1285,24 @@ func resolveStartTarget(args []string) (manifestPath, projectDir, projectName st
 		fmt.Fprintf(os.Stderr, "migrated %s to manifest v2 (original saved to %s.v1.bak)\n", manifestPath, manifestPath)
 	}
 	return manifestPath, projectDir, projectName
+}
+
+// startTarget locates and loads the project for start/restart. A user's own
+// project named control (outside the dashboard's folder) is refused here,
+// before restart's stop half runs or the registry is touched, with the same
+// rename message the once-per-boot warning shows.
+func startTarget(args []string) (manifestPath, projectDir string, m *manifest.Manifest, err error) {
+	manifestPath, projectDir, err = locateManifest(args)
+	if err != nil {
+		return "", "", nil, err
+	}
+	if m, err = manifest.Load(manifestPath); err != nil {
+		return "", "", nil, withCode("manifest-invalid", err)
+	}
+	if err := pod.CheckControlName(m, projectDir); err != nil {
+		return "", "", nil, withCode("project-name-taken", err)
+	}
+	return manifestPath, projectDir, m, nil
 }
 
 func cmdStart(args []string) {

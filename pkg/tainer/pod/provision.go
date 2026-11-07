@@ -51,8 +51,13 @@ var ErrControlNameTaken = errors.New("a project of yours is named control")
 // ControlNameTakenError names the folder of the user's own control project.
 type ControlNameTakenError struct{ Path string }
 
-func (e *ControlNameTakenError) Error() string {
-	return fmt.Sprintf("%v (%s)", ErrControlNameTaken, e.Path)
+// Error tells the user how to free the name.
+func (e *ControlNameTakenError) Error() string { return ControlRenameMessage(e.Path) }
+
+// ControlRenameMessage tells the user whose project in path is named control
+// how to free the name for the dashboard.
+func ControlRenameMessage(path string) string {
+	return fmt.Sprintf("your project \"control\" in %s has the name tainer needs for its dashboard — rename it (change project.name in its tainer.yaml) and tainer will set up my.tainer.me", path)
 }
 
 func (e *ControlNameTakenError) Is(target error) bool { return target == ErrControlNameTaken }
