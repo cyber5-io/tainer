@@ -180,3 +180,38 @@ func TestEnsureProjectEnv(t *testing.T) {
 		}
 	})
 }
+
+// A project's .env comes with the clone: one that is a link (say to
+// ../other-project/.env) must not hand another project's credentials to
+// this pod, nor may a non-regular file stand in for it. Both are refused,
+// naming the file, and nothing is written to the secrets store.
+func TestLoadOrCreateSecrets_RefusesLinkedProjectEnv(t *testing.T) {
+	other := filepath.Join(t.TempDir(), ".env")
+	body := "DB_PASSWORD=other-project-password\nDB_ROOT_PASSWORD=other-project-root\n"
+	if err := os.WriteFile(other, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]func(dir string) error{
+		"link":   func(dir string) error { return os.Symlink(other, filepath.Join(dir, ".env")) },
+		"folder": func(dir string) error { return os.Mkdir(filepath.Join(dir, ".env"), 0o755) },
+	}
+	for name, mk := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := mk(dir); err != nil {
+				t.Fatal(err)
+			}
+			secretsPath := filepath.Join(t.TempDir(), "site.env")
+			s, err := LoadOrCreateSecretsAt(secretsPath, "site", dir)
+			if err == nil {
+				t.Fatalf("accepted a %s .env (password %q), want refused", name, s.DBPassword)
+			}
+			if !strings.Contains(err.Error(), filepath.Join(dir, ".env")) {
+				t.Errorf("error %q does not name the file", err)
+			}
+			if _, err := os.Lstat(secretsPath); !os.IsNotExist(err) {
+				t.Errorf("secrets store written despite refusal")
+			}
+		})
+	}
+}

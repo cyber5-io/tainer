@@ -4,7 +4,10 @@ import (
 	"bufio"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,12 +69,23 @@ func LoadOrCreateSecretsAt(path, project, projectDir string) (*Secrets, error) {
 	// Adopt existing DB credentials from the project's .env if present and
 	// complete (loadSecrets requires both DB passwords). The .env uses the
 	// same KEY=value shape and key names as the secrets file.
+	// The .env comes with the project (a clone, a zip), so it is read only
+	// when it is a real file: a link could point at another project's .env.
 	if projectDir != "" {
-		if seeded, serr := loadSecrets(filepath.Join(projectDir, ".env")); serr == nil {
-			if err := writeSecrets(path, seeded); err != nil {
-				return nil, err
+		envPath := filepath.Join(projectDir, ".env")
+		f, oerr := openProjectFile(envPath)
+		if oerr != nil && !errors.Is(oerr, fs.ErrNotExist) {
+			return nil, oerr
+		}
+		if oerr == nil {
+			seeded, serr := readSecrets(f, envPath)
+			f.Close()
+			if serr == nil {
+				if err := writeSecrets(path, seeded); err != nil {
+					return nil, err
+				}
+				return seeded, nil
 			}
-			return seeded, nil
 		}
 	}
 
@@ -87,15 +101,44 @@ func LoadOrCreateSecretsAt(path, project, projectDir string) (*Secrets, error) {
 	return s, nil
 }
 
+// openProjectFile opens a file that came with the project, refusing a link
+// or anything but a regular file. The file opened is checked to be the one
+// inspected, so a link swapped in between is refused too.
+func openProjectFile(path string) (*os.File, error) {
+	before, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if before.Mode()&fs.ModeSymlink != 0 {
+		return nil, fmt.Errorf("refusing to read %s: it is a link; tainer only reads a real file there", path)
+	}
+	if !before.Mode().IsRegular() {
+		return nil, fmt.Errorf("refusing to read %s: it is not a regular file", path)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	after, err := f.Stat()
+	if err != nil || !os.SameFile(before, after) {
+		f.Close()
+		return nil, fmt.Errorf("refusing to read %s: it changed while being read", path)
+	}
+	return f, nil
+}
+
 func loadSecrets(path string) (*Secrets, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
+	return readSecrets(f, path)
+}
 
+func readSecrets(r io.Reader, path string) (*Secrets, error) {
 	out := &Secrets{}
-	sc := bufio.NewScanner(f)
+	sc := bufio.NewScanner(r)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
