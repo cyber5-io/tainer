@@ -137,3 +137,20 @@ func TestPersistence(t *testing.T) {
 		t.Errorf("Path = %q after reload, want %q", p.Path, "/tmp/p")
 	}
 }
+
+func TestPutReplacesEntryVerbatim(t *testing.T) {
+	setupTestRegistry(t)
+	live := t.TempDir()
+	os.WriteFile(filepath.Join(live, "tainer.yaml"), []byte("x"), 0644)
+	if err := Add("control", live, "nodejs", "my.tainer.me"); err != nil {
+		t.Fatal(err)
+	}
+	want := Project{Path: "/new/home", Type: "nodejs", Domain: "my.tainer.me", Created: "2026-01-01T00:00:00Z", ImageVersion: "1.2.0"}
+	if err := Put("control", want); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	registry = nil // force a reload from disk
+	if got, _ := Get("control"); got != want {
+		t.Errorf("Get after Put = %+v, want %+v", got, want)
+	}
+}

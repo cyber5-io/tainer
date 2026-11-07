@@ -141,3 +141,13 @@ func FindByPath(path string) (string, bool) {
 	}
 	return "", false
 }
+
+// Put stores p under name as given, replacing any existing entry. Unlike Add
+// it neither refuses a live conflicting path nor resets Created/ImageVersion —
+// it is for tainer's own bookkeeping (re-pointing the pinned control project).
+func Put(name string, p Project) error {
+	mu.Lock()
+	defer mu.Unlock()
+	load().Projects[name] = p
+	return save()
+}

@@ -72,6 +72,23 @@ type Status struct {
 	PID       int    // 0 when no PID file is present
 }
 
+// OnSpawn, when set, runs once right after Engine has spawned cyberstackd
+// and the socket answers — never on the fast path where the daemon was
+// already up. The tainer command registers it to bring up the control pod;
+// it lives here as a variable because runtime must not import pod. It has no
+// error return: whatever it does, the caller's command carries on.
+var OnSpawn func(ctx context.Context, cli *engine.Client)
+
+// Seams for tests; production values are the real socket/daemon paths.
+var (
+	dialFn    = dialAndPing
+	spawnFn   = startDaemon
+	waitFn    = waitForDaemon
+	refreshFn = func(ctx context.Context, cli *engine.Client) {
+		certsync.DailyRefresh(ctx, func(c context.Context) error { return router.ReloadCaddy(c, cli) })
+	}
+)
+
 // Engine returns a ready *engine.Client, starting cyberstackd via
 // AutoStart=true if it isn't running yet. The caller owns Close().
 //
@@ -80,8 +97,8 @@ func Engine(ctx context.Context, opts Options) (*engine.Client, error) {
 	socket := resolveSocket(opts)
 
 	// Fast path: existing socket, ping succeeds.
-	if cli, err := dialAndPing(ctx, socket); err == nil {
-		certsync.DailyRefresh(ctx, func(c context.Context) error { return router.ReloadCaddy(c, cli) })
+	if cli, err := dialFn(ctx, socket); err == nil {
+		refreshFn(ctx, cli)
 		return cli, nil
 	}
 
@@ -89,16 +106,19 @@ func Engine(ctx context.Context, opts Options) (*engine.Client, error) {
 		return nil, fmt.Errorf("cyberstackd not reachable at %s (autostart disabled)", socket)
 	}
 
-	if err := startDaemon(opts, socket); err != nil {
+	if err := spawnFn(opts, socket); err != nil {
 		return nil, err
 	}
 
 	// Spawning is async — poll until the socket answers or we time out.
-	cli, err := waitForDaemon(ctx, socket)
+	cli, err := waitFn(ctx, socket)
 	if err != nil {
 		return nil, err
 	}
-	certsync.DailyRefresh(ctx, func(c context.Context) error { return router.ReloadCaddy(c, cli) })
+	refreshFn(ctx, cli)
+	if OnSpawn != nil {
+		OnSpawn(ctx, cli)
+	}
 	return cli, nil
 }
 
