@@ -534,18 +534,21 @@ func TestHeldPodsAreListed(t *testing.T) {
 	}
 }
 
-func TestReservedTargetClashRefusedForJSON(t *testing.T) {
+func TestReservedTargetWithClashStillSelfUpdatesForJSON(t *testing.T) {
 	cwd := selfTestHome(t)
 	registerProject(t, cwd, "menu")
 	f := newFakeSelf()
 	f.install(t)
 	out, exit := failureHarness(t, true, func() { cmdUpdate([]string{"menu", "--json", "--yes"}) })
-	if exit != 1 || !strings.Contains(string(out), `"invalid-arguments"`) ||
-		!strings.Contains(string(out), `\"menu\" is both a project and an update target; pass the project's folder path instead`) {
+	if exit != -1 {
 		t.Fatalf("exit=%d out=%s", exit, out)
 	}
-	if len(f.log) != 0 {
-		t.Errorf("nothing may run: %v", f.log)
+	if !reflect.DeepEqual(f.log, []string{"menu"}) {
+		t.Fatalf("update menu --json ran %v, want the menu app", f.log)
+	}
+	doc := checkDocFrom(t, out)
+	if doc["mode"] != "menu" || doc["updated"] != true {
+		t.Errorf("doc = %v", doc)
 	}
 }
 
@@ -593,5 +596,64 @@ func TestNoArgsCheckPhaseIsBounded(t *testing.T) {
 	runUpdateCmd(t, nil)
 	if len(f.checkDeadline) != 1 || f.checkDeadline[0] <= 0 || f.checkDeadline[0] > 2*time.Minute {
 		t.Errorf("check deadline = %v, want within 2m", f.checkDeadline)
+	}
+}
+
+func TestUpdateTainerJSONKeepsResumeOutputOffStdout(t *testing.T) {
+	selfTestHome(t)
+	writeResumeFixture(t, release.ResumeFile{ForVersion: "1.5.0", FromVersion: "1.4.0", WrittenAt: resumeT0, Pods: twoPods()})
+	fr := &fakeResume{installed: "1.5.0", now: resumeT0.Add(time.Minute)}
+	origOps := resumeOpsLive
+	t.Cleanup(func() { resumeOpsLive = origOps })
+	resumeOpsLive = func() resumeOps {
+		o := fr.ops()
+		o.out = os.Stdout // as the live wiring does
+		return o
+	}
+	f := newFakeSelf()
+	f.install(t)
+	selfInstallTainer = func(ctx context.Context, ops installOps) (installResult, error) {
+		res := newInstallResult("tainer", "1.4.0", "1.5.0")
+		outcome, err := ops.resume(ctx)
+		res.Resumed, res.Updated = outcome.Resumed, true
+		return res, err
+	}
+	out, exit := failureHarness(t, true, func() { cmdUpdate([]string{"tainer", "--json", "--yes"}) })
+	if exit != -1 {
+		t.Fatalf("exit=%d\n%s", exit, out)
+	}
+	if !reflect.DeepEqual(fr.started, []string{"alpha", "beta"}) {
+		t.Fatalf("resume didn't run: %v", fr.started)
+	}
+	dec := json.NewDecoder(strings.NewReader(string(out)))
+	var doc map[string]any
+	if err := dec.Decode(&doc); err != nil {
+		t.Fatalf("stdout isn't a JSON document: %v\n%s", err, out)
+	}
+	if dec.More() {
+		t.Fatalf("more than one document on stdout:\n%s", out)
+	}
+	if strings.Contains(string(out), "is back") {
+		t.Fatalf("resume progress on stdout:\n%s", out)
+	}
+}
+
+func TestUpdateNoArgsStopsWhenTainerInstallCancelled(t *testing.T) {
+	selfTestHome(t)
+	registerProject(t, t.TempDir(), "blog")
+	f := newFakeSelf()
+	f.stdin = "y\n"
+	f.install(t)
+	selfInstallTainer = func(_ context.Context, ops installOps) (installResult, error) {
+		f.log = append(f.log, "tainer")
+		// Installer closed without installing.
+		return newInstallResult("tainer", "1.4.0", "1.5.0"), nil
+	}
+	out := string(runUpdateCmd(t, []string{"--plain"}))
+	if !reflect.DeepEqual(f.log, []string{"tainer"}) {
+		t.Fatalf("a cancelled tainer install must stop the run, ran %v", f.log)
+	}
+	if !strings.Contains(out, "update cancelled\n") {
+		t.Errorf("missing the cancelled line:\n%s", out)
 	}
 }

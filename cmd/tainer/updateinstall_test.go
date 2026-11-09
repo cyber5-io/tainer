@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -383,12 +384,12 @@ func TestRunResumeReportOutcome(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	pods := []release.ResumeEntry{{Name: "alpha", Path: "/p/alpha"}, {Name: "beta", Path: "/p/beta"}}
 	writeResumeFixture(t, release.ResumeFile{ForVersion: "1.5.0", FromVersion: "1.4.0", WrittenAt: resumeT0, Pods: pods})
-	f := &fakeResume{installed: "1.5.0", now: resumeT0, fail: map[string]error{"beta": errors.New("folder is gone")}}
+	f := &fakeResume{installed: "1.5.0", now: resumeT0, fail: map[string]error{"beta": fmt.Errorf("reading manifest: %w", os.ErrNotExist)}}
 	got, err := runResumeReport(context.Background(), f.ops(), true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := resumeOutcome{Resumed: []string{"alpha"}, Failed: []resumeFailure{{Name: "beta", Reason: "folder is gone"}}}
+	want := resumeOutcome{Resumed: []string{"alpha"}, Failed: []resumeFailure{{Name: "beta", Reason: "its folder or tainer.yaml is gone"}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("outcome %+v, want %+v", got, want)
 	}

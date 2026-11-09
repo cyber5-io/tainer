@@ -3114,8 +3114,6 @@ func cmdUpdate(args []string) {
 		runUpdateAll(mode)
 	case fs.NArg() == 0:
 		runUpdateNoArgs(mode, yes, outputFlagArgs(flags))
-	case fs.NArg() == 1 && reservedTargets[fs.Arg(0)] && mode == tui.ModeJSON && reservedClash(fs.Arg(0)) != nil:
-		must(reservedClash(fs.Arg(0)))
 	case fs.NArg() == 1 && fs.Arg(0) == "resume":
 		// Hidden: brings back the pods that were running before a
 		// tainer update. Called by postinstall, the menu app and the

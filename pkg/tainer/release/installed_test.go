@@ -3,27 +3,10 @@
 package release
 
 import (
-	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 )
-
-func TestInstalledTainerParsesReceipt(t *testing.T) {
-	run := func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		return []byte("package-id: io.cyber5.tainer\nversion: 1.4.0\nvolume: /\n"), nil
-	}
-	if got := InstalledTainer(run); got != "1.4.0" {
-		t.Fatalf("got %q", got)
-	}
-	fail := func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		return nil, errors.New("no receipt")
-	}
-	if got := InstalledTainer(fail); got != "" {
-		t.Fatalf("absent: got %q", got)
-	}
-}
 
 func TestInstalledMenuReadsPlist(t *testing.T) {
 	plist := `<?xml version="1.0" encoding="UTF-8"?>

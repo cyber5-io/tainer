@@ -68,8 +68,9 @@ func installedTainerVersion() string {
 }
 
 // liveInstallOps wires installOps to the release endpoint, the package
-// checks, Installer and the runtime. installed is set per target.
-func liveInstallOps(yes bool) installOps {
+// checks, Installer and the runtime. installed is set per target. Prompts
+// read in; prompts, progress and the resume report go to out.
+func liveInstallOps(yes bool, in *bufio.Reader, out io.Writer) installOps {
 	return installOps{
 		check:    func(ctx context.Context) (release.Latest, bool) { return release.Check(ctx, true) },
 		download: release.Download,
@@ -87,22 +88,24 @@ func liveInstallOps(yes bool) installOps {
 		installed:       installedTainerVersion,
 		installedTainer: installedTainerVersion,
 		snapshot: func(ctx context.Context) ([]release.ResumeEntry, error) {
-			return snapshotRunning(ctx, liveResumeOps())
+			return snapshotRunning(ctx, resumeOpsLive())
 		},
 		// Only this caller watched the installer close.
 		resume: func(ctx context.Context) (resumeOutcome, error) {
-			return runResumeReport(ctx, liveResumeOps(), true)
+			ro := resumeOpsLive()
+			ro.out = out
+			return runResumeReport(ctx, ro, true)
 		},
 		now: time.Now,
-		in:  bufio.NewReader(os.Stdin),
-		out: os.Stdout,
+		in:  in,
+		out: out,
 		yes: yes,
 	}
 }
 
 // liveMenuInstallOps is liveInstallOps for the menu app.
-func liveMenuInstallOps(yes bool) installOps {
-	ops := liveInstallOps(yes)
+func liveMenuInstallOps(yes bool, in *bufio.Reader, out io.Writer) installOps {
+	ops := liveInstallOps(yes, in, out)
 	ops.installed = release.InstalledMenu
 	return ops
 }
@@ -153,7 +156,8 @@ func installTainer(ctx context.Context, ops installOps) (installResult, error) {
 	if ctx.Err() != nil {
 		// Interrupted while Installer may still be open: a resume now
 		// would fail every start and drop the file. Leave it for
-		// postinstall, the menu app or the stale rule.
+		// postinstall or the menu app; if the install is cancelled
+		// instead, the file goes stale and is dropped.
 		return res, errUpdateInterrupted
 	}
 	// Installer ran (or failed to start): resume either way, so the file

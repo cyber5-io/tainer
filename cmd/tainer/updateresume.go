@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cyber5-io/tainer/pkg/tainer"
+	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 	"github.com/cyber5-io/tainer/pkg/tainer/pod"
 	"github.com/cyber5-io/tainer/pkg/tainer/registry"
@@ -20,8 +22,9 @@ import (
 	"github.com/cyber5-io/tainer/pkg/tainer/runtime"
 )
 
-// resumeStaleAfter is how old a resume file must be before a resumer that
-// cannot tell whether an install is still open treats it as abandoned.
+// resumeStaleAfter is how old a resume file for a version that never got
+// installed must be before a resumer that didn't watch the installer
+// treats it as left by a cancelled install, and drops it.
 const resumeStaleAfter = time.Hour
 
 // errRuntimeUnreachable marks a list failure caused by the runtime not
@@ -62,6 +65,9 @@ type resumeOps struct {
 	now       func() time.Time
 	out       io.Writer
 }
+
+// resumeOpsLive is the resumeOps the installers use; a seam for tests.
+var resumeOpsLive = liveResumeOps
 
 // liveResumeOps wires resumeOps to the real runtime, registry and the
 // installed tainer binary.
@@ -143,8 +149,11 @@ func snapshotRunning(ctx context.Context, ops resumeOps) ([]release.ResumeEntry,
 
 // runResume brings back the pods recorded before an update, once the
 // outcome of the install is known. installerDone is true only when the
-// caller watched the installer close; every other caller passes false and
-// waits for the install to finish, or for the file to go stale.
+// caller watched the installer close; then the recorded pods are started
+// whatever the outcome. Every other caller passes false: it starts them
+// once the new version is installed, leaves the file while the installer
+// may still be open, and drops a stale file without starting anything
+// (the install was cancelled, so nothing was stopped).
 func runResume(ctx context.Context, ops resumeOps, installerDone bool) error {
 	_, err := runResumeReport(ctx, ops, installerDone)
 	return err
@@ -183,15 +192,17 @@ func runResumeReport(ctx context.Context, ops resumeOps, installerDone bool) (re
 		case installerDone:
 			// Cancelled or failed; the old runtime may already be stopped.
 		case ops.now().Sub(f.WrittenAt) > resumeStaleAfter:
-			// Left behind by a crash or an abandoned install.
+			// Left by a cancelled install: discard it, don't act on it.
+			return release.ClearResume()
 		default:
 			// The installer may still be open; leave it for later.
 			return nil
 		}
 		for _, e := range f.Pods {
 			if err := ops.start(ctx, e); err != nil {
-				fmt.Fprintf(ops.out, "%s didn't come back: %v\n", e.Name, err)
-				res.Failed = append(res.Failed, resumeFailure{Name: e.Name, Reason: err.Error()})
+				reason := resumeReason(e.Name, err)
+				fmt.Fprintf(ops.out, "%s didn't come back: %s\n", e.Name, reason)
+				res.Failed = append(res.Failed, resumeFailure{Name: e.Name, Reason: reason})
 				continue
 			}
 			fmt.Fprintf(ops.out, "%s is back\n", e.Name)
@@ -215,4 +226,27 @@ func runUpdateResume() {
 	ctx, cancel := ctxWithTimeout(15 * time.Minute)
 	defer cancel()
 	must(runResume(ctx, liveResumeOps(), false))
+}
+
+// resumeReason is the plain-words reason a pod didn't come back. Raw
+// errors are never echoed: lower layers speak in runtime internals.
+// Errors whose message is already written for users pass through.
+func resumeReason(name string, err error) string {
+	var busy *pod.BusyRemovalError
+	var dl *engine.DownloadError
+	switch {
+	case errors.As(err, &busy):
+		return busy.Error()
+	case errors.As(err, &dl):
+		return dl.Error()
+	case errors.Is(err, fs.ErrNotExist):
+		return "its folder or tainer.yaml is gone"
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+		return fmt.Sprintf(`it took too long to start — run "tainer start %s"`, name)
+	}
+	switch errCode(err) {
+	case "stack-unreachable", "stack-unavailable":
+		return fmt.Sprintf(`tainer isn't answering — run "tainer start %s" in a minute`, name)
+	}
+	return fmt.Sprintf(`it didn't start — run "tainer start %s" to see why`, name)
 }

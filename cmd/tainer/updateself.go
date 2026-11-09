@@ -187,11 +187,10 @@ type selfUpdateRun struct {
 // installOpsFor wires an installer to this run's prompts, and to the
 // latest.json the listing showed (so what is installed is what was listed).
 func (r selfUpdateRun) installOpsFor(menu bool, st selfStatus) installOps {
-	ops := liveInstallOps(r.yes)
+	ops := liveInstallOps(r.yes, r.in, r.out)
 	if menu {
-		ops = liveMenuInstallOps(r.yes)
+		ops = liveMenuInstallOps(r.yes, r.in, r.out)
 	}
-	ops.in, ops.out = r.in, r.out
 	if st.ok {
 		latest := st.latest
 		ops.check = func(context.Context) (release.Latest, bool) { return latest, true }
@@ -251,8 +250,8 @@ func podsWithUpdates(rep imagecheck.Report) []imagecheck.PodReport {
 
 // updateEverything is `tainer update` outside a project folder: it lists
 // tainer, the menu app and every pod with an update, asks once, then
-// updates tainer first, the menu app if still needed, then the pods.
-// handOff is true when tainer itself was updated: the caller then lets the
+// updates tainer first, the menu app if still needed, then the pods. A
+// cancelled tainer install stops the run. handOff is true when tainer itself was updated: the caller then lets the
 // new binary do the rest.
 func updateEverything(ctx context.Context, r selfUpdateRun) (handOff bool, err error) {
 	checkCtx, cancel := context.WithTimeout(ctx, checkPhaseTimeout)
@@ -324,9 +323,13 @@ func updateEverything(ctx context.Context, r selfUpdateRun) (handOff bool, err e
 		if err == nil && res.Updated {
 			return true, nil
 		}
-		if err != nil {
-			errs = append(errs, err)
+		if err == nil {
+			// The installer closed without installing: the user
+			// cancelled, so nothing else runs either.
+			fmt.Fprintln(r.out, "update cancelled")
+			return false, nil
 		}
+		errs = append(errs, err)
 	}
 	// The full pkg carries a menu app: if it was new enough, the separate
 	// menu update is no longer needed.
@@ -474,15 +477,6 @@ func outputFlagArgs(f tui.OutputFlags) []string {
 	return out
 }
 
-// reservedClash refuses a reserved target for a JSON caller when a project
-// has the same name: a program must say which one it means.
-func reservedClash(name string) error {
-	if _, ok := registry.Get(name); !ok {
-		return nil
-	}
-	return withCode("invalid-arguments", fmt.Errorf("%q is both a project and an update target; pass the project's folder path instead", name))
-}
-
 // reservedTargets always mean tainer itself, the menu app and the resume
 // step; a project with one of these names is updated by its path.
 var reservedTargets = map[string]bool{"tainer": true, "menu": true, "resume": true}
@@ -553,14 +547,12 @@ func runUpdateSelf(outMode tui.OutputMode, target string, yes bool) {
 	}
 
 	r := selfUpdateRun{in: bufio.NewReader(updateStdin), out: out, yes: yes}
-	ops := liveInstallOps(yes)
 	install := selfInstallTainer
 	if menu {
-		ops = liveMenuInstallOps(yes)
 		install = selfInstallMenu
 	}
-	ops.in, ops.out = r.in, r.out
-	res, err := install(ctx, ops)
+	// No listing was shown: the installer fetches latest.json itself.
+	res, err := install(ctx, r.installOpsFor(menu, selfStatus{}))
 	if outMode == tui.ModeJSON {
 		if err != nil {
 			exitFn(jsonFail(errCodeOr(err, "update-failed"), err.Error()))

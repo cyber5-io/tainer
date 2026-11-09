@@ -114,18 +114,17 @@ func TestResumeAfterCancelledInstallStartsRecordedPods(t *testing.T) {
 func TestStaleResumeFileIsDiscarded(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	writeResumeFixture(t, release.ResumeFile{ForVersion: "1.5.0", FromVersion: "1.4.0", WrittenAt: resumeT0, Pods: twoPods()})
+	// Over an hour old, written for a version that never got installed:
+	// left by a cancelled install, so it is dropped, not acted on.
 	f := &fakeResume{installed: "1.4.0", now: resumeT0.Add(time.Hour + time.Second)}
 	if err := runResume(context.Background(), f.ops(), false); err != nil {
 		t.Fatal(err)
 	}
-	if err := runResume(context.Background(), f.ops(), false); err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"alpha", "beta"}; !reflect.DeepEqual(f.started, want) {
-		t.Fatalf("started %v, want %v (exactly once)", f.started, want)
+	if len(f.started) != 0 {
+		t.Fatalf("started %v from a stale file", f.started)
 	}
 	if resumeExists(t) {
-		t.Fatal("resume file not cleared")
+		t.Fatal("stale resume file not cleared")
 	}
 }
 
@@ -179,7 +178,8 @@ func TestResumeReportsFailuresAndContinues(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	pods := []release.ResumeEntry{{Name: "alpha", Path: "/p/alpha"}, {Name: "beta", Path: "/p/beta"}, {Name: "gamma", Path: "/p/gamma"}}
 	writeResumeFixture(t, release.ResumeFile{ForVersion: "1.5.0", FromVersion: "1.4.0", WrittenAt: resumeT0, Pods: pods})
-	f := &fakeResume{installed: "1.5.0", now: resumeT0, fail: map[string]error{"beta": errors.New("folder is gone")}}
+	rawErr := errors.New("pod start: create container tainer-beta-app: OCI runtime error: crun: exec failed")
+	f := &fakeResume{installed: "1.5.0", now: resumeT0, fail: map[string]error{"beta": rawErr}}
 	if err := runResume(context.Background(), f.ops(), true); err != nil {
 		t.Fatalf("runResume should not fail when a pod fails: %v", err)
 	}
@@ -187,9 +187,14 @@ func TestResumeReportsFailuresAndContinues(t *testing.T) {
 		t.Fatalf("started %v, want %v", f.started, want)
 	}
 	out := f.out.String()
-	for _, line := range []string{"alpha is back", "beta didn't come back: folder is gone", "gamma is back"} {
+	for _, line := range []string{"alpha is back", `beta didn't come back: it didn't start — run "tainer start beta" to see why`, "gamma is back"} {
 		if !strings.Contains(out, line) {
 			t.Fatalf("output %q missing %q", out, line)
+		}
+	}
+	for _, word := range []string{"container", "crun", "OCI"} {
+		if strings.Contains(out, word) {
+			t.Fatalf("output %q leaks %q", out, word)
 		}
 	}
 	if resumeExists(t) {
@@ -315,6 +320,26 @@ func TestSameVersion(t *testing.T) {
 	for _, c := range cases {
 		if got := sameVersion(c.installed, c.want); got != c.match {
 			t.Errorf("sameVersion(%q, %q) = %v, want %v", c.installed, c.want, got, c.match)
+		}
+	}
+}
+
+func TestResumeReasonIsPlainWords(t *testing.T) {
+	busy := &pod.BusyRemovalError{Pod: "blog", Role: "app", Verb: "replace", Err: errors.New("device or resource busy")}
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"missing folder", fmt.Errorf("reading manifest: %w", os.ErrNotExist), "its folder or tainer.yaml is gone"},
+		{"busy", fmt.Errorf("pod start: %w", busy), busy.Error()},
+		{"runtime down", engineErr(errors.New("dial unix /x/cyberstackd.sock: connection refused")), `tainer isn't answering — run "tainer start blog" in a minute`},
+		{"timeout", fmt.Errorf("pod start: %w", context.DeadlineExceeded), `it took too long to start — run "tainer start blog"`},
+		{"anything else", errors.New("pod start: create container: no such image"), `it didn't start — run "tainer start blog" to see why`},
+	}
+	for _, c := range cases {
+		if got := resumeReason("blog", c.err); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
 		}
 	}
 }
