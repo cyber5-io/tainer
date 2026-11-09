@@ -61,6 +61,7 @@ live:
 
 - Optional `live:` block (`omitempty`), no manifest version bump (stays version 2); `live.domain` validated with the existing `validateDomain`; merged from `.tainer.local.yaml` overlays like `project:` is.
 - Pods get `TAINER_ENV=dev` (always, locally) and `TAINER_LIVE_DOMAIN=<live.domain>` when set, next to today's `TAINER_DOMAIN`. Both join the manifest hash so changing them recreates containers. Push Live later sets `TAINER_ENV=live` on the server; nothing local ever does.
+- **`TAINER_*` is tainer's namespace (Leni, 2026-11-09):** the local binary always sets `TAINER_ENV=dev`, and `tainer start` refuses a project that tries to set it — a `TAINER_ENV`, `TAINER_DOMAIN` or `TAINER_LIVE_DOMAIN` key in the project's `.env` or `app/.env` stops the start with a plain message ("TAINER_ variables are set by tainer — remove <key> from <file>"). Hosting servers run a different tainer binary that owns live/staging; users never select the environment by hand.
 - Nothing else reads `live.domain` yet — the router, caddy and lists stay on `project.domain`.
 
 ### promote script
