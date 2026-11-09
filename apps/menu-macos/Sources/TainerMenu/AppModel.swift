@@ -30,7 +30,7 @@ final class AppModel {
     /// may relaunch this app before the command returns; the new process picks up the resume.
     func updateTainer() {
         guard updates.activity == nil else { return }
-        let running = runningPods
+        let running = state.podsATainerUpdateRestarts
         if !running.isEmpty, !Confirm.ask(UpdateCopy.restartWarning(running), ok: "Update now", cancel: "Later") { return }
         startSelfUpdate(.tainer, activity: .updatingTainer)
     }

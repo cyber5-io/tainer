@@ -53,6 +53,15 @@ final class StackState {
         return Self.ordered(pods + extra)
     }
 
+    /// The pinned project tainer runs its dashboard in.
+    static let controlPod = "control"
+
+    /// The running pods a tainer update restarts, as the CLI lists them: the control pod is left
+    /// out, it comes back on its own when tainer starts again.
+    var podsATainerUpdateRestarts: [String] {
+        allPods.filter { $0.isActive && $0.name != Self.controlPod }.map(\.name).sorted()
+    }
+
     func applyList(_ projects: [ListedProject]) {
         listed = projects
     }

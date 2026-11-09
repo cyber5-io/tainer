@@ -89,3 +89,12 @@ private let healthy = EngineState(state: .healthy, since: t0, detail: "")
     s.apply(.unreachable)
     #expect(s.statusLine.pill == "UNREACHABLE")
 }
+
+@MainActor @Test func tainerUpdateRestartListLeavesOutTheControlPod() {
+    let s = StackState()
+    s.apply(.event(.hello(engine: healthy, pods: [
+        pod("control", .running, running: 1), pod("blog", .running, running: 1),
+        pod("shop", .partial, running: 1, total: 2), pod("old", .stopped),
+    ])))
+    #expect(s.podsATainerUpdateRestarts == ["blog", "shop"])
+}
