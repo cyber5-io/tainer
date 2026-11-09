@@ -278,6 +278,7 @@ pkg-full-root: sign menu-app
 		$(PKG_FULL_ROOT)/Library/LaunchAgents/io.cyber5.tainer.menu.plist
 	# Combined postinstall — does cyberstack's setup PLUS the symlink.
 	install -m 0755 packaging/scripts/postinstall-full $(PKG_FULL_SCRIPTS)/postinstall
+	install -m 0755 packaging/scripts/preinstall-menu $(PKG_FULL_SCRIPTS)/preinstall
 	@echo "pkg-full-root assembled at $(PKG_FULL_ROOT)"
 	@du -sh $(PKG_FULL_ROOT)/opt/* 2>/dev/null
 
@@ -325,6 +326,7 @@ pkg-menu-root: menu-app
 	install -m 0644 packaging/menu/io.cyber5.tainer.menu.plist \
 		$(PKG_MENU_ROOT)/Library/LaunchAgents/io.cyber5.tainer.menu.plist
 	install -m 0755 packaging/scripts/postinstall-menu $(PKG_MENU_SCRIPTS)/postinstall
+	install -m 0755 packaging/scripts/preinstall-menu $(PKG_MENU_SCRIPTS)/preinstall
 	@echo "pkg-menu-root assembled at $(PKG_MENU_ROOT)"
 
 pkg-menu: pkg-menu-root

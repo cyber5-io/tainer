@@ -1,0 +1,23 @@
+#!/bin/bash
+# Runs as root before the payload is laid down. Stops the menu login agent
+# and removes the existing menu app, so an upgrade over the retired menu
+# never leaves stale files inside the bundle (which would break its
+# signature). The package reinstalls the new app. Never fails the install.
+set -euo pipefail
+
+APP="/Applications/Tainer Menu.app"
+
+CONSOLE_USER=$(stat -f%Su /dev/console 2>/dev/null || true)
+if [[ -n "$CONSOLE_USER" && "$CONSOLE_USER" != "root" ]]; then
+    CONSOLE_UID=$(id -u "$CONSOLE_USER" 2>/dev/null || true)
+    if [[ -n "$CONSOLE_UID" ]]; then
+        launchctl bootout "gui/${CONSOLE_UID}/io.cyber5.tainer.menu" 2>/dev/null || true
+    fi
+fi
+
+if [[ -e "$APP" ]]; then
+    rm -rf "/Applications/Tainer Menu.app" || true
+    echo "preinstall: removed previous Tainer Menu.app"
+fi
+
+exit 0
