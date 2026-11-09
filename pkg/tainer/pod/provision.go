@@ -364,7 +364,7 @@ func copyTree(src, dst string) error {
 
 // staleControlContainer reports whether a control container predates the
 // built-in pod: it was created from another folder's tainer.yaml, or it
-// bind-mounts an html/ app tree.
+// bind-mounts the old html/ app tree.
 func staleControlContainer(insp container.InspectResponse, manifestPath string) bool {
 	if insp.Config != nil {
 		if mp, ok := insp.Config.Labels[LabelManifestPath]; ok && mp != manifestPath {

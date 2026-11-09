@@ -70,7 +70,7 @@ var typeSpecs = []TypeSpec{
 		DefaultRuntime: RuntimeConfig{PHP: "8.3", Database: DatabaseMariaDB},
 		HasAppRole:     true,
 		ExecUser:       "82:82", // www-data in the alpine php images
-		ExecWorkdir:    "/var/www/html",
+		ExecWorkdir:    "/var/www/app",
 		Tools:          []string{"wp", "composer", "php"},
 	},
 	{
@@ -79,7 +79,7 @@ var typeSpecs = []TypeSpec{
 		DefaultRuntime: RuntimeConfig{PHP: "8.3", Database: DatabaseMariaDB},
 		HasAppRole:     true,
 		ExecUser:       "82:82",
-		ExecWorkdir:    "/var/www/html",
+		ExecWorkdir:    "/var/www/app",
 		Tools:          []string{"artisan", "composer", "php"},
 	},
 	{
@@ -89,7 +89,7 @@ var typeSpecs = []TypeSpec{
 		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseMariaDB},
 		HasAppRole:     true,
 		ExecUser:       "1000:1000", // node in the official-node-derived images
-		ExecWorkdir:    "/var/www/html",
+		ExecWorkdir:    "/var/www/app",
 		Tools:          nodeTools,
 	},
 	{
@@ -99,7 +99,7 @@ var typeSpecs = []TypeSpec{
 		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseMariaDB},
 		HasAppRole:     true,
 		ExecUser:       "1000:1000",
-		ExecWorkdir:    "/var/www/html",
+		ExecWorkdir:    "/var/www/app",
 		Tools:          nodeTools,
 	},
 	{
@@ -109,7 +109,7 @@ var typeSpecs = []TypeSpec{
 		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseMariaDB},
 		HasAppRole:     true,
 		ExecUser:       "1000:1000",
-		ExecWorkdir:    "/var/www/html",
+		ExecWorkdir:    "/var/www/app",
 		Tools:          nodeTools,
 	},
 	{
@@ -119,7 +119,7 @@ var typeSpecs = []TypeSpec{
 		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseMariaDB},
 		HasAppRole:     true,
 		ExecUser:       "1000:1000",
-		ExecWorkdir:    "/var/www/html",
+		ExecWorkdir:    "/var/www/app",
 		Tools:          nodeTools,
 	},
 	{
@@ -129,7 +129,7 @@ var typeSpecs = []TypeSpec{
 		HasAppRole:     true, // TAIN-98: app = sshd + node tooling; caddy still serves the static bundle
 		StaticBundle:   true,
 		ExecUser:       "1000:1000",
-		ExecWorkdir:    "/var/www/html",
+		ExecWorkdir:    "/var/www/app",
 		Tools:          nodeTools,
 	},
 	{
@@ -139,7 +139,7 @@ var typeSpecs = []TypeSpec{
 		HasAppRole:     true, // same shape as react: app = sshd + node tooling
 		StaticBundle:   true,
 		ExecUser:       "1000:1000",
-		ExecWorkdir:    "/var/www/html",
+		ExecWorkdir:    "/var/www/app",
 		Tools:          nodeTools,
 	},
 	{
@@ -149,7 +149,7 @@ var typeSpecs = []TypeSpec{
 		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseMariaDB},
 		HasAppRole:     true,
 		ExecUser:       "1000:1000",
-		ExecWorkdir:    "/var/www/html",
+		ExecWorkdir:    "/var/www/app",
 		Tools:          nodeTools,
 	},
 	{
@@ -158,7 +158,7 @@ var typeSpecs = []TypeSpec{
 		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabasePostgres},
 		HasAppRole:     true,
 		ExecUser:       "1000:1000",
-		ExecWorkdir:    "/var/www/html",
+		ExecWorkdir:    "/var/www/app",
 		Tools:          nodeTools,
 	},
 }

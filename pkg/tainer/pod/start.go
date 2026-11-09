@@ -750,9 +750,9 @@ func buildMounts(m *manifest.Manifest, projectDir, role string) ([]engine.Mount,
 		// The pod's dev shell (the app container, or web on app-less
 		// types). Mount the WHOLE project at /var/www so an interactive
 		// ssh lands in the real git repo — .git, tainer.yaml and tooling
-		// are all present and af-magic's git prompt works. html/ and
+		// are all present and af-magic's git prompt works. app/ and
 		// data/ come along as subdirs, so this replaces the narrow
-		// mounts below. The docroot stays /var/www/html, so nothing above
+		// mounts below. The docroot stays /var/www/app, so nothing above
 		// it (.git, .env, tainer.yaml) is ever web-served. Safe for local
 		// dev — the repo is already on the developer's host; production
 		// deploys will need the isolated mount shape instead.
@@ -772,7 +772,7 @@ func buildMounts(m *manifest.Manifest, projectDir, role string) ([]engine.Mount,
 		}
 	}
 	// Clone-then-start UX: a project cloned from git carries tainer.yaml
-	// but not the (gitignored, often empty) data/, db/ or even html/ dirs.
+	// but not the (gitignored, often empty) data/, db/ or even app/ dirs.
 	// crun hard-fails on a bind mount whose source is missing, so
 	// projectFolder creates them — after checking each step is a real
 	// folder inside the project.

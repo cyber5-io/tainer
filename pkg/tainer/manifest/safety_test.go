@@ -141,3 +141,14 @@ func TestMountNamesIgnoreCaseAndUsePlainCharacters(t *testing.T) {
 		t.Errorf("plain mounts refused: %v", err)
 	}
 }
+
+func TestMountNamedHtmlIsRefusedAsRenamed(t *testing.T) {
+	for _, name := range []string{"html", "HTML"} {
+		m := &Manifest{Version: 2, Project: ProjectConfig{Name: "site", Type: TypeWordPress}, Runtime: RuntimeConfig{PHP: "8.4", Database: DatabaseMariaDB}, Mounts: []string{name}}
+		m.defaults()
+		err := m.validate()
+		if err == nil || !strings.Contains(err.Error(), "renamed to app") {
+			t.Errorf("mount %q: err = %v, want a refusal saying it was renamed to app", name, err)
+		}
+	}
+}

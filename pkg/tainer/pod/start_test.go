@@ -46,7 +46,7 @@ func TestBuildMountsWebEdgeIsIsolated(t *testing.T) {
 	wantHTML, wantData, sawRepo := false, false, false
 	for _, mt := range mounts {
 		switch {
-		case mt.Source == p+"/html" && mt.Target == "/var/www/html":
+		case mt.Source == p+"/app" && mt.Target == "/var/www/app":
 			wantHTML = true
 		case mt.Source == p+"/data" && mt.Target == "/var/www/data":
 			wantData = true
@@ -55,7 +55,7 @@ func TestBuildMountsWebEdgeIsIsolated(t *testing.T) {
 		}
 	}
 	if !wantHTML {
-		t.Errorf("html bind missing: %+v", mounts)
+		t.Errorf("app bind missing: %+v", mounts)
 	}
 	if !wantData {
 		t.Errorf("data bind missing: %+v", mounts)

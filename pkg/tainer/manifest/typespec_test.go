@@ -103,8 +103,8 @@ func TestReactSpec(t *testing.T) {
 	if s.ExecUser != "1000:1000" {
 		t.Errorf("react: ExecUser = %q, want 1000:1000", s.ExecUser)
 	}
-	if s.ExecWorkdir != "/var/www/html" {
-		t.Errorf("react: ExecWorkdir = %q, want /var/www/html", s.ExecWorkdir)
+	if s.ExecWorkdir != "/var/www/app" {
+		t.Errorf("react: ExecWorkdir = %q, want /var/www/app", s.ExecWorkdir)
 	}
 }
 
@@ -124,8 +124,8 @@ func TestSvelteSpec(t *testing.T) {
 	if s.ExecUser != "1000:1000" {
 		t.Errorf("svelte: ExecUser = %q, want 1000:1000", s.ExecUser)
 	}
-	if s.ExecWorkdir != "/var/www/html" {
-		t.Errorf("svelte: ExecWorkdir = %q, want /var/www/html", s.ExecWorkdir)
+	if s.ExecWorkdir != "/var/www/app" {
+		t.Errorf("svelte: ExecWorkdir = %q, want /var/www/app", s.ExecWorkdir)
 	}
 	if s.DefaultRuntime.Node != "20" {
 		t.Errorf("svelte: default node = %q, want 20", s.DefaultRuntime.Node)
@@ -151,8 +151,8 @@ func TestSvelteKitSpec(t *testing.T) {
 	if s.ExecUser != "1000:1000" {
 		t.Errorf("sveltekit: ExecUser = %q, want 1000:1000", s.ExecUser)
 	}
-	if s.ExecWorkdir != "/var/www/html" {
-		t.Errorf("sveltekit: ExecWorkdir = %q, want /var/www/html", s.ExecWorkdir)
+	if s.ExecWorkdir != "/var/www/app" {
+		t.Errorf("sveltekit: ExecWorkdir = %q, want /var/www/app", s.ExecWorkdir)
 	}
 	if s.DefaultRuntime.Node != "20" {
 		t.Errorf("sveltekit: default node = %q, want 20", s.DefaultRuntime.Node)

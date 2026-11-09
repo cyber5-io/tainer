@@ -80,7 +80,7 @@ func TestRunCreatesHtmlDataDbDirs(t *testing.T) {
 		t.Fatalf("RunIn: %v", err)
 	}
 	// Directories must be in dir, not in dir/site.
-	for _, sub := range []string{"html", "data", "db"} {
+	for _, sub := range []string{"app", "data", "db"} {
 		fi, err := os.Stat(filepath.Join(dir, sub))
 		if err != nil {
 			t.Errorf("expected %s/ in cwd, got: %v", sub, err)

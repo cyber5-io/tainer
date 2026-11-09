@@ -203,7 +203,7 @@ mounts:
 }
 
 func TestValidateMounts_Reserved(t *testing.T) {
-	for _, name := range []string{"html", "data", "db"} {
+	for _, name := range []string{"app", "data", "db"} {
 		dir := t.TempDir()
 		yaml := fmt.Sprintf(`version: 1
 project:
@@ -260,23 +260,23 @@ func TestContainerMountBase(t *testing.T) {
 
 func TestContainerAppPath(t *testing.T) {
 	wp := &Manifest{Project: ProjectConfig{Type: TypeWordPress}}
-	if wp.ContainerAppPath() != "/var/www/html" {
-		t.Errorf("expected /var/www/html, got %s", wp.ContainerAppPath())
+	if wp.ContainerAppPath() != "/var/www/app" {
+		t.Errorf("expected /var/www/app, got %s", wp.ContainerAppPath())
 	}
 	node := &Manifest{Project: ProjectConfig{Type: TypeNodeJS}}
-	if node.ContainerAppPath() != "/var/www/html" {
-		t.Errorf("expected /var/www/html, got %s", node.ContainerAppPath())
+	if node.ContainerAppPath() != "/var/www/app" {
+		t.Errorf("expected /var/www/app, got %s", node.ContainerAppPath())
 	}
 }
 
 func TestHostAppDir(t *testing.T) {
 	wp := &Manifest{Project: ProjectConfig{Type: TypeWordPress}}
-	if wp.HostAppDir() != "html" {
-		t.Errorf("expected html, got %s", wp.HostAppDir())
+	if wp.HostAppDir() != "app" {
+		t.Errorf("expected app, got %s", wp.HostAppDir())
 	}
 	node := &Manifest{Project: ProjectConfig{Type: TypeNodeJS}}
-	if node.HostAppDir() != "html" {
-		t.Errorf("expected html, got %s", node.HostAppDir())
+	if node.HostAppDir() != "app" {
+		t.Errorf("expected app, got %s", node.HostAppDir())
 	}
 }
 

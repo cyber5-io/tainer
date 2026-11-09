@@ -75,7 +75,7 @@ const (
 )
 
 // StepKind buckets the kind of artefact so the CLI can render with the
-// right vocabulary ("dir" → "html/", "registry" → "registered as wp3").
+// right vocabulary ("dir" → "app/", "registry" → "registered as wp3").
 type StepKind string
 
 const (
@@ -101,7 +101,7 @@ func Run(opts Options) (*RunResult, error) {
 //   - Does NOT create a project subdirectory inside dir; files land in dir.
 //   - Errors if tainer.yaml already exists in dir.
 //   - Validates the project name against validate.ProjectName.
-//   - Creates html/, data/, and (if HasDatabase) db/ under dir.
+//   - Creates app/, data/, and (if HasDatabase) db/ under dir.
 //   - For WordPress: also creates data/wp-content/{uploads,plugins,themes}.
 //   - Writes tainer.yaml into dir.
 //   - Writes .env into dir (skipped if the file already exists).
@@ -151,14 +151,14 @@ func RunIn(opts Options, dir string) (*RunResult, error) {
 	}
 	res.Steps = append(res.Steps, Step{Action: StepCreated, Kind: KindFile, Path: manifest.FileName})
 
-	// Create html/ (or whatever HostAppDir() returns).
+	// Create app/ (or whatever HostAppDir() returns).
 	if err := ensureDir(dir, m.HostAppDir(), res); err != nil {
 		return res, err
 	}
 
 	// Plain nodejs projects have no framework image that ships an app, so
 	// a fresh init would 502 until the user scaffolds something. Drop a
-	// minimal starter (package.json + server.js) into an empty html/ so
+	// minimal starter (package.json + server.js) into an empty app/ so
 	// the pod serves a landing page from the first start. Users replace it
 	// by scaffolding over it (e.g. `tainer npm create vite@latest .`).
 	if m.Project.Type == manifest.TypeNodeJS {
@@ -316,10 +316,10 @@ func ensureGitignoreReport(dir string) (added bool, err error) {
 }
 
 // writeNodeStarter drops a minimal runnable app (package.json + server.js)
-// into an empty html/ for plain nodejs projects. The container's
+// into an empty app/ for plain nodejs projects. The container's
 // start-node-app.sh finds the `start` script and serves port 3000, so the
 // pod answers with a landing page instead of a 502 on first start. If
-// html/ already has any entries (cloned repo, prior scaffold) it is left
+// app/ already has any entries (cloned repo, prior scaffold) it is left
 // untouched and the step is reported as adopted.
 func writeNodeStarter(dir, appDir, name string, res *RunResult) error {
 	full := filepath.Join(dir, appDir)

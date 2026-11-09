@@ -165,14 +165,14 @@ func writeSecrets(path string, s *Secrets) error {
 
 // ensureProjectEnv regenerates the project's gitignored .env files from the
 // pod's effective secrets. Clone-then-start: a fresh clone carries neither
-// the root .env nor (node apps) html/.env, so the app would boot with no DB
+// the root .env nor (node apps) app/.env, so the app would boot with no DB
 // credentials even though the database initializes fine from the secrets
 // store. Regeneration MUST use the existing secrets — fresh random creds
 // would diverge from a DB already initialized with the store's values.
 //
 //   - root .env: always (secrets adoption + apps pointing --env-file there).
 //   - <app-dir>/.env: node-family only — dotenv/--env-file read the app's
-//     own directory. Docroot types (php/wordpress) never get one: html/ is
+//     own directory. Docroot types (php/wordpress) never get one: app/ is
 //     web-served, and WP reads the injected container env instead.
 //
 // Existing files are never overwritten (env.GenerateWithCreds skips them);

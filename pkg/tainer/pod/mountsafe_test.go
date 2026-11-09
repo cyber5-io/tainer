@@ -32,11 +32,11 @@ func wpManifest(mounts ...string) *manifest.Manifest {
 
 var allRoles = []string{RoleWeb, RoleApp, RoleDB}
 
-// A cloned project that links html/data/db or a custom mount to a folder
+// A cloned project that links app/data/db or a custom mount to a folder
 // outside the project is refused by every role that mounts it, and
 // nothing is created through the link.
 func TestBuildMountsRefusesLinkedFolders(t *testing.T) {
-	for _, name := range []string{"html", "data", "db", "media"} {
+	for _, name := range []string{"app", "data", "db", "media"} {
 		t.Run(name, func(t *testing.T) {
 			proj, outside := realDir(t), realDir(t)
 			if err := os.Symlink(outside, filepath.Join(proj, name)); err != nil {
@@ -76,11 +76,11 @@ func TestBuildMountsRefusesInternalLinks(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(proj, "public"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("public", filepath.Join(proj, "html")); err != nil {
+	if err := os.Symlink("public", filepath.Join(proj, "app")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := buildMounts(wpManifest(), proj, RoleWeb); err == nil || !strings.Contains(err.Error(), "refusing to mount html") {
-		t.Errorf("internal html link: err = %v, want refusal", err)
+	if _, err := buildMounts(wpManifest(), proj, RoleWeb); err == nil || !strings.Contains(err.Error(), "refusing to mount app") {
+		t.Errorf("internal app link: err = %v, want refusal", err)
 	}
 }
 
@@ -142,7 +142,7 @@ func TestBuildMountsLegitProjectUnchanged(t *testing.T) {
 			}
 		}
 	}
-	for _, d := range []string{"html", "data", "db", "media"} {
+	for _, d := range []string{"app", "data", "db", "media"} {
 		fi, err := os.Lstat(filepath.Join(proj, d))
 		if err != nil || !fi.IsDir() {
 			t.Errorf("%s not created as a folder: %v", d, err)

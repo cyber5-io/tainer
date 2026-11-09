@@ -13,7 +13,7 @@ import (
 // resolve outside the project) happen when the mounts are built.
 
 // reservedMounts are the folders tainer itself mounts.
-var reservedMounts = map[string]bool{"html": true, "data": true, "db": true}
+var reservedMounts = map[string]bool{"app": true, "data": true, "db": true}
 
 // mountNamePattern is the character set a mount name may use: the same
 // plain characters as build-dir, without the separator.
@@ -34,6 +34,8 @@ func validateMountName(name string) error {
 		return fmt.Errorf("mount name %q cannot start with a dot", name)
 	case !mountNamePattern.MatchString(name):
 		return fmt.Errorf("mount name %q: use only letters, numbers, '.', '_' and '-'", name)
+	case strings.EqualFold(name, "html"):
+		return fmt.Errorf("the html folder was renamed to app — use app")
 	case reservedMounts[strings.ToLower(name)]:
 		return fmt.Errorf("mount name %q is reserved", name)
 	}
@@ -62,7 +64,7 @@ func validateMounts(names []string) error {
 // treats specially ({ } $ whitespace quotes) gets through.
 var buildDirPattern = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
 
-// cleanBuildDir checks runtime.build-dir (a folder inside html/) and returns
+// cleanBuildDir checks runtime.build-dir (a folder inside app/) and returns
 // it cleaned: relative, no "..", and only plain path characters.
 func cleanBuildDir(dir string) (string, error) {
 	if dir == "" {

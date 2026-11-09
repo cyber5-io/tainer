@@ -297,7 +297,7 @@ func TestUpdateNoArgsInProjectOffersOnlyThatPod(t *testing.T) {
 	parent := t.TempDir()
 	blog := registerProject(t, parent, "blog")
 	registerProject(t, parent, "shop")
-	sub := filepath.Join(blog, "html")
+	sub := filepath.Join(blog, "app")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -191,7 +191,7 @@ func TestMigratesAHandRegisteredControlProject(t *testing.T) {
 	old := t.TempDir()
 	oldFiles := map[string]string{
 		"tainer.yaml":               "version: 1\nproject:\n  name: control\n",
-		"html/package.json":         "{}",
+		"app/package.json":          "{}",
 		"data/settings.json":        `{"theme":"dark"}`,
 		"data/thumbnails/a.png":     "png-bytes",
 		"data/thumbnails/sub/b.png": "more",
@@ -525,7 +525,7 @@ func userControl(t *testing.T, f *fakeControl, body string) (string, map[string]
 	old := t.TempDir()
 	files := map[string]string{
 		"tainer.yaml":        body,
-		"html/index.php":     "<?php echo 'mine';",
+		"app/index.php":      "<?php echo 'mine';",
 		"db/ibdata1":         "my database",
 		"data/settings.json": `{"mine":true}`,
 		"data/thumbnails/a":  "mine",
@@ -620,5 +620,19 @@ func TestAStaleControlEntryIsTakenOverWithoutCopying(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "data", "settings.json")); !os.IsNotExist(err) {
 		t.Errorf("a non-dashboard folder's data was copied (err=%v)", err)
+	}
+}
+
+func TestAppMountIsCurrent(t *testing.T) {
+	dir := controlTestHome(t)
+	f := newFakeControl()
+	mf := filepath.Join(dir, "tainer.yaml")
+	f.running(RoleWeb, mf)
+	f.running(RoleApp, mf, [2]string{"/somewhere/app", "/var/www/app"})
+	if err := ensureControlPod(context.Background(), f.ops()); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if len(f.removed) != 0 {
+		t.Errorf("app mount: removed=%v, want none", f.removed)
 	}
 }

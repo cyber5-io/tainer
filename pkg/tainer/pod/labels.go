@@ -39,8 +39,8 @@ const (
 // mounts a role gets change in a way existing containers must pick up:
 // mounts are fixed when a container is made, and start otherwise reuses
 // it. 2: web reads the docroot, data and extra mounts read-only, and every
-// project folder is checked on disk before it is mounted.
-const MountsVersion = "2"
+// project folder is checked on disk before it is mounted. 3: the source folder is app/, mounted at /var/www/app.
+const MountsVersion = "3"
 
 // PodCgroup is the shared cgroup path for a project's pod. Every container
 // in the pod runs as a leaf under it; the parent carries the pod's aggregate

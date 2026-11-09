@@ -25,13 +25,13 @@ const (
 // Destroy removes the pod's containers. Behaviour by mode:
 //
 //   - DestroyDefault: containers + registry/pod-id slot only; the
-//     project's files (tainer.yaml, html/, data/, db/, secrets) are
+//     project's files (tainer.yaml, app/, data/, db/, secrets) are
 //     untouched. Fully reversible via `tainer start` from the project
 //     dir — same containers come back with the same data.
 //   - DestroyClean:   above + tainer-managed files in the project dir
 //     (tainer.yaml itself, all .tainer.* dotfiles) AND the per-project
 //     secrets file at ~/.cyberstack/tainer/secrets/<name>.env. User
-//     data (html/, data/, db/, .git/, anything else they put in the
+//     data (app/, data/, db/, .git/, anything else they put in the
 //     dir) is preserved so a fresh `tainer init` on the same path can
 //     adopt the existing data. Recoverable from version control + a
 //     re-init.
@@ -78,7 +78,7 @@ func Destroy(ctx context.Context, eng *engine.Client, podName, projectDir string
 	case DestroyNuke:
 		// Nuke removes everything *in* projectDir (not the dir itself
 		// — the caller may be cwd'd into it). We list the dir and
-		// RemoveAll each entry; that handles dotfiles, html/, data/,
+		// RemoveAll each entry; that handles dotfiles, app/, data/,
 		// db/, .git/, and anything else the user dropped in there.
 		// The secrets file lives outside the project dir so we still
 		// have to remove it explicitly.
@@ -94,7 +94,7 @@ func Destroy(ctx context.Context, eng *engine.Client, podName, projectDir string
 
 // tainerManagedFiles is the explicit list of files tainer creates in a
 // project dir during init + lifecycle. --clean removes these and only
-// these; user content (html/, data/, db/, .git/, etc.) is preserved.
+// these; user content (app/, data/, db/, .git/, etc.) is preserved.
 // When adding new tainer-created files anywhere in the codebase, append
 // them here so --clean stays exhaustive.
 var tainerManagedFiles = []string{

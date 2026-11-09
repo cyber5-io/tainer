@@ -36,7 +36,7 @@ func TestBindSourcesUseTheOnDiskSpelling(t *testing.T) {
 		t.Fatal(err)
 	}
 	proj := filepath.Join(real, "Proj")
-	if err := os.MkdirAll(filepath.Join(proj, "html"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(proj, "app"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	typed := swapCase(proj)
@@ -47,7 +47,7 @@ func TestBindSourcesUseTheOnDiskSpelling(t *testing.T) {
 	if err != nil || got != proj {
 		t.Errorf("CanonicalDir(%s) = %q, %v; want %q", typed, got, err, proj)
 	}
-	if got := hostBindSource(filepath.Join(typed, "html")); got != filepath.Join(proj, "html") {
+	if got := hostBindSource(filepath.Join(typed, "app")); got != filepath.Join(proj, "app") {
 		t.Errorf("hostBindSource = %q, want parent spelled %q", got, proj)
 	}
 }

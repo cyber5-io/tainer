@@ -151,7 +151,7 @@ func TestGenerateWithCredsSkipsExisting(t *testing.T) {
 	}
 }
 
-// The app-dir .env (html/.env for node apps) carries ONLY database
+// The app-dir .env (app/.env for node apps) carries ONLY database
 // connection settings — no root password, no tainer metadata. The root
 // .env remains the full project env.
 func TestGenerateAppEnvConnectionOnly(t *testing.T) {
@@ -240,9 +240,9 @@ func TestGenerateNeverWritesThroughALink(t *testing.T) {
 	}
 }
 
-// html/ can be swapped for a link (say by the app's own code, which has the
+// app/ can be swapped for a link (say by the app's own code, which has the
 // project read-write) after start checked it. The app .env is created
-// inside the folder that was checked, never through a linked html/.
+// inside the folder that was checked, never through a linked app/.
 func TestGenerateAppEnvNeverWritesThroughALinkedFolder(t *testing.T) {
 	m := &manifest.Manifest{
 		Project: manifest.ProjectConfig{Name: "site", Type: manifest.TypeNodeJS},
@@ -250,14 +250,14 @@ func TestGenerateAppEnvNeverWritesThroughALinkedFolder(t *testing.T) {
 	}
 	creds := DBCreds{Name: "n", User: "u", Password: "p", RootPassword: "r"}
 	proj, outside := t.TempDir(), t.TempDir()
-	if err := os.Symlink(outside, filepath.Join(proj, "html")); err != nil {
+	if err := os.Symlink(outside, filepath.Join(proj, "app")); err != nil {
 		t.Fatal(err)
 	}
-	err := GenerateAppEnv(m, filepath.Join(proj, "html", ".env"), creds)
+	err := GenerateAppEnv(m, filepath.Join(proj, "app", ".env"), creds)
 	if _, serr := os.Lstat(filepath.Join(outside, ".env")); serr == nil {
-		t.Fatal("wrote html/.env through the linked folder")
+		t.Fatal("wrote app/.env through the linked folder")
 	}
 	if err == nil || !strings.Contains(err.Error(), "link") {
-		t.Errorf("got %v, want a refusal saying html is a link", err)
+		t.Errorf("got %v, want a refusal saying app is a link", err)
 	}
 }

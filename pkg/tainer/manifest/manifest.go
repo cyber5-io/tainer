@@ -230,12 +230,12 @@ func (m *Manifest) ContainerMountBase() string {
 
 // ContainerAppPath returns the container path where source code is mounted.
 func (m *Manifest) ContainerAppPath() string {
-	return "/var/www/html"
+	return "/var/www/app"
 }
 
 // HostAppDir returns the name of the source code directory on the host.
 func (m *Manifest) HostAppDir() string {
-	return "html"
+	return "app"
 }
 
 func Exists(dir string) bool {

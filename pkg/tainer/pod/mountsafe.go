@@ -43,7 +43,7 @@ func projectRoot(projectDir string) (string, error) {
 // projectFolder returns root/rel after checking that every step from root
 // down to it is a real folder (never a link), creating the missing ones
 // (git doesn't carry empty folders, so a fresh clone often lacks data/, db/
-// or even html/). label names the folder in errors. rel "" is the project
+// or even app/). label names the folder in errors. rel "" is the project
 // itself.
 func projectFolder(root, rel, label string) (string, error) {
 	if rel == "" {

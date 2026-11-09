@@ -194,7 +194,7 @@ func ctxWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
 //
 //   - args empty: walk up from cwd looking for tainer.yaml. This lets
 //     users run `tainer <verb>` from any depth inside the project tree
-//     (html/, data/, html/src/components, etc.) without thinking. Fail
+//     (app/, data/, app/src/components, etc.) without thinking. Fail
 //     if we reach the filesystem root.
 //
 //   - args[0] non-empty: ignore cwd entirely and look the name up in
@@ -1018,7 +1018,7 @@ func doctorHasPodResults(rep doctor.Report) bool {
 // Output flags: --plain (auto when piped), --json, --no-color.
 //
 // Re-initing on a directory that previously held a tainer project (after
-// `tainer destroy --clean`) works: html/, data/, db/ are adopted in
+// `tainer destroy --clean`) works: app/, data/, db/ are adopted in
 // place and reported as such instead of re-created, so the user can re-
 // init without losing their data.
 func cmdInit(args []string) {
@@ -1462,7 +1462,7 @@ func emitStartJSON(res *pod.StartResult) {
 // `res` and returns the error. Wrapped this way so it can be passed to
 // tui.RunSpinner which only takes a func() error.
 // nodeAppMissing reports whether this is a node-family project whose
-// html/ has no package.json yet. In that state the app container idles
+// app/ has no package.json yet. In that state the app container idles
 // ("scaffold your app") and the site can never answer, so start/restart
 // should say that instead of waiting 60s and hinting "still warming up".
 func nodeAppMissing(manifestPath, projectDir string) bool {
@@ -1481,7 +1481,7 @@ func scaffoldHint(t manifest.ProjectType) string {
 	if t == manifest.TypeSvelteKit {
 		scaffold = "npm exec -- sv create ."
 	}
-	return "no app in html/ yet — scaffold one (e.g. `tainer " + scaffold + "`), then `tainer restart`"
+	return "no app in app/ yet — scaffold one (e.g. `tainer " + scaffold + "`), then `tainer restart`"
 }
 
 // scaffoldHintFor returns the hint for the manifest's project type, falling
@@ -1963,7 +1963,7 @@ func cmdExec(args []string) {
 
 	// Fill in sensible per-project-type defaults for --user and
 	// --workdir so `tainer exec -- wp option get siteurl` picks up
-	// www-data + /var/www/html automatically without every user
+	// www-data + /var/www/app automatically without every user
 	// having to remember the UID and path. User-supplied flags always
 	// win — the defaults only fill blanks. When we can't infer a
 	// default (unusual role, unknown type), we leave the field empty

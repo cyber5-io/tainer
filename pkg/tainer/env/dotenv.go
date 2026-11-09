@@ -46,10 +46,10 @@ func Generate(m *manifest.Manifest, path string) error {
 	})
 }
 
-// GenerateAppEnv creates the app-directory .env (html/.env for node apps)
+// GenerateAppEnv creates the app-directory .env (app/.env for node apps)
 // with ONLY database connection settings: DB_HOST/PORT/NAME/USER/PASSWORD and
 // the DATABASE_URL/URI the app dials with. Deliberately excluded: the root
-// password (the app never needs it and html/ is the most-exposed dir in the
+// password (the app never needs it and app/ is the most-exposed dir in the
 // project), native DB-init vars (the db container reads those from injected
 // env), and tainer metadata. Projects without a database get no file at all.
 // Never overwrites an existing file.
@@ -196,7 +196,7 @@ func writeNew(path string, data []byte) error {
 }
 
 // writeNewInRealFolder is writeNew for a file inside a project folder
-// (html/.env): the folder itself must be a real folder, not a link, and the
+// (app/.env): the folder itself must be a real folder, not a link, and the
 // file is created through the opened folder, so a link swapped in for it
 // after the check is refused rather than written through.
 func writeNewInRealFolder(path string, data []byte) error {

@@ -9,7 +9,7 @@ import (
 // controlImageVersion is the sealed control image this tainer build pins as a
 // floor. The control pod never runs older than this, and never rolls back
 // below a version already recorded in the registry.
-const controlImageVersion = "1.0.0"
+const controlImageVersion = "1.0.2"
 
 // controlManifestYAML is the built-in definition of the control pod.
 const controlManifestYAML = `version: 2
