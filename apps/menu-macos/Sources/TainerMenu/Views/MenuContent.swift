@@ -61,12 +61,14 @@ struct MenuContent: View {
         } else {
             VStack(spacing: 0) {
                 ForEach(state.visiblePods) { pod in
-                    PodRow(model: PodRowModel(pod: pod, busy: state.busy.contains(pod.name), update: updates.pods[pod.name]), palette: palette, onAction: onAction)
+                    PodRow(model: PodRowModel(pod: pod, busy: state.busy.contains(pod.name), update: updates.pods[pod.name],
+                                                    updatesAllowed: updates.podUpdatesAllowed), palette: palette, onAction: onAction)
                 }
                 if state.showsPager { pager(palette) }
                 if updates.pods.count >= 2 {
                     MenuItem(symbol: "arrow.down.circle", title: UpdateCopy.updateAllPods, color: palette.link, palette: palette,
                              action: onUpdateAllPods)
+                        .disabled(!updates.podUpdatesAllowed)
                         .padding(.top, 2)
                 }
             }

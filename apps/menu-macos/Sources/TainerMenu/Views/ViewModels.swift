@@ -8,6 +8,8 @@ struct PodRowModel {
     let pod: Pod
     let busy: Bool
     var update: PodUpdate? = nil
+    /// False while tainer or the menu is updating: the update button is left out.
+    var updatesAllowed = true
 
     var title: String { pod.domain.isEmpty ? pod.name : pod.domain }
     var tooltip: String { pod.name }
@@ -40,7 +42,7 @@ struct PodRowModel {
         case .stopped: base = [.start, .manage]
         case .unknown: base = [.manage]
         }
-        return hasUpdate ? [.update] + base : base
+        return hasUpdate && updatesAllowed ? [.update] + base : base
     }
 }
 

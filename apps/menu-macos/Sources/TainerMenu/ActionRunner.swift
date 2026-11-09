@@ -83,7 +83,7 @@ final class ActionRunner {
             label = pod
             arguments = [command(action), pod, "--json"]
         case (.update, let pod?):
-            guard !state.busy.contains(pod) else { return }
+            guard !state.busy.contains(pod), !selfUpdateRunning else { return }
             label = pod
             guard let target = updateTarget(pod) else {
                 await sink.post("\(pod): update it from its folder with tainer update ./\(pod)")

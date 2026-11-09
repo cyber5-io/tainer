@@ -62,10 +62,15 @@ struct UpdateCheckDocument: Equatable, Sendable {
     }
 
     private struct Doc: Decodable {
-        var pods: [Row]
+        var pods: [Row]?
         var tainer: ReleaseInfo?
         var menu: ReleaseInfo?
+        var checkedAt: String?
+        var error: Present?
     }
+
+    /// Decodes from any object; only its presence matters.
+    private struct Present: Decodable {}
 
     /// nil for an error envelope, a malformed document, or no output at all.
     static func parse(_ lines: [String]) -> UpdateCheckDocument? {
@@ -73,8 +78,10 @@ struct UpdateCheckDocument: Equatable, Sendable {
         guard !text.isEmpty, let data = text.data(using: .utf8),
               let doc = try? JSONDecoder().decode(Doc.self, from: data)
         else { return nil }
+        // Not a check document: an error envelope, or something without any check keys.
+        guard doc.error == nil, doc.pods != nil || doc.checkedAt != nil || doc.tainer != nil || doc.menu != nil else { return nil }
         var pods: [String: PodUpdate] = [:]
-        for row in doc.pods where row.updateAvailable {
+        for row in doc.pods ?? [] where row.updateAvailable {
             pods[row.name] = PodUpdate(name: row.name, parts: row.parts)
         }
         return UpdateCheckDocument(tainer: doc.tainer, menu: doc.menu, pods: pods)

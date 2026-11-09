@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import TainerMenu
@@ -69,7 +70,7 @@ private let errDoc = #"{"v":1,"error":{"code":"internal","message":"boom"}}"#
 }
 
 @MainActor
-@Test func pollerChecksAtLaunchDelayThenEveryFourHours() async {
+@Test func pollerChecksAtLaunchDelayThenDaily() async {
     let clock = FakeClock()
     let fake = FakeRunner([.stream(lines: [newCheckDoc], status: 0), .stream(lines: [newCheckDoc], status: 0)])
     let checker = UpdateChecker(runner: fake, clock: clock, locate: { "/bin/tainer" })
@@ -77,10 +78,13 @@ private let errDoc = #"{"v":1,"error":{"code":"internal","message":"boom"}}"#
     await settle { clock.requested == [10] }
     #expect(fake.spawnCount == 0)
     clock.advance(by: 10)
-    await settle { clock.requested == [10, 4 * 3600] }
+    await settle { clock.requested == [10, 24 * 3600] }
     #expect(fake.spawnCount == 1)
     #expect(checker.tainerRow == "Tainer 1.5.0 is available — Update…")
-    clock.advance(by: 4 * 3600)
+    clock.advance(by: 23 * 3600)
+    for _ in 0..<1000 { await Task.yield() }
+    #expect(fake.spawnCount == 1)
+    clock.advance(by: 3600)
     await settle { fake.spawnCount == 2 }
     checker.stop()
 }
@@ -195,8 +199,6 @@ private let selfDoc = #"{"v":1,"mode":"tainer","from":"1.4.0","to":"1.5.0","upda
 
 // MARK: - Bar icon dot
 
-import AppKit
-
 @MainActor
 private func pixels(_ image: NSImage) -> [UInt8] {
     let w = 90, h = 72
@@ -231,4 +233,70 @@ private func whiteTopRight(_ px: [UInt8]) -> Int {
         #expect(pixels(BarIconRenderer.markImage(style: style, pulseHigh: true, updateBadge: true))
                 == pixels(BarIconRenderer.markImage(style: style, pulseHigh: true)))
     }
+}
+
+// MARK: - Fix round 1
+
+/// The first spawn blocks until `release()`; every spawn then streams `line`.
+final class GateRunner: ProcessRunner, @unchecked Sendable {
+    private let lock = NSLock()
+    private var spawns = 0
+    private var open = false
+    let line: String
+    init(line: String) { self.line = line }
+    var spawnCount: Int { lock.withLock { spawns } }
+    func release() { lock.withLock { open = true } }
+
+    func run(executable: String, arguments: [String], onLine: @escaping @Sendable (String) async -> Void) async throws -> ProcessResult {
+        let first = lock.withLock { () -> Bool in spawns += 1; return spawns == 1 }
+        if first { while !lock.withLock({ open }) { await Task.yield() } }
+        await onLine(line)
+        return ProcessResult(status: 0, stderr: "")
+    }
+}
+
+@MainActor
+@Test func recheckDuringACheckRunsOnceMoreAfterIt() async {
+    let fake = GateRunner(line: newCheckDoc.replacingOccurrences(of: "\n", with: ""))
+    let checker = UpdateChecker(runner: fake, clock: FakeClock(), locate: { "/bin/tainer" })
+    let first = Task { await checker.check() }
+    await settle { fake.spawnCount == 1 }
+    await checker.check()
+    await checker.check()
+    #expect(fake.spawnCount == 1)
+    fake.release()
+    await first.value
+    #expect(fake.spawnCount == 2)
+    #expect(checker.tainerRow == "Tainer 1.5.0 is available — Update…")
+}
+
+@MainActor
+@Test func podUpdatesWaitForASelfUpdate() async {
+    let checker = UpdateChecker(runner: FakeRunner([]), clock: FakeClock(), locate: { "/bin/tainer" })
+    #expect(checker.podUpdatesAllowed)
+    checker.activity = .updatingTainer
+    #expect(!checker.podUpdatesAllowed)
+
+    let running = Pod(name: "blog", domain: "blog.tainer.me", state: .running, running: 2, total: 2)
+    let locked = PodRowModel(pod: running, busy: false, update: PodUpdate(name: "blog", parts: "x"), updatesAllowed: false)
+    #expect(locked.actions == [.open, .restart, .stop, .manage])
+
+    let fake = PerArgRunner(blocking: "tainer")
+    let runner = ActionRunner(state: StackState(), runner: fake, sink: FakeSink(), locate: { "/bin/tainer" })
+    let selfUpdate = Task { await runner.runSelfUpdate(.tainer) }
+    await settle { fake.arguments.count == 1 }
+    await runner.run(.update, pod: "blog")
+    #expect(fake.arguments.count == 1)
+    selfUpdate.cancel()
+    await selfUpdate.value
+    await runner.run(.update, pod: "blog")
+    #expect(fake.arguments.last == ["update", "blog", "--json"])
+}
+
+@Test func nullPodsStillParses() throws {
+    let doc = #"{"v":1,"checkedAt":"2026-11-02T12:00:00.000Z","pods":null,"tainer":{"installed":"1.4.0","available":"1.5.0","updateAvailable":true,"notes":""}}"#
+    let parsed = try #require(UpdateCheckDocument.parse([doc]))
+    #expect(parsed.pods.isEmpty)
+    #expect(parsed.tainer?.available == "1.5.0")
+    #expect(UpdateCheckDocument.parse([#"{"v":1}"#]) == nil)
 }

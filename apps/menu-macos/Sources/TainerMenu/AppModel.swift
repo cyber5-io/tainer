@@ -62,7 +62,7 @@ final class AppModel {
     /// Running pods restart while they update, so ask first (Update / Cancel); then update one
     /// at a time and check again.
     private func updatePods(_ names: [String]) {
-        guard !names.isEmpty else { return }
+        guard !names.isEmpty, updates.podUpdatesAllowed else { return }
         let running = names.filter(Set(runningPods).contains)
         if !running.isEmpty, !Confirm.ask(UpdateCopy.podsWarning(running), ok: "Update", cancel: "Cancel") { return }
         let actions = self.actions, updates = self.updates
