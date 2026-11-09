@@ -265,3 +265,56 @@ func TestSnapshotReturnsOtherListErrors(t *testing.T) {
 		t.Fatalf("err = %v, want %v", err, boom)
 	}
 }
+
+func writeScript(t *testing.T, body string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "tainer")
+	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestInstalledBinaryVersion(t *testing.T) {
+	defer func(p string, d time.Duration) { installedTainerBin, installedVersionTimeout = p, d }(installedTainerBin, installedVersionTimeout)
+	cases := []struct {
+		name, bin, want string
+		timeout         time.Duration
+	}{
+		{"prints version", writeScript(t, `[ "$1" = version ] && echo "  1.5.0  "`), "1.5.0", 3 * time.Second},
+		{"fails", writeScript(t, "exit 1"), "", 3 * time.Second},
+		{"hangs", writeScript(t, "exec sleep 5"), "", 200 * time.Millisecond},
+		{"missing", filepath.Join(t.TempDir(), "nope"), "", 3 * time.Second},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			installedTainerBin, installedVersionTimeout = c.bin, c.timeout
+			start := time.Now()
+			if got := installedBinaryVersion(); got != c.want {
+				t.Fatalf("got %q, want %q", got, c.want)
+			}
+			if time.Since(start) > c.timeout+2*time.Second {
+				t.Fatalf("took %s; timeout not honoured", time.Since(start))
+			}
+		})
+	}
+}
+
+func TestSameVersion(t *testing.T) {
+	cases := []struct {
+		installed, want string
+		match           bool
+	}{
+		{"1.5.0", "1.5.0", true},
+		{"v1.5.0", "1.5.0", true},
+		{"1.5.0", "v1.5.0", true},
+		{"1.4.0", "1.5.0", false},
+		{"", "", false},
+		{"", "1.5.0", false},
+	}
+	for _, c := range cases {
+		if got := sameVersion(c.installed, c.want); got != c.match {
+			t.Errorf("sameVersion(%q, %q) = %v, want %v", c.installed, c.want, got, c.match)
+		}
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -30,6 +31,28 @@ var errRuntimeUnreachable = errors.New("tainer isn't running")
 // resumeUnreadableMsg is printed when the resume file can't be read.
 const resumeUnreadableMsg = "couldn't read the list of pods to bring back; start them with tainer start"
 
+// installedTainerBin is the installed tainer binary. The pkg replaces it
+// before postinstall runs, so its version is right immediately — unlike
+// the pkg receipt, which macOS writes only after postinstall.
+var installedTainerBin = "/opt/tainer/bin/tainer"
+
+// installedVersionTimeout bounds `tainer version` on the installed binary.
+var installedVersionTimeout = 5 * time.Second
+
+// installedBinaryVersion runs `<installedTainerBin> version` and returns
+// its trimmed output, or "" on any failure.
+func installedBinaryVersion() string {
+	ctx, cancel := context.WithTimeout(context.Background(), installedVersionTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, installedTainerBin, "version")
+	cmd.WaitDelay = time.Second
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // resumeOps is everything runResume and snapshotRunning touch outside
 // the resume file, so tests can drive them without a runtime.
 type resumeOps struct {
@@ -40,8 +63,8 @@ type resumeOps struct {
 	out       io.Writer
 }
 
-// liveResumeOps wires resumeOps to the real runtime, registry and pkg
-// receipt.
+// liveResumeOps wires resumeOps to the real runtime, registry and the
+// installed tainer binary.
 func liveResumeOps() resumeOps {
 	return resumeOps{
 		list: func(ctx context.Context) ([]release.ResumeEntry, error) {
@@ -72,7 +95,7 @@ func liveResumeOps() resumeOps {
 			})
 			return err
 		},
-		installed: func() string { return release.InstalledTainer(release.ExecRunner) },
+		installed: installedBinaryVersion,
 		now:       time.Now,
 		out:       os.Stdout,
 	}
