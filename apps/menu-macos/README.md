@@ -14,21 +14,11 @@ Brand rasters in `Sources/TainerMenu/Resources/` are generated from `packaging/b
 
 ## Packaging into the .pkg
 
-The shipping menu app is still the Go `cmd/tainer-menu`. The Makefile target `menu-app` builds it into `dist/Tainer Menu.app`, and `pkg-full-root` (both in the repo-root `Makefile`) copies that bundle into the installer payload:
+This is the shipping menu app (the Go `cmd/tainer-menu` is retired). The `menu-app` target in the repo-root `Makefile` runs `scripts/make-app.sh --app-version $(MENU_VERSION)` (`MENU_VERSION` defaults to `VERSION`), copies `build/Tainer Menu.app` to `dist/Tainer Menu.app` as `$(MENU_APP)`, and signs it with `codesign $(SIGN_FLAGS_BASE) --sign "$(SIGN_IDENTITY)"` (ad-hoc when `TAINER_SIGNING_IDENTITY` is unset). `pkg-full-root` then copies the bundle into the installer payload under `/Applications/`.
 
-    cp -R "$(MENU_APP)" "$(PKG_FULL_ROOT)/Applications/"
-
-That line, under the comment `# Menu-bar app in /Applications + a login agent to start it.`, is the insertion point. To ship the SwiftUI app, `menu-app` (or a sibling target it depends on) must:
-
-1. Run `apps/menu-macos/scripts/make-app.sh` and take `apps/menu-macos/build/Tainer Menu.app` as `$(MENU_APP)`, instead of the `go build` and `install` steps.
-2. Pass `--app-version $(VERSION)` so the bundle's `Info.plist` carries tainer's version (make-app.sh does the stamping).
-3. Sign the finished bundle with the existing `codesign $(SIGN_FLAGS_BASE) --sign "$(SIGN_IDENTITY)"` line (`--force --options runtime --timestamp`).
-
-Things that must change together with that swap:
-
-- `packaging/menu/io.cyber5.tainer.menu.plist` launches `/Applications/Tainer Menu.app/Contents/MacOS/tainer-menu`. The SwiftUI executable is `TainerMenu`, so the plist `ProgramArguments` has to be updated (or `make-app.sh` taught to name the executable `tainer-menu`). Left as is, the login agent would fail to start the new app.
-- `packaging/installer/pkg-full-components.plist` already pins the bundle to `Applications/Tainer Menu.app`, `postinstall-full` already bootstraps the `io.cyber5.tainer.menu` agent, and `tainer-uninstall.sh` already removes the bundle and the agent. None of these change.
-- The bundle id (`io.cyber5.tainer.menu`) matches the Go app, so the agent label and the uninstaller keep working.
+- `packaging/menu/io.cyber5.tainer.menu.plist` launches `/Applications/Tainer Menu.app/Contents/MacOS/TainerMenu`.
+- `packaging/installer/pkg-full-components.plist` pins the bundle to `Applications/Tainer Menu.app`, `postinstall-full` bootstraps the `io.cyber5.tainer.menu` agent, and `tainer-uninstall.sh` removes the bundle and the agent.
+- The bundle id is `io.cyber5.tainer.menu`, matching the agent label.
 - The app finds the CLI via `TAINER_CLI`, then `/opt/tainer/bin/tainer`, then `PATH`. It needs a CLI that supports `tainer watch --json`; against an older CLI it stays in the recovering state with an "update tainer" hint and turns unreachable after 60 seconds.
 - Sandboxing is not used (it spawns the CLI). Hardened runtime needs no extra entitlements for subprocess launch, but verify once with a signed build.
 
@@ -40,7 +30,7 @@ Nothing in this directory signs or notarises. `make-app.sh` output is unsigned a
 2. Submit the signed installer for notarisation (`xcrun notarytool submit ... --wait`) using the team's notary credentials, then staple the ticket (`xcrun stapler staple`).
 3. Verify on a clean machine: `spctl --assess --type install` on the pkg, `codesign --verify --deep --strict` on the installed app, and a login-agent launch after install.
 
-## Parity with the Go app (`cmd/tainer-menu`)
+## Parity with the retired Go app (`cmd/tainer-menu`, removed from the tree)
 
 | Go app feature | SwiftUI app |
 | --- | --- |

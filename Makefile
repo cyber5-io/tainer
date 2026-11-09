@@ -49,9 +49,8 @@ test:
 	go test ./...
 
 # Cross-compilation gate: every supported GOOS/GOARCH must compile.
-# Explicit target list — cmd/tainer-menu is darwin-only (vendored systray)
-# and excluded by design. Build-only (no artifacts kept): -o /dev/null
-# works per-binary, but pkg/... is a compile check, so plain `go build`.
+# Build-only (no artifacts kept): -o /dev/null works per-binary, but
+# pkg/... is a compile check, so plain `go build`.
 cross:
 	GOOS=darwin GOARCH=arm64 go build ./cmd/tainer ./pkg/...
 	GOOS=linux GOARCH=amd64 go build ./cmd/tainer ./pkg/...
@@ -237,16 +236,13 @@ PKG_FULL_IDENTIFIER := io.cyber5.tainer
 # ---------------------------------------------------------------------------
 MENU_APP_NAME := Tainer Menu.app
 MENU_APP      := $(DIST_DIR)/$(MENU_APP_NAME)
-MENU_BIN      := $(BIN_DIR)/tainer-menu
+MENU_SRC_APP  := apps/menu-macos/build/$(MENU_APP_NAME)
 
 menu-app:
-	@mkdir -p $(BIN_DIR) $(DIST_DIR)
-	go build -ldflags '$(LDFLAGS)' -o $(MENU_BIN) ./cmd/tainer-menu
+	@mkdir -p $(DIST_DIR)
+	apps/menu-macos/scripts/make-app.sh --app-version $(MENU_VERSION)
 	rm -rf "$(MENU_APP)"
-	mkdir -p "$(MENU_APP)/Contents/MacOS" "$(MENU_APP)/Contents/Resources"
-	install -m 0755 $(MENU_BIN) "$(MENU_APP)/Contents/MacOS/tainer-menu"
-	install -m 0644 packaging/menu/tainer-menu.icns "$(MENU_APP)/Contents/Resources/tainer-menu.icns"
-	sed 's/@VERSION@/$(VERSION)/g' packaging/menu/Info.plist > "$(MENU_APP)/Contents/Info.plist"
+	cp -R "$(MENU_SRC_APP)" "$(MENU_APP)"
 	@if [ "$(SIGN_IDENTITY)" = "-" ]; then \
 		echo "warning: TAINER_SIGNING_IDENTITY unset, ad-hoc signing menu app (NOT notarisable)"; \
 	fi

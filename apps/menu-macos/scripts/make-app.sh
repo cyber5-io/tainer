@@ -35,7 +35,8 @@ check() {
     # Must match AppBundle.resources: Bundle.main.resourceURL + resource bundle name.
     local rb="$APP/Contents/Resources/TainerMenu_TainerMenu.bundle"
     [ -d "$rb" ] || { echo "FAIL: resource bundle missing at $rb"; fail=1; }
-    [ -f "$rb/bar-mark@2x.png" ] || [ -f "$rb/bar-mark.png" ] || { echo "FAIL: bar-mark not inside $rb"; fail=1; }
+    # Newer toolchains emit a deep bundle (Contents/Resources); older ones a flat one.
+    [ -f "$rb/bar-mark@2x.png" ] || [ -f "$rb/bar-mark.png" ] || [ -f "$rb/Contents/Resources/bar-mark@2x.png" ] || [ -f "$rb/Contents/Resources/bar-mark.png" ] || { echo "FAIL: bar-mark not inside $rb"; fail=1; }
     [ "$(/usr/libexec/PlistBuddy -c 'Print :LSUIElement' "$PLIST")" = "true" ] || { echo "FAIL: LSUIElement is not true"; fail=1; }
     [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST")" = "io.cyber5.tainer.menu" ] || { echo "FAIL: CFBundleIdentifier"; fail=1; }
     [ "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$PLIST")" = "14.0" ] || { echo "FAIL: LSMinimumSystemVersion"; fail=1; }
