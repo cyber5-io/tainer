@@ -301,18 +301,16 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 	// leader's network. Only containers go: the project's files, data/ and
 	// db/ are folders in the project and stay as they are. A removal that
 	// fails stops the start, so an old container is never reused.
-	outdated, err := podMountsOutdated(ctx, eng.Inspect, m.Project.Name, roles)
-	if err != nil {
-		return nil, err
+	// The replacement runs the current images, not whatever older ones the
+	// moving tags last resolved to: every role's image is pulled first.
+	ops := replaceOps{
+		inspect: eng.Inspect,
+		pull:    eng.Pull,
+		stop:    eng.StopTimeout,
+		remove:  func(ctx context.Context, name string) error { return eng.Remove(ctx, name, true) },
 	}
-	if outdated {
-		ops := replaceOps{
-			stop:   eng.StopTimeout,
-			remove: func(ctx context.Context, name string) error { return eng.Remove(ctx, name, true) },
-		}
-		if err := replaceOutdatedPod(ctx, ops, m.Project.Name, roles); err != nil {
-			return nil, err
-		}
+	if err := refreshOutdatedPod(ctx, ops, m.Project.Name, roles, refs); err != nil {
+		return nil, err
 	}
 
 	report("start", "starting containers", -1, false)
@@ -360,9 +358,6 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 	return res, nil
 }
 
-// buildLeaderPortBindings collects every TCP port binding for the pod
-// — auto-derived from pod_id*10+offset for known roles, or the user's
-// `host_port:` value where set.
 // checkProjectFolders migrates a legacy html/ to app/ and then checks every
 // role's mounts. The order matters: buildMounts creates missing folders,
 // so run first it would make an empty app/ beside a full html/. The
@@ -383,6 +378,9 @@ func checkProjectFolders(m *manifest.Manifest, projectDir string, notices io.Wri
 	return nil
 }
 
+// buildLeaderPortBindings collects every TCP port binding for the pod
+// — auto-derived from pod_id*10+offset for known roles, or the user's
+// `host_port:` value where set.
 func buildLeaderPortBindings(m *manifest.Manifest, podID int) []engine.PortMap {
 	out := make([]engine.PortMap, 0, len(m.Ports))
 	for _, p := range m.Ports {
@@ -572,8 +570,26 @@ const dbStopTimeout = 30
 // replaceOps are the runtime actions replaceOutdatedPod drives; split out
 // so the order can be tested without a runtime.
 type replaceOps struct {
-	stop   func(ctx context.Context, name string, timeout *int) error
-	remove func(ctx context.Context, name string) error
+	inspect func(ctx context.Context, name string) (container.InspectResponse, error)
+	pull    func(ctx context.Context, ref string) error
+	stop    func(ctx context.Context, name string, timeout *int) error
+	remove  func(ctx context.Context, name string) error
+}
+
+// refreshOutdatedPod replaces a pod made under older mount rules, and does
+// nothing to a current one. Before anything is stopped it pulls every
+// role's image (refs), present locally or not, so the recreated pod runs
+// the images its tags point at now rather than old ones under new mounts.
+// A pull that fails refuses the start with the pod left as it was.
+func refreshOutdatedPod(ctx context.Context, ops replaceOps, project string, roles, refs []string) error {
+	outdated, err := podMountsOutdated(ctx, ops.inspect, project, roles)
+	if err != nil || !outdated {
+		return err
+	}
+	if err := engine.PullImages(ctx, refs, ops.pull); err != nil {
+		return fmt.Errorf("pod start: %w", err)
+	}
+	return replaceOutdatedPod(ctx, ops, project, roles)
 }
 
 // replaceOutdatedPod removes every container of a pod made under older

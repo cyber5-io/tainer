@@ -84,3 +84,30 @@ func TestMissingImages(t *testing.T) {
 		t.Errorf("missing = %v err = %v", m, err)
 	}
 }
+
+// PullImages pulls every ref, stored locally or not: a recreated pod must
+// get the current images behind moving tags.
+func TestPullImagesPullsEveryRef(t *testing.T) {
+	_, pull, pulled := fakes(nil, nil)
+	if err := PullImages(context.Background(), []string{"a:1", "b:1"}, pull); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(*pulled, ",") != "a:1,b:1" {
+		t.Errorf("pulled %v, want [a:1 b:1]", *pulled)
+	}
+}
+
+func TestPullImagesFailureIsPlainDownloadError(t *testing.T) {
+	_, pull, pulled := fakes(nil, errors.New("dial tcp: engine VM unreachable"))
+	err := PullImages(context.Background(), []string{"a:1", "b:1"}, pull)
+	var de *DownloadError
+	if !errors.As(err, &de) {
+		t.Fatalf("err = %v, want DownloadError", err)
+	}
+	if want := "couldn't download a:1 — are you offline?"; err.Error() != want {
+		t.Errorf("err = %q, want %q", err.Error(), want)
+	}
+	if len(*pulled) != 1 {
+		t.Errorf("pulled %v, want to stop at the first failure", *pulled)
+	}
+}

@@ -167,3 +167,66 @@ func TestReplaceOutdatedPodStopsGracefullyFirst(t *testing.T) {
 		t.Error("failed removal: want the start stopped")
 	}
 }
+
+// A pod recreated for outdated mounts gets fresh images first: every role's
+// ref is pulled (moving tags), so new mounts never run old images. A failed
+// pull refuses the start before anything is removed. A pod whose mounts are
+// current is left alone and nothing is pulled.
+func TestOutdatedPodPullsEveryImageBeforeReplacing(t *testing.T) {
+	roles := []string{RoleWeb, RoleDB, RoleApp}
+	refs := []string{"web:1", "db:1", "app:1"}
+	run := func(label string, pullErr error) ([]string, error) {
+		var calls []string
+		ops := replaceOps{
+			inspect: func(_ context.Context, name string) (container.InspectResponse, error) {
+				return inspWithMounts(label), nil
+			},
+			pull: func(_ context.Context, ref string) error {
+				calls = append(calls, "pull "+ref)
+				return pullErr
+			},
+			stop: func(_ context.Context, name string, _ *int) error {
+				calls = append(calls, "stop "+name)
+				return nil
+			},
+			remove: func(_ context.Context, name string) error {
+				calls = append(calls, "remove "+name)
+				return nil
+			},
+		}
+		return calls, refreshOutdatedPod(context.Background(), ops, "site", roles, refs)
+	}
+
+	calls, err := run("", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) < 3 || calls[0] != "pull web:1" || calls[1] != "pull db:1" || calls[2] != "pull app:1" {
+		t.Fatalf("calls %v: want every image pulled before any stop/remove", calls)
+	}
+	removes := 0
+	for _, c := range calls {
+		if len(c) > 6 && c[:6] == "remove" {
+			removes++
+		}
+	}
+	if removes != 3 {
+		t.Errorf("calls %v: want the whole pod replaced", calls)
+	}
+
+	calls, err = run("", errors.New("dial tcp: no route"))
+	var de *engine.DownloadError
+	if !errors.As(err, &de) || err.Error() != "pod start: couldn't download web:1 — are you offline?" {
+		t.Fatalf("err = %v, want the offline refusal", err)
+	}
+	for _, c := range calls {
+		if c[:4] != "pull" {
+			t.Errorf("calls %v: a failed pull must not touch the pod", calls)
+		}
+	}
+
+	calls, err = run(MountsVersion, nil)
+	if err != nil || len(calls) != 0 {
+		t.Errorf("current mounts: calls %v err %v, want nothing pulled or replaced", calls, err)
+	}
+}

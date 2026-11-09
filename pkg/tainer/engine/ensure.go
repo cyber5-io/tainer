@@ -57,6 +57,19 @@ func EnsureImages(ctx context.Context, refs []string,
 	return nil
 }
 
+// PullImages pulls every ref, whether stored locally or not, so moving tags
+// resolve to their current image. It is for a pod about to be recreated;
+// an ordinary start uses EnsureImages and never contacts the registry for
+// an image it already has. The first failure stops it as a DownloadError.
+func PullImages(ctx context.Context, refs []string, pull func(context.Context, string) error) error {
+	for _, ref := range refs {
+		if err := pull(ctx, ref); err != nil {
+			return &DownloadError{Ref: ref, Cause: err}
+		}
+	}
+	return nil
+}
+
 func (c *Client) hasImage(ctx context.Context, ref string) (bool, error) {
 	_, err := c.ImageInspect(ctx, ref)
 	if err == nil {
@@ -76,4 +89,9 @@ func (c *Client) MissingImages(ctx context.Context, refs ...string) ([]string, e
 // EnsureImages pulls only the refs not already stored locally.
 func (c *Client) EnsureImages(ctx context.Context, refs ...string) error {
 	return EnsureImages(ctx, refs, c.hasImage, c.Pull)
+}
+
+// PullImages pulls every ref, including ones already stored locally.
+func (c *Client) PullImages(ctx context.Context, refs ...string) error {
+	return PullImages(ctx, refs, c.Pull)
 }

@@ -5,8 +5,8 @@ Manual steps for Leni. The code side of the rename is done in every repo; these 
 ## 1. Release order
 
 1. Push `kompozi` main first (the kompozi image clones it).
-2. Push `tainer-images` main. CI builds and publishes on push, so do this only on release day.
-3. Tag and push tainer-control from main: `git tag v1.0.2 && git push origin main v1.0.2`. `publish-image.yml` builds on `v*` tags, on top of `tainer-control-app:node-22` from tainer-images, so the images must be published first.
+2. Push `tainer-images` main. CI builds and publishes on push, so do this only on release day. Wait for that tainer-images CI run to finish before step 3.
+3. Tag and push tainer-control from main: `git tag v1.0.2 && git push origin main v1.0.2`. `publish-image.yml` builds on `v*` tags, on top of `tainer-control-app:node-22` from tainer-images, so the images must be published first. The image carries min-tainer 1.5.0, so it needs the new tainer.
 4. Install the new tainer pkg.
 5. Run `tainer update --all`.
 
@@ -33,6 +33,8 @@ No `live` tag exists yet and the rename commit is untagged, so do it in this ord
 3. `scripts/promote v1.1.4` (creates and pushes the `live` tag; Enhance deploys it).
 4. After that first tag deploy succeeds, delete the origin `live` branch: `git push origin --delete live`.
 
+Until step 4 deletes the branch, the ref `live` exists twice on origin (branch and tag). Before deleting, check that Enhance deployed the tag at step 3, not the branch.
+
 ## 3. c5test on Enhance
 
 - Build: `cd app && npm ci`
@@ -58,5 +60,4 @@ Review the Enhance paths against `docs/DEPLOY.md` in the ops repo (Node version 
 - Every pod recreates once.
 - Projects auto-rename `html/` to `app/` at their next start.
 - The control pod pulls 1.0.2.
-- The running `control-dev` pod keeps its old mount until its next start; a stray empty `html/.vite` in tainer-control is its dev-server cache and can be deleted afterwards.
-- tainer-control and the website repo each have a stray untracked `html/.vite` (dev-server cache) after the rename; safe to delete once the pod has restarted.
+- Stray `html/` cache folders (such as `html/.vite`, recreated by a pod still running from before the rename) are ignored by start with a notice and are safe to delete at any time.
