@@ -205,3 +205,34 @@ func TestSplitExecOutputFlags(t *testing.T) {
 		}
 	}
 }
+
+// The config document carries the live section only when tainer.yaml has one.
+func TestConfigJSONLiveBlock(t *testing.T) {
+	m := &manifest.Manifest{
+		Version: 2,
+		Project: manifest.ProjectConfig{Name: "shop", Type: manifest.TypeNodeJS, Domain: "shop.tainer.me"},
+		Runtime: manifest.RuntimeConfig{Node: "22", Database: manifest.DatabaseNone},
+	}
+	decode := func() map[string]any {
+		raw := captureStdout(t, func() {
+			if err := emitConfigJSON(m); err != nil {
+				t.Fatal(err)
+			}
+		})
+		var doc struct {
+			Project map[string]any `json:"project"`
+		}
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatalf("%v\n%s", err, raw)
+		}
+		return doc.Project
+	}
+	if _, ok := decode()["live"]; ok {
+		t.Error("absent live section shown")
+	}
+	m.Live = &manifest.LiveConfig{Domain: "shop.example.com"}
+	live, ok := decode()["live"].(map[string]any)
+	if !ok || live["domain"] != "shop.example.com" {
+		t.Errorf("live section: %v", live)
+	}
+}

@@ -387,6 +387,8 @@ The parsed manifest, with the same key names as `tainer.yaml`, under `project` (
 {"v":1,"project":{"version":2,"project":{"name":"blog","type":"wordpress","domain":"blog.tainer.me"},"runtime":{"php":"8.3","database":"mariadb"},"pod":{"size":"small"}}}
 ```
 
+The optional `live` section (`{"domain":"shop.example.com"}`) appears only when `tainer.yaml` has one.
+
 Without `--json`, `config` prints `tainer.yaml` as written.
 
 ### `logs` (NDJSON)

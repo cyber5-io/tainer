@@ -44,6 +44,10 @@ func mergeIntoBase(base, ov *Manifest) {
 	if len(ov.Ports) > 0 {
 		base.Ports = ov.Ports
 	}
+	if ov.Live != nil {
+		live := *ov.Live
+		base.Live = &live
+	}
 }
 
 func mergeProject(b, ov *ProjectConfig) {

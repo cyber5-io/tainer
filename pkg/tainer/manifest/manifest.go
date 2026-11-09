@@ -72,6 +72,16 @@ type Manifest struct {
 	Mounts  []string      `yaml:"mounts,omitempty"`
 	Pod     *PodConfig    `yaml:"pod,omitempty"`
 	Ports   []PortEntry   `yaml:"ports,omitempty"`
+	// Live is the project's production home, for Push Live. Optional:
+	// absent, nothing about the pod changes beyond TAINER_ENV=dev.
+	Live *LiveConfig `yaml:"live,omitempty"`
+}
+
+// LiveConfig describes where the project runs in production. Locally it
+// only reaches the pod as TAINER_LIVE_DOMAIN; the router, caddy and the
+// project lists stay on project.domain.
+type LiveConfig struct {
+	Domain string `yaml:"domain"`
 }
 
 type ProjectConfig struct {
@@ -392,6 +402,15 @@ func (m *Manifest) validate() error {
 
 	if err := validateDomain(m.Project.Domain); err != nil {
 		return err
+	}
+
+	if m.Live != nil {
+		if m.Live.Domain == "" {
+			return fmt.Errorf("live.domain is required when tainer.yaml has a live section")
+		}
+		if err := validateDomain(m.Live.Domain); err != nil {
+			return fmt.Errorf("live.domain: %w", err)
+		}
 	}
 
 	if err := validateMounts(m.Mounts); err != nil {

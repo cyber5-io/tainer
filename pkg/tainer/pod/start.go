@@ -365,9 +365,14 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 // `host_port:` value where set.
 // checkProjectFolders migrates a legacy html/ to app/ and then checks every
 // role's mounts. The order matters: buildMounts creates missing folders,
-// so run first it would make an empty app/ beside a full html/.
+// so run first it would make an empty app/ beside a full html/. The
+// TAINER_ENV check runs after the move, so a legacy html/.env is found as
+// app/.env.
 func checkProjectFolders(m *manifest.Manifest, projectDir string, notices io.Writer) error {
 	if err := MigrateAppDir(projectDir, notices); err != nil {
+		return err
+	}
+	if err := checkTainerEnv(m, projectDir); err != nil {
 		return err
 	}
 	for _, role := range RolesForPod(m) {
@@ -629,6 +634,11 @@ func buildEnv(m *manifest.Manifest, role string, pctx *podCtx) []string {
 		"TAINER_PROJECT=" + m.Project.Name,
 		"TAINER_DOMAIN=" + m.Project.Domain,
 		"TAINER_ROLE=" + role,
+		// Locally a pod is always dev; a hosting server's binary sets live.
+		"TAINER_ENV=dev",
+	}
+	if m.Live != nil && m.Live.Domain != "" {
+		env = append(env, "TAINER_LIVE_DOMAIN="+m.Live.Domain)
 	}
 
 	// Smoke-images mode: minimal env wiring. Stock mariadb/postgres need

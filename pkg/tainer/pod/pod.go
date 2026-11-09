@@ -135,6 +135,14 @@ func ManifestHash(m *manifest.Manifest) string {
 	h := sha256.New()
 	fmt.Fprintf(h, "%s/%s/%s/%s\n", m.Project.Name, m.Project.Type, m.Project.Domain, m.Pod.Size)
 	fmt.Fprintf(h, "php=%s node=%s db=%s\n", m.Runtime.PHP, m.Runtime.Node, m.Runtime.Database)
+	// TAINER_ENV and TAINER_LIVE_DOMAIN are container env: a change must
+	// recreate the containers, which also gives pods made before these
+	// existed their TAINER_ENV.
+	live := ""
+	if m.Live != nil {
+		live = m.Live.Domain
+	}
+	fmt.Fprintf(h, "env=dev live=%s\n", live)
 	for _, p := range m.Ports {
 		fmt.Fprintf(h, "port %s/%d/%s\n", p.Role, p.Container, p.Protocol)
 	}
