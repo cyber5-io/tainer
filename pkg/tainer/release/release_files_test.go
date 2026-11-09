@@ -46,8 +46,8 @@ func TestReleaseFilesScript(t *testing.T) {
 		if b, err := cmd.CombinedOutput(); err == nil {
 			t.Fatalf("expected refusal for unsigned fixtures, got: %s", b)
 		}
-		if _, err := os.Stat(filepath.Join(out, "latest.json")); err == nil {
-			t.Fatal("latest.json written despite refusal")
+		if _, err := os.Stat(out); err == nil {
+			t.Fatal("output folder exists after refused run")
 		}
 	})
 
@@ -67,6 +67,28 @@ func TestReleaseFilesScript(t *testing.T) {
 		}
 	})
 
+	t.Run("hostile notes", func(t *testing.T) {
+		cmd := exec.Command("bash", script, out)
+		cmd.Env = append(base, "SKIP_SIGNATURE_CHECK=1",
+			"RELEASE_NOTES=He said \"hi\" \\ path\nsecond line\x01",
+			"MENU_NOTES=\"q\" back\\slash\nnew")
+		b, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("script failed: %v\n%s", err, b)
+		}
+		if strings.Contains(string(b), "upload this folder") || !strings.Contains(string(b), "DO NOT UPLOAD") {
+			t.Errorf("test run must say do-not-upload:\n%s", b)
+		}
+		data, _ := os.ReadFile(filepath.Join(out, "latest.json"))
+		var l Latest
+		if err := json.Unmarshal(data, &l); err != nil {
+			t.Fatalf("does not parse: %v\n%s", err, data)
+		}
+		if l.Tainer.Notes != "He said \"hi\" \\ path second line" || l.Menu.Notes != "\"q\" back\\slash new" {
+			t.Errorf("notes: %q %q", l.Tainer.Notes, l.Menu.Notes)
+		}
+	})
+
 	t.Run("layout and latest.json", func(t *testing.T) {
 		cmd := exec.Command("bash", script, out)
 		cmd.Env = append(base, "SKIP_SIGNATURE_CHECK=1")
@@ -74,7 +96,7 @@ func TestReleaseFilesScript(t *testing.T) {
 		if err != nil {
 			t.Fatalf("script failed: %v\n%s", err, b)
 		}
-		if !strings.Contains(string(b), "WARNING") || !strings.Contains(string(b), "upload this folder to get.tainer.dev") {
+		if !strings.Contains(string(b), "WARNING") || !strings.Contains(string(b), "DO NOT UPLOAD") {
 			t.Errorf("output missing warning or upload hint:\n%s", b)
 		}
 		for _, p := range []string{"releases/2.0.0/tainer-dist-2.0.0.pkg", "releases/2.1.0/tainer-menu-dist-2.1.0.pkg"} {

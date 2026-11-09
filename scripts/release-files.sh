@@ -21,6 +21,10 @@ if [[ -z "$OUT" ]]; then
     exit 2
 fi
 
+# A refused or failed run must leave nothing uploadable behind.
+case "$OUT" in ""|/|.|..|"$HOME") echo "release-files: unsafe output folder: $OUT" >&2; exit 2;; esac
+rm -rf "$OUT"
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BASE_URL="https://get.tainer.dev"
 TEAM_ID="C8J8D9XJP6"
@@ -74,7 +78,15 @@ fi
 
 sha() { shasum -a 256 "$1" | awk '{print $1}'; }
 # One paragraph: collapse whitespace, then escape for JSON.
-jstr() { printf '%s' "$1" | tr '\n\t' '  ' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+jstr() { printf '%s' "$1" | tr '\n\t\r' '   ' | tr -d '\000-\037\177' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+
+TAINER_SHA=$(sha "$TAINER_PKG")
+MENU_SHA=$(sha "$MENU_PKG")
+if [[ -z "$TAINER_SHA" || -z "$MENU_SHA" ]]; then
+    echo "release-files: could not compute sha256" >&2
+    rm -rf "$OUT"
+    exit 1
+fi
 
 TD="$OUT/releases/$VERSION"
 MD="$OUT/releases/$MENU_VERSION"
@@ -89,13 +101,13 @@ cat > "$OUT/latest.json" <<JSON
   "tainer": {
     "version": "$VERSION",
     "url": "$BASE_URL/releases/$VERSION/$TN",
-    "sha256": "$(sha "$TAINER_PKG")",
+    "sha256": "$TAINER_SHA",
     "notes": "$(jstr "$RELEASE_NOTES")"
   },
   "menu": {
     "version": "$MENU_VERSION",
     "url": "$BASE_URL/releases/$MENU_VERSION/$MN",
-    "sha256": "$(sha "$MENU_PKG")",
+    "sha256": "$MENU_SHA",
     "notes": "$(jstr "$MENU_NOTES")",
     "minTainer": "$MENU_MIN"
   },
@@ -105,5 +117,17 @@ cat > "$OUT/latest.json" <<JSON
 }
 JSON
 
+if plutil -convert json -o /dev/null "$OUT/latest.json" 2>/dev/null; then :
+elif command -v python3 >/dev/null && python3 -I -c 'import json,sys; json.load(open(sys.argv[1]))' "$OUT/latest.json" 2>/dev/null; then :
+else
+    echo "release-files: generated latest.json is not valid JSON" >&2
+    rm -rf "$OUT"
+    exit 1
+fi
+
 echo "Release files ready in: $OUT"
-echo "upload this folder to get.tainer.dev"
+if [[ "${SKIP_SIGNATURE_CHECK:-}" == "1" ]]; then
+    echo "TEST RUN - DO NOT UPLOAD this folder."
+else
+    echo "upload this folder to get.tainer.dev"
+fi

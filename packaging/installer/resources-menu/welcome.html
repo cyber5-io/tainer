@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: light dark; }
+  html, body {
+    margin: 0; padding: 0;
+    background: #F5F7FA;                 /* site --bg-light */
+  }
+  @media (prefers-color-scheme: dark) {
+    html, body { background: #11151F; }  /* site --bg-surface */
+  }
+  body {
+    font-family: -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
+    color: #1A1F2D; font-size: 13px; line-height: 1.55;
+    padding: 18px 22px;
+  }
+  @media (prefers-color-scheme: dark) { body { color: #DCE6F8; } }
+
+  /* --- brand header: official mark + wordmark --- */
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .brand svg { width: 44px; height: 35px; flex: none; }
+  .word {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-weight: 700; font-size: 22px; letter-spacing: -0.8px;
+    color: #1A1F2D;
+  }
+  @media (prefers-color-scheme: dark) { .word { color: #DCE6F8; } }
+  .word .dev { color: #009E80; font-weight: 700; }
+  @media (prefers-color-scheme: dark) { .word .dev { color: #00D4AA; } }
+
+  .tag { color: #5A6478; margin: 0 0 16px; }
+  @media (prefers-color-scheme: dark) { .tag { color: #8A93A6; } }
+
+  /* --- quickstart block. macOS Installer's welcome WebView forces the
+     system label colour on text (dark in light mode) while still painting
+     author backgrounds, so a dark box in light mode renders black-on-black
+     (invisible until selected). Keep the box background tied to the colour
+     scheme — light box in light mode, dark box in dark mode — so contrast
+     holds whether or not the author text colour is honoured. --- */
+  .term {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px; line-height: 1.7;
+    background: #EDEFF3; color: #1A1F2D;
+    border: 1px solid #D8DEE9;
+    border-radius: 8px; padding: 12px 14px; margin: 10px 0 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    .term { background: #0A0E1A; color: #DCE6F8; border-color: #232A3A; }
+  }
+  .term .p { color: #009E80; font-weight: 600; }   /* prompt */
+  @media (prefers-color-scheme: dark) { .term .p { color: #00D4AA; } }
+  .term .c { color: #5A6478; }                      /* comment */
+  @media (prefers-color-scheme: dark) { .term .c { color: #8A93A6; } }
+  a { color: #2563EB; text-decoration: none; }
+  @media (prefers-color-scheme: dark) { a { color: #4E9EF4; } }
+</style>
+</head>
+<body>
+  <div class="brand">
+    <svg viewBox="0 0 100 80" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect x="4" y="6" width="32" height="68" rx="5" fill="rgba(78,158,244,0.14)"/>
+      <rect x="64" y="6" width="32" height="68" rx="5" fill="rgba(255,107,53,0.14)"/>
+      <path d="M30,6 L8,6 L8,74 L30,74" fill="none" stroke="#4E9EF4" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M70,6 L92,6 L92,74 L70,74" fill="none" stroke="#FF6B35" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="32" y1="30" x2="68" y2="30" stroke="#00D4AA" stroke-width="7" stroke-linecap="round"/>
+      <line x1="32" y1="50" x2="68" y2="50" stroke="#00D4AA" stroke-width="7" stroke-linecap="round"/>
+    </svg>
+    <span class="word">tainer<span class="dev">.dev/</span></span>
+  </div>
+  <p class="tag">Instant local dev sites — real HTTPS domains, zero config.</p>
+
+  <p>This installs the Tainer menu bar app.</p>
+</body>
+</html>

@@ -353,11 +353,14 @@ pkg-menu-notarised: pkg-menu-signed
 	xcrun stapler staple $(PKG_MENU_OUT)
 
 pkg-dist-menu: pkg-menu
+	rm -rf $(DIST_DIR)/resources-menu
+	cp -R packaging/installer/resources $(DIST_DIR)/resources-menu
+	cp packaging/installer/resources-menu/*.html $(DIST_DIR)/resources-menu/
 	sed -e 's/@VERSION@/$(MENU_VERSION)/' -e 's/@COMPONENT_PKG@/$(PKG_MENU_NAME)/' \
 		packaging/installer/distribution-menu.xml > $(DIST_DIR)/distribution-menu.xml
 	productbuild \
 		--distribution $(DIST_DIR)/distribution-menu.xml \
-		--resources packaging/installer/resources \
+		--resources $(DIST_DIR)/resources-menu \
 		--package-path $(DIST_DIR) \
 		$(PKG_DIST_MENU_OUT)
 	@echo "Built $(PKG_DIST_MENU_OUT) (unsigned distribution pkg)"

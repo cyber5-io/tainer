@@ -88,9 +88,9 @@ fi
 #    A custom XDG_CONFIG_HOME is not knowable from root; the menu app and
 #    the next tainer command cover that case.
 if [[ -n "$CONSOLE_USER" && "$CONSOLE_USER" != "root" ]]; then
-    CONSOLE_HOME=$(dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory 2>/dev/null | awk '{print $2}' || true)
+    CONSOLE_HOME=$(dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory 2>/dev/null | sed -n 's/^NFSHomeDirectory: //p' || true)
     if [[ -n "$CONSOLE_HOME" && -f "$CONSOLE_HOME/.config/tainer/update-resume.json" ]]; then
-        nohup sudo -H -u "$CONSOLE_USER" /opt/tainer/bin/tainer update resume >/dev/null 2>&1 </dev/null &
+        nohup launchctl asuser "$(id -u "$CONSOLE_USER")" sudo -H -u "$CONSOLE_USER" /opt/tainer/bin/tainer update resume >/dev/null 2>&1 </dev/null || true &
         echo "postinstall-full: resuming interrupted update for $CONSOLE_USER"
     fi
 fi
