@@ -128,13 +128,13 @@ func installTainer(ctx context.Context, ops installOps) (installResult, error) {
 	if err != nil {
 		return res, err
 	}
-	if len(pods) > 0 && !ops.yes {
+	if len(pods) > 0 {
 		names := make([]string, len(pods))
 		for i, p := range pods {
 			names[i] = p.Name
 		}
 		fmt.Fprintf(ops.out, "Updating tainer restarts your running pods (%s).\n", strings.Join(names, ", "))
-		if !confirm(ops.in, ops.out, "Update now?") {
+		if !ops.yes && !confirm(ops.in, ops.out, "Update now?") {
 			fmt.Fprintln(ops.out, "update postponed")
 			return res, nil
 		}
@@ -149,6 +149,12 @@ func installTainer(ctx context.Context, ops installOps) (installResult, error) {
 	})
 	if errors.Is(err, errNotOpened) {
 		return res, errors.Unwrap(err)
+	}
+	if ctx.Err() != nil {
+		// Interrupted while Installer may still be open: a resume now
+		// would fail every start and drop the file. Leave it for
+		// postinstall, the menu app or the stale rule.
+		return res, errUpdateInterrupted
 	}
 	// Installer ran (or failed to start): resume either way, so the file
 	// is consumed and anything postinstall stopped comes back.
@@ -171,7 +177,8 @@ func installMenu(ctx context.Context, ops installOps) (installResult, error) {
 	}
 	from, to := ops.installed(), latest.Menu.Version
 	res := newInstallResult("menu", from, to)
-	if !release.Newer(to, from) {
+	// An empty installed version means the menu app is missing: install it.
+	if to == "" || (from != "" && !release.Newer(to, from)) {
 		fmt.Fprintln(ops.out, "the menu app is up to date")
 		return res, nil
 	}
@@ -185,6 +192,8 @@ func installMenu(ctx context.Context, ops installOps) (installResult, error) {
 	res.Updated = sameVersion(ops.installed(), to)
 	return res, err
 }
+
+var errUpdateInterrupted = errors.New("the update was interrupted; your pods come back when the install finishes")
 
 // errNotOpened wraps failures before Installer was opened: nothing was
 // recorded, so there is nothing to resume.

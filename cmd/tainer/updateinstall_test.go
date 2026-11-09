@@ -156,6 +156,9 @@ func TestInstallTainerYesSkipsPrompt(t *testing.T) {
 	if strings.Contains(f.out.String(), "[y/N]") {
 		t.Fatalf("prompted despite --yes: %q", f.out.String())
 	}
+	if !strings.Contains(f.out.String(), "Updating tainer restarts your running pods (shop).\n") {
+		t.Fatalf("warning missing with --yes: %q", f.out.String())
+	}
 	if !strings.Contains(strings.Join(f.steps, ","), "open") {
 		t.Fatalf("installer not opened: %v", f.steps)
 	}
@@ -397,5 +400,62 @@ func TestConfirmChainsOnOneReader(t *testing.T) {
 	got := []bool{confirm(in, &out, "a?"), confirm(in, &out, "b?"), confirm(in, &out, "c?")}
 	if want := []bool{true, false, true}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("answers %v, want %v", got, want)
+	}
+}
+
+func TestInstallMenuInstallsWhenMissing(t *testing.T) {
+	onMac(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	f := newFakeInstall()
+	f.installed = ""
+	f.afterOpen = "1.5.0"
+	res, err := installMenu(context.Background(), f.ops(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(f.out.String(), "up to date") {
+		t.Fatalf("missing menu app reported up to date: %q", f.out.String())
+	}
+	if want := []string{"check", "download", "quarantine", "verify", "open"}; !reflect.DeepEqual(f.steps, want) {
+		t.Fatalf("steps %v, want %v", f.steps, want)
+	}
+	if !res.Updated || res.From != "" || res.To != "1.5.0" {
+		t.Fatalf("result %+v", res)
+	}
+}
+
+func TestInstallMenuMissingStillNeedsTainer(t *testing.T) {
+	onMac(t)
+	f := newFakeInstall()
+	f.installed = ""
+	f.latest.Menu.MinTainer = "1.6.0"
+	if _, err := installMenu(context.Background(), f.ops("")); err == nil || err.Error() != "the menu app needs tainer 1.6.0 first" {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestInstallTainerInterruptedLeavesResumeFile(t *testing.T) {
+	onMac(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	f := newFakeInstall()
+	f.pods = []release.ResumeEntry{{Name: "blog", Path: "/p/blog"}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ops := f.ops("y\n")
+	open := ops.openAndWait
+	ops.openAndWait = func(c context.Context, path string) error {
+		_ = open(c, path)
+		cancel() // Ctrl-C while Installer is open
+		return c.Err()
+	}
+	_, err := installTainer(ctx, ops)
+	if err == nil || err.Error() != "the update was interrupted; your pods come back when the install finishes" {
+		t.Fatalf("err = %v", err)
+	}
+	if f.steps[len(f.steps)-1] == "resume" {
+		t.Fatalf("resumed after an interrupt: %v", f.steps)
+	}
+	if !resumeExists(t) {
+		t.Fatal("resume file dropped after an interrupt")
 	}
 }
