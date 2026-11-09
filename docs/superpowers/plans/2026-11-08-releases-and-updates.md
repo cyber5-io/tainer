@@ -4,9 +4,9 @@
 
 **Goal:** Tainer, the menu app, the control dashboard and pods all show available updates; tainer and the menu app update themselves from verified, signed packages on click or command, warning before restarting running pods and bringing them back afterwards.
 
-**Architecture:** A new `pkg/tainer/release` package owns latest.json (fetch, daily cache, version compare), verified download, and the resume file. `cmd/tainer` extends `tainer update` (listing + y/N, `tainer`/`menu`/`resume` targets, additive JSON). The menu app only shells out to the CLI (`update --check --json`, `update tainer --yes`), and draws a badge, update rows and pod highlights. Packaging gains a menu-only pkg, a release-files target, and a resume step in postinstall. tainer-control parses the new JSON keys.
+**Architecture:** A new `pkg/tainer/release` package owns latest.json (fetch, daily cache, version compare), verified download, and the resume file. `cmd/tainer` extends `tainer update` (listing + y/N, `tainer`/`menu`/`resume` targets, additive JSON). The SwiftUI menu app (`apps/menu-macos`, now the shipped one; the Go `cmd/tainer-menu` is retired) only shells out to the CLI (`update --check --json`, `update tainer --yes`), and draws a badge, update rows and pod highlights. Packaging gains a menu-only pkg, a release-files target, and a resume step in postinstall. tainer-control parses the new JSON keys.
 
-**Tech Stack:** Go (stdlib + existing modules), fyne.io/systray fork, macOS `pkgutil`/`spctl`/`open`/`osascript`/`launchctl`, Make, SvelteKit (tainer-control `html/`).
+**Tech Stack:** Go (stdlib + existing modules), SwiftUI/AppKit (`apps/menu-macos`, Swift Package, XCTest), macOS `pkgutil`/`spctl`/`open`/`osascript`/`launchctl`, Make, SvelteKit (tainer-control `html/`).
 
 **Spec:** `docs/superpowers/specs/2026-11-08-releases-and-updates-design.md`
 
@@ -61,7 +61,7 @@
 
 **Files:**
 - Create: `pkg/tainer/release/verify.go`, `pkg/tainer/release/installed_darwin.go`, `pkg/tainer/release/installed_other.go`, tests `verify_test.go`, `installed_test.go`
-- Modify: `cmd/tainer-menu/main.go` (add `var version = "dev"` so the existing `-X main.version` ldflag reaches it), `Makefile` (add `MENU_VERSION ?= $(VERSION)`; `menu-app` seds `@VERSION@` with `$(MENU_VERSION)` and builds the menu with `-X main.version=$(MENU_VERSION)`)
+- Modify: `Makefile` (add `MENU_VERSION ?= $(VERSION)`; the menu bundle is stamped with it — Task 2b passes it to `make-app.sh --app-version`)
 
 **Interfaces:**
 - Produces:
@@ -74,8 +74,22 @@
 - [ ] **Step 1: Write failing tests** — `TestDownloadChecksSHA256` (good hash keeps file; bad hash deletes it and errors); `TestVerifyPkgRequiresCyber5Team` (fake Runner outputs: correct team → nil; other team → error mentioning Cyber5; spctl non-zero → error mentioning notarised); `TestInstalledTainerParsesReceipt`; `TestInstalledMenuReadsPlist` (fixture plist in a temp dir via an internal path var).
 - [ ] **Step 2: Run** `go test ./pkg/tainer/release/` — Expected: FAIL.
 - [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** `go test ./pkg/tainer/release/ && make menu-app MENU_VERSION=9.9.9 && /usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "dist/Tainer Menu.app/Contents/Info.plist"` — Expected: PASS, then `9.9.9`.
+- [ ] **Step 4: Run** `go test ./pkg/tainer/release/` — Expected: PASS.
 - [ ] **Step 5: Commit** `feat(release): verify downloaded packages and read installed versions`
+
+### Task 2b: ship the SwiftUI menu app, retire the Go one
+
+Leni (2026-11-09): the SwiftUI app in `apps/menu-macos` ships; the Go `cmd/tainer-menu` is retired. `apps/menu-macos/README.md` ("Packaging into the .pkg") lists the exact swap; follow it.
+
+**Files:**
+- Modify: `Makefile` (`menu-app` runs `apps/menu-macos/scripts/make-app.sh --app-version $(MENU_VERSION)`, takes `apps/menu-macos/build/Tainer Menu.app` as `$(MENU_APP)` (copy into `dist/` so later targets are unchanged), signs it with the existing codesign line; drop the Go build lines and the darwin-only explicit-target comment at line ~51), `packaging/menu/io.cyber5.tainer.menu.plist` (`ProgramArguments` → `/Applications/Tainer Menu.app/Contents/MacOS/TainerMenu`), `apps/menu-macos/README.md` (packaging section now describes the shipped state)
+- Delete: `cmd/tainer-menu/` and `packaging/menu/Info.plist` + `packaging/menu/tainer-menu.icns` if nothing else uses them (grep first; the Swift app has its own Info.plist via make-app.sh)
+
+- [ ] **Step 1: Write the failing check** — `make menu-app MENU_VERSION=9.9.9` then `test -x "dist/Tainer Menu.app/Contents/MacOS/TainerMenu" && /usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "dist/Tainer Menu.app/Contents/Info.plist"` and `plutil -extract ProgramArguments.0 raw packaging/menu/io.cyber5.tainer.menu.plist`.
+- [ ] **Step 2: Run** — Expected: FAIL (still the Go app, executable `tainer-menu`).
+- [ ] **Step 3: Implement** the swap and removal.
+- [ ] **Step 4: Run** the check (expect `9.9.9` and `…/MacOS/TainerMenu`), `apps/menu-macos/scripts/make-app.sh --check`, `(cd apps/menu-macos && swift test)`, `go build ./... && GOOS=linux go build ./... && go test ./...` — Expected: all PASS (the Linux build now succeeds since the systray menu is gone).
+- [ ] **Step 5: Commit** `build: ship the SwiftUI menu app and retire the Go one`
 
 ### Task 3: running-pod snapshot and confirm helper
 
@@ -135,11 +149,14 @@
   - `"releaseCheck": "ok"|"unavailable"` (fetch failed and no cache)
 - Command behaviour:
   - `tainer update --check [--json]`: computes tainer/menu first via `release.Check(ctx, true)`; then the pod report. If the stack is unreachable, emit the document with tainer/menu filled, `pods: []`, and `"podsCheck": "unavailable"` instead of failing — exit 0.
-  - `tainer update` (no args, no flags): print the full list (tainer, menu, each pod with an update) and `confirm("Update all of these?")`; `-y`/`--yes` skips the question. Order of work: tainer first (Task 6 flow), then menu if still needed, then pods. Nothing to update → `everything is up to date`. **This replaces today's "no args = update the project in the current folder"**: in a project folder the list still includes that project; `tainer update <project>` and `tainer update .` keep the single-project path.
+  - `tainer update` (no args, no flags) — Leni (2026-11-09):
+    - **inside a project folder** (manifest found walking up from cwd, as today): shows only that pod's update and asks `confirm("Update <name>?")`; nothing available → `<name> is up to date`. Tainer/menu updates are not offered here, but if one exists print one extra line: `A newer tainer is available — run "tainer update" outside a project folder to see everything.`
+    - **anywhere else**: prints the full list (tainer, menu, each pod with an update) and asks `confirm("Update all of these?")`. Order of work: tainer first (Task 6 flow), then menu if still needed, then pods. Nothing to update → `everything is up to date`.
+    - `-y`/`--yes` skips the question in both cases. `tainer update <project>` keeps the single-project path.
   - `tainer update tainer` / `tainer update menu` / `tainer update resume`: reserved words always mean these targets. A project with one of those names is updated with `tainer update ./<name>` (a path argument) or `tainer update .` inside its folder. When such a project exists, the reserved target also prints one line: `(to update the project named "<name>", run tainer update ./<name>)`.
   - Non-darwin: tainer/menu shown as `available — download it from https://tainer.dev`; `update tainer` prints that and exits 0.
 
-- [ ] **Step 1: Write failing tests** (use seams for release.Check, the pod check and the installers) — `TestCheckAddsTainerAndMenuKeys` (golden updated); `TestCheckReportsTainerUpdateWithStackDown`; `TestCheckListsPodsWhenReleaseFetchFails` (`releaseCheck: unavailable`, pods present, exit 0); `TestUpdateNoArgsListsAndAsks` (stdin `n` → nothing updated; `--yes` → tainer, menu, pods in that order); `TestUpdateNothingToDo`; `TestReservedTargetsDontShadowProjects` (project named `menu` exists: `update menu` updates the menu app and prints the hint; `update ./menu` updates the project); `TestMenuNeedsTainerFirst` (menu.minTainer > installed tainer → listed as needing tainer first, tainer updated before it).
+- [ ] **Step 1: Write failing tests** (use seams for release.Check, the pod check and the installers) — `TestCheckAddsTainerAndMenuKeys` (golden updated); `TestCheckReportsTainerUpdateWithStackDown`; `TestCheckListsPodsWhenReleaseFetchFails` (`releaseCheck: unavailable`, pods present, exit 0); `TestUpdateNoArgsListsAndAsks` (outside a project: stdin `n` → nothing updated; `--yes` → tainer, menu, pods in that order); `TestUpdateNoArgsInProjectOffersOnlyThatPod` (inside a project folder: only that pod is offered, plus the one-line tainer hint when tainer has an update); `TestUpdateNothingToDo`; `TestReservedTargetsDontShadowProjects` (project named `menu` exists: `update menu` updates the menu app and prints the hint; `update ./menu` updates the project); `TestMenuNeedsTainerFirst` (menu.minTainer > installed tainer → listed as needing tainer first, tainer updated before it).
 - [ ] **Step 2: Run** `go test ./cmd/tainer/ -run 'Check|UpdateNoArgs|Reserved|MenuNeeds|JSONSnapshot'` — Expected: FAIL.
 - [ ] **Step 3: Implement**; document the new keys and the no-args behaviour change in `docs/api/cli-json-v1.md`.
 - [ ] **Step 4: Run** `go test ./cmd/tainer/ ./pkg/...` — Expected: PASS.
@@ -181,26 +198,26 @@
 - [ ] **Step 4: Run** the check, `bash -n packaging/scripts/postinstall-full packaging/scripts/postinstall-menu`, `make pkg-menu MENU_VERSION=9.9.9 && pkgutil --payload-files dist/tainer-menu-9.9.9.pkg | head` — Expected: PASS; payload lists `./Applications/Tainer Menu.app/...` and the LaunchAgent.
 - [ ] **Step 5: Commit** `build: menu-only package, release files, and resume after install`
 
-### Task 8: menu app — checks, badge, update rows, pod highlights
+### Task 8: menu app (SwiftUI) — checks, badge, update rows, pod highlights
 
-**Files:**
-- Create: `cmd/tainer-menu/updates.go`, `cmd/tainer-menu/updates_test.go`
-- Modify: `cmd/tainer-menu/main.go`, `cmd/tainer-menu/icon.go`
+**Files (all under `apps/menu-macos/`):**
+- Create: `Sources/TainerMenu/UpdateChecker.swift`, `Sources/TainerMenu/Contract/UpdateCheckDocument.swift`, `Tests/TainerMenuTests/UpdateCheckerTests.swift` (match the existing test target's folder name)
+- Modify: `Sources/TainerMenu/AppModel.swift`, `Sources/TainerMenu/ActionRunner.swift` (new actions), `Sources/TainerMenu/Views/BarIcon.swift`, `Sources/TainerMenu/Views/MenuContent.swift`, `Sources/TainerMenu/Views/PodRow.swift`, `Sources/TainerMenu/Views/ViewModels.swift`
 
 **Interfaces:**
-- Consumes: Task 5 JSON (`tainer update --check --json`), Task 6 command (`tainer update tainer --yes --json`, `update menu --yes --json`, `update <pod> --json`), Task 4 (`tainer update resume`).
+- Consumes: Task 5 JSON (`tainer update --check --json`, decoded tolerantly — missing `tainer`/`menu` keys from an older CLI mean no update rows; unknown keys ignored, like the existing `Contract/` decoders); Task 6 commands (`tainer update tainer --yes --json`, `update menu --yes --json`, `update <pod> --json`); Task 4 (`tainer update resume`). The CLI is found via the existing `CLILocator`.
 - Produces:
-  - `type updateState struct { Tainer, Menu releaseItem; Pods map[string]podUpdate }` parsed by `func parseCheck(b []byte) (updateState, error)` (ignores unknown keys; tolerant of missing `tainer`/`menu` from an older CLI).
-  - Polling: at launch (after 10s), every 4h, and after any update action completes; never concurrently.
-  - Badge: extend `iconSet` with badged variants of active/idle (template style: the mark plus a solid dot in the top-right corner, still a template image — monochrome is the intended "neutral" look; coloured styles: dot in `iconTeal`). `setState` must re-render when only the badge changes (today it early-returns on unchanged state). Failed/recovering states never show the badge.
-  - Top rows (pre-created hidden, systray can't remove items): `Tainer <v> is available — Update…` and `Menu <v> is available — Update…`, tooltip = notes. Click → if tainer has running pods, `osascript -e 'display dialog "<exact warning copy>" buttons {"Later","Update now"} default button "Update now"'`; Later → nothing; Update now → run `tainer update tainer --yes --json`, status row shows `Updating tainer…` then `Restarting N pods…` while the resume runs.
-  - Pod rows: a pod with an update gets the title suffix `  ⤓` and an amber-free accent dot (new `dotTeal`), tooltip `Update available: <parts>`; a new hidden-by-default `Update` submenu item per slot runs `tainer update <name> --json` after a dialog when the pod is running (`<name> restarts while it updates.` Update/Cancel). `Update all pods` row appears when ≥2 pods have updates.
-  - `New pod…` row opening `https://my.tainer.me` (Leni: new pod opens the dashboard).
-  - On launch: run `tainer update resume` once in the background (safety net).
-- [ ] **Step 1: Write failing tests** — `TestParseCheckNewKeys`, `TestParseCheckOldCLI` (no tainer/menu keys → no update rows), `TestBadgeOnlyWhenHealthy` (pure function choosing icon bytes from state+hasUpdates), `TestPollerNeverOverlaps` (injected clock/runner).
-- [ ] **Step 2: Run** `go test ./cmd/tainer-menu/` — Expected: FAIL.
+  - `UpdateChecker` (an actor or `@MainActor` class, following `ListRefresher`'s pattern): polls at launch (+10s), every 4h, and right after any update action; never two checks at once; exposes `tainer`, `menu` (installed/available/notes/needsTainerFirst) and `pods: [String: PodUpdate]` (parts text).
+  - `PodAction` gains `.update`; `AppModel` gains `updateTainer()`, `updateMenu()`, `updateAllPods()`.
+  - Bar icon: the existing red ✗ badge for `.error` stays as is. A new **update badge** — a small neutral dot (white with a thin dark ring on coloured icons; plain dot on template icons) in the **top-right** corner — is drawn when updates exist and the style is `.full` or `.dimmed`. Never on `.pulsing` or `.error` (health wins). Implement as `markImage(style:pulseHigh:updateBadge:)`.
+  - Menu top rows (only when relevant): `Tainer <v> is available — Update…` / `Menu <v> is available — Update…` with notes as help text. Click → if any pod is running, an `NSAlert` with the exact warning copy and buttons **Update now** / **Later**; Later does nothing; Update now runs the command and the status header shows `Updating tainer…`, then `Restarting N pods…` until the resume finishes.
+  - Pod rows: a pod with an update gets an accent colour on its name and an `arrow.down.circle` SF Symbol, help text `Update available: <parts>`; its action set gains `.update` (with an `NSAlert` `<name> restarts while it updates.` Update/Cancel when running). `Update all pods` appears when ≥2 pods have updates.
+  - On launch: run `tainer update resume` once in the background (safety net), ignoring its output.
+  - Keep "New Pod" and "Open Control Dashboard" as they are.
+- [ ] **Step 1: Write failing tests** (XCTest, with the existing `Fakes.swift` subprocess fakes) — `testDecodesNewUpdateKeys`, `testOlderCLIHasNoUpdateRows`, `testBadgeOnlyWhenHealthyOrIdle` (pure function from style + hasUpdates), `testPollerNeverOverlaps`, `testUpdateActionRunsTheRightCommand` (tainer → `update tainer --yes --json`; pod → `update <name> --json`).
+- [ ] **Step 2: Run** `(cd apps/menu-macos && swift test)` — Expected: FAIL.
 - [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** `go test ./cmd/tainer-menu/ && make menu-app` — Expected: PASS and the app builds. Visual check is part of the live test (record in the report what to look at).
+- [ ] **Step 4: Run** `(cd apps/menu-macos && swift test && scripts/make-app.sh --check)` — Expected: PASS. List in the report what the live test must look at (badge on teal and on dimmed icons, light and dark menu bar).
 - [ ] **Step 5: Commit** `feat(menu): show updates with a badge, update rows and pod highlights`
 
 ### Task 9: dashboard (tainer-control)
