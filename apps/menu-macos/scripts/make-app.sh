@@ -44,6 +44,8 @@ check() {
     stamped="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")"
     [ "$stamped" = "$APP_VERSION" ] && [ "$stamped" != "0.1.0" ] || { echo "FAIL: stamped version '$stamped' != $APP_VERSION (or is the 0.1.0 placeholder)"; fail=1; }
     [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "$APP_VERSION" ] || { echo "FAIL: CFBundleVersion not stamped"; fail=1; }
+    [ -s "$APP/Contents/Resources/tainer-menu.icns" ] || { echo "FAIL: app icon tainer-menu.icns missing"; fail=1; }
+    [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$PLIST")" = "tainer-menu" ] || { echo "FAIL: CFBundleIconFile not tainer-menu"; fail=1; }
     plutil -lint "$PLIST" >/dev/null || { echo "FAIL: Info.plist invalid"; fail=1; }
     if [ "$fail" -ne 0 ]; then exit 1; fi
     echo "OK: $APP"
@@ -59,6 +61,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/TainerMenu" "$APP/Contents/MacOS/TainerMenu"
 cp "$ROOT/Resources/Info.plist" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" -c "Set :CFBundleVersion $APP_VERSION" "$PLIST"
+cp "$ROOT/Resources/tainer-menu.icns" "$APP/Contents/Resources/tainer-menu.icns"
 cp -R "$BIN_DIR/TainerMenu_TainerMenu.bundle" "$APP/Contents/Resources/"
 
 if [ "$CHECK" -eq 1 ]; then
