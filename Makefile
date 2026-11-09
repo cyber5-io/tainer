@@ -3,7 +3,9 @@
         pkg-full-root pkg-full pkg-full-signed pkg-full-notarised \
         pkg-dist pkg-dist-signed pkg-dist-notarised \
         pkg-dist-only pkg-dist-only-signed pkg-dist-only-notarised \
-        verify-pkg-only verify-pkg-full
+        verify-pkg-only verify-pkg-full \
+        pkg-menu-root pkg-menu pkg-menu-signed pkg-menu-notarised \
+        pkg-dist-menu pkg-dist-menu-signed pkg-dist-menu-notarised release-files
 
 # Single source of truth for the binary version.
 VERSION := 1.4.0
@@ -303,6 +305,83 @@ pkg-full-notarised: pkg-full-signed
 	xcrun notarytool submit $(PKG_FULL_OUT) \
 		--keychain-profile "$(NOTARY_PROFILE)" --wait
 	xcrun stapler staple $(PKG_FULL_OUT)
+
+# ---------------------------------------------------------------------------
+# Menu-only package: just Tainer Menu.app + its login agent, so the menu
+# can update on its own cadence (pkg identifier io.cyber5.tainer.menu,
+# versioned by MENU_VERSION). Same signed/notarised chain as the full pack.
+# ---------------------------------------------------------------------------
+PKG_MENU_ROOT    := $(DIST_DIR)/pkg-menu-root
+PKG_MENU_SCRIPTS := $(DIST_DIR)/pkg-menu-scripts
+PKG_MENU_NAME    := tainer-menu-$(MENU_VERSION).pkg
+PKG_MENU_OUT     := $(DIST_DIR)/$(PKG_MENU_NAME)
+PKG_DIST_MENU_NAME := tainer-menu-dist-$(MENU_VERSION).pkg
+PKG_DIST_MENU_OUT  := $(DIST_DIR)/$(PKG_DIST_MENU_NAME)
+
+pkg-menu-root: menu-app
+	rm -rf $(PKG_MENU_ROOT) $(PKG_MENU_SCRIPTS)
+	mkdir -p $(PKG_MENU_ROOT)/Applications $(PKG_MENU_ROOT)/Library/LaunchAgents $(PKG_MENU_SCRIPTS)
+	cp -R "$(MENU_APP)" "$(PKG_MENU_ROOT)/Applications/"
+	install -m 0644 packaging/menu/io.cyber5.tainer.menu.plist \
+		$(PKG_MENU_ROOT)/Library/LaunchAgents/io.cyber5.tainer.menu.plist
+	install -m 0755 packaging/scripts/postinstall-menu $(PKG_MENU_SCRIPTS)/postinstall
+	@echo "pkg-menu-root assembled at $(PKG_MENU_ROOT)"
+
+pkg-menu: pkg-menu-root
+	mkdir -p $(DIST_DIR)
+	pkgbuild \
+		--root $(PKG_MENU_ROOT) \
+		--scripts $(PKG_MENU_SCRIPTS) \
+		--identifier io.cyber5.tainer.menu \
+		--version $(MENU_VERSION) \
+		--install-location / \
+		--component-plist packaging/installer/pkg-full-components.plist \
+		$(PKG_MENU_OUT)
+	@echo "Built $(PKG_MENU_OUT) (unsigned)"
+
+pkg-menu-signed: pkg-menu
+	@if [ -z "$(INSTALLER_SIGN_IDENTITY)" ]; then \
+		echo "set TAINER_SIGNING_INSTALLER_IDENTITY" >&2; exit 1; \
+	fi
+	productsign --sign "$(INSTALLER_SIGN_IDENTITY)" \
+		$(PKG_MENU_OUT) $(PKG_MENU_OUT).signed
+	mv $(PKG_MENU_OUT).signed $(PKG_MENU_OUT)
+
+pkg-menu-notarised: pkg-menu-signed
+	xcrun notarytool submit $(PKG_MENU_OUT) \
+		--keychain-profile "$(NOTARY_PROFILE)" --wait
+	xcrun stapler staple $(PKG_MENU_OUT)
+
+pkg-dist-menu: pkg-menu
+	sed -e 's/@VERSION@/$(MENU_VERSION)/' -e 's/@COMPONENT_PKG@/$(PKG_MENU_NAME)/' \
+		packaging/installer/distribution-menu.xml > $(DIST_DIR)/distribution-menu.xml
+	productbuild \
+		--distribution $(DIST_DIR)/distribution-menu.xml \
+		--resources packaging/installer/resources \
+		--package-path $(DIST_DIR) \
+		$(PKG_DIST_MENU_OUT)
+	@echo "Built $(PKG_DIST_MENU_OUT) (unsigned distribution pkg)"
+
+pkg-dist-menu-signed: pkg-dist-menu
+	@if [ -z "$(INSTALLER_SIGN_IDENTITY)" ]; then \
+		echo "set TAINER_SIGNING_INSTALLER_IDENTITY" >&2; exit 1; \
+	fi
+	productsign --sign "$(INSTALLER_SIGN_IDENTITY)" \
+		$(PKG_DIST_MENU_OUT) $(PKG_DIST_MENU_OUT).signed
+	mv $(PKG_DIST_MENU_OUT).signed $(PKG_DIST_MENU_OUT)
+
+pkg-dist-menu-notarised: pkg-dist-menu-signed
+	xcrun notarytool submit $(PKG_DIST_MENU_OUT) \
+		--keychain-profile "$(NOTARY_PROFILE)" --wait
+	xcrun stapler staple $(PKG_DIST_MENU_OUT)
+
+# release-files assembles dist/release for upload to get.tainer.dev from the
+# notarised distribution pkgs. Needs RELEASE_NOTES and MENU_NOTES (one
+# paragraph each); MENU_MIN_TAINER defaults to VERSION.
+release-files:
+	VERSION="$(VERSION)" MENU_VERSION="$(MENU_VERSION)" \
+		TAINER_DIST_PKG="$(PKG_DIST_OUT)" MENU_DIST_PKG="$(PKG_DIST_MENU_OUT)" \
+		scripts/release-files.sh $(DIST_DIR)/release
 
 verify-pkg-full:
 	@pkgutil --check-signature $(PKG_FULL_OUT) || true

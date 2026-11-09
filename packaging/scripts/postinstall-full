@@ -81,4 +81,18 @@ if [[ -n "$CONSOLE_USER" && "$CONSOLE_USER" != "root" && -f "$AGENT" ]]; then
     fi
 fi
 
+# 5. Finish an interrupted update. If `tainer update` handed off to this
+#    installer it left a resume file in the user's config dir; the new
+#    binary picks the remaining steps (pod restarts etc.) up from there.
+#    Runs as the console user, detached, and can never fail the install.
+#    A custom XDG_CONFIG_HOME is not knowable from root; the menu app and
+#    the next tainer command cover that case.
+if [[ -n "$CONSOLE_USER" && "$CONSOLE_USER" != "root" ]]; then
+    CONSOLE_HOME=$(dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory 2>/dev/null | awk '{print $2}' || true)
+    if [[ -n "$CONSOLE_HOME" && -f "$CONSOLE_HOME/.config/tainer/update-resume.json" ]]; then
+        nohup sudo -H -u "$CONSOLE_USER" /opt/tainer/bin/tainer update resume >/dev/null 2>&1 </dev/null &
+        echo "postinstall-full: resuming interrupted update for $CONSOLE_USER"
+    fi
+fi
+
 exit 0

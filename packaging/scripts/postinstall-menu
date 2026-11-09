@@ -1,0 +1,21 @@
+#!/bin/bash
+# postinstall-menu - runs after the menu-only tainer-menu.pkg payload lands.
+#
+# Loads the login agent for the current GUI user so the freshly installed
+# menu-bar app replaces the running one. Never fails the install.
+set -uo pipefail
+
+CONSOLE_USER=$(stat -f%Su /dev/console 2>/dev/null || true)
+AGENT=/Library/LaunchAgents/io.cyber5.tainer.menu.plist
+if [[ -n "$CONSOLE_USER" && "$CONSOLE_USER" != "root" && -f "$AGENT" ]]; then
+    CONSOLE_UID=$(id -u "$CONSOLE_USER" 2>/dev/null || true)
+    if [[ -n "$CONSOLE_UID" ]]; then
+        launchctl bootout "gui/${CONSOLE_UID}/io.cyber5.tainer.menu" 2>/dev/null || true
+        launchctl bootstrap "gui/${CONSOLE_UID}" "$AGENT" 2>/dev/null \
+            || launchctl asuser "$CONSOLE_UID" launchctl load -w "$AGENT" 2>/dev/null \
+            || true
+        echo "postinstall-menu: Tainer Menu login agent loaded for $CONSOLE_USER"
+    fi
+fi
+
+exit 0
