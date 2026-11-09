@@ -7,6 +7,7 @@
 
 # Single source of truth for the binary version.
 VERSION := 1.4.0
+MENU_VERSION ?= $(VERSION)
 LDFLAGS := -X main.version=$(VERSION)
 
 BIN_DIR := bin

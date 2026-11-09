@@ -1,0 +1,89 @@
+package release
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+// downloadTimeout bounds a whole package download (packages are ~100 MB).
+var downloadTimeout = 10 * time.Minute
+
+// Runner runs an external command and returns its combined output. It is
+// the test seam for pkgutil/spctl.
+type Runner func(ctx context.Context, name string, args ...string) ([]byte, error)
+
+// ExecRunner is the default Runner.
+func ExecRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+}
+
+// Download streams the artifact into dir (a private directory made by the
+// caller), hashing as it writes. On a checksum mismatch the file is
+// removed and an error returned.
+func Download(ctx context.Context, a Artifact, dir string) (string, error) {
+	if !strings.HasPrefix(a.URL, "https://") && os.Getenv("TAINER_RELEASE_URL") == "" {
+		return "", errors.New("the download isn't from a secure address")
+	}
+	ctx, cancel := context.WithTimeout(ctx, downloadTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.URL, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("the download failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("the download failed (HTTP %d)", resp.StatusCode)
+	}
+	name := path.Base(req.URL.Path)
+	if name == "" || name == "." || name == "/" {
+		name = "download.pkg"
+	}
+	dest := filepath.Join(dir, name)
+	f, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	_, err = io.Copy(io.MultiWriter(f, h), resp.Body)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(dest)
+		return "", fmt.Errorf("the download failed: %w", err)
+	}
+	if !strings.EqualFold(hex.EncodeToString(h.Sum(nil)), a.SHA256) {
+		os.Remove(dest)
+		return "", errors.New("the download didn't match its checksum")
+	}
+	return dest, nil
+}
+
+// VerifyPkg checks the package is signed by Cyber5's Developer ID
+// Installer certificate and accepted by Gatekeeper (notarised).
+func VerifyPkg(ctx context.Context, run Runner, pkg string) error {
+	out, err := run(ctx, "pkgutil", "--check-signature", pkg)
+	s := string(out)
+	if err != nil || !strings.Contains(s, "Developer ID Installer") || !strings.Contains(s, "C8J8D9XJP6") {
+		return errors.New("the download isn't signed by Cyber5")
+	}
+	if _, err := run(ctx, "spctl", "-a", "-t", "install", pkg); err != nil {
+		return errors.New("the download isn't notarised by Apple")
+	}
+	return nil
+}
