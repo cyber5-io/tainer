@@ -1183,6 +1183,9 @@ func initStepLine(s initcmd.Step, muted lipgloss.Style) string {
 	case initcmd.StepSkipped:
 		mark = tui.MarkInfo()
 		suffix = " " + muted.Render("(skipped)")
+	case initcmd.StepRenamed:
+		mark = tui.MarkInfo()
+		suffix = " " + muted.Render("(renamed from html/)")
 	}
 	switch s.Kind {
 	case initcmd.KindRegistry:
@@ -1214,9 +1217,12 @@ func runInitPlain(opts initcmd.Options) {
 				fmt.Println(".gitignore updated")
 			}
 		default:
-			if s.Action == initcmd.StepAdopted {
+			switch s.Action {
+			case initcmd.StepAdopted:
 				fmt.Printf("%s (adopted)\n", s.Path)
-			} else {
+			case initcmd.StepRenamed:
+				fmt.Printf("%s (renamed from html/)\n", s.Path)
+			default:
 				fmt.Println(s.Path)
 			}
 		}
@@ -1284,6 +1290,13 @@ func resolveStartTarget(args []string) (manifestPath, projectDir, projectName st
 	} else if migrated {
 		fmt.Fprintf(os.Stderr, "migrated %s to manifest v2 (original saved to %s.v1.bak)\n", manifestPath, manifestPath)
 	}
+
+	// Move a legacy html/ source folder to app/ here, before any spinner
+	// draws and before restart stops anything, so the one-line notice
+	// reads cleanly (stderr, like the manifest note above) and a refusal
+	// leaves a running pod alone. pod.Start runs the same guard for its
+	// other callers; by then it is a no-op.
+	must(withCode("start-failed", pod.MigrateAppDir(projectDir, os.Stderr)))
 	return manifestPath, projectDir, projectName
 }
 
@@ -1468,6 +1481,12 @@ func emitStartJSON(res *pod.StartResult) {
 func nodeAppMissing(manifestPath, projectDir string) bool {
 	m, err := manifest.Load(manifestPath)
 	if err != nil || !m.IsNode() {
+		return false
+	}
+	// A legacy html/ holds the app until it is moved to app/; looking only
+	// at app/ would call a full project empty. A refusal (both folders, a
+	// linked html/) means the code is somewhere — don't claim it is missing.
+	if err := pod.MigrateAppDir(projectDir, os.Stderr); err != nil {
 		return false
 	}
 	_, serr := os.Stat(filepath.Join(projectDir, m.HostAppDir(), "package.json"))

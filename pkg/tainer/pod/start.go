@@ -32,6 +32,10 @@ type podCtx struct {
 type StartOptions struct {
 	ManifestPath string
 	ProjectDir   string // host directory containing tainer.yaml + app/ + data/
+	// Notices receives one-line notes about changes start made to the
+	// project folder (the one-time html/ → app/ rename). Nil means stderr,
+	// so a --json caller's stdout stays clean.
+	Notices io.Writer
 }
 
 // StartResult is what the CLI prints after a successful start.
@@ -199,6 +203,18 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 		}
 	}
 
+	// Check the project's folders before anything is written into the
+	// project, an image is pulled or any container is created: a legacy
+	// html/ becomes app/ first, and a project that links a folder outside
+	// itself is refused up front, not half-started.
+	notices := opts.Notices
+	if notices == nil {
+		notices = os.Stderr
+	}
+	if err := checkProjectFolders(m, opts.ProjectDir, notices); err != nil {
+		return nil, err
+	}
+
 	// Smart pods: one absolute budget for the whole pod, enforced on a
 	// shared pod-level cgroup. Containers burst within it — no per-role
 	// splitting.
@@ -227,15 +243,6 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 	}
 	if err := eng.EnsureImages(ctx, missing...); err != nil {
 		return nil, fmt.Errorf("pod start: %w", err)
-	}
-
-	// Check every role's project folders before anything is written into
-	// the project or any container is created: a project that links a
-	// folder outside itself is refused up front, not half-started.
-	for _, role := range RolesForPod(m) {
-		if _, err := buildMounts(m, opts.ProjectDir, role); err != nil {
-			return nil, err
-		}
 	}
 
 	// Per-project DB credentials. Generated + persisted on first start;
@@ -356,6 +363,21 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 // buildLeaderPortBindings collects every TCP port binding for the pod
 // — auto-derived from pod_id*10+offset for known roles, or the user's
 // `host_port:` value where set.
+// checkProjectFolders migrates a legacy html/ to app/ and then checks every
+// role's mounts. The order matters: buildMounts creates missing folders,
+// so run first it would make an empty app/ beside a full html/.
+func checkProjectFolders(m *manifest.Manifest, projectDir string, notices io.Writer) error {
+	if err := MigrateAppDir(projectDir, notices); err != nil {
+		return err
+	}
+	for _, role := range RolesForPod(m) {
+		if _, err := buildMounts(m, projectDir, role); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func buildLeaderPortBindings(m *manifest.Manifest, podID int) []engine.PortMap {
 	out := make([]engine.PortMap, 0, len(m.Ports))
 	for _, p := range m.Ports {

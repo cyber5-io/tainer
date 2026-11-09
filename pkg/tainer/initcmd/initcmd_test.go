@@ -197,3 +197,58 @@ func TestRunHonoursPodSize(t *testing.T) {
 		t.Errorf("pod size = %q, want large", m.Pod.Size)
 	}
 }
+
+// TestRunAdoptsLegacyHtmlAsApp verifies that re-initialising a folder that
+// still carries html/ (say after `init --clean`) moves it to app/ instead of
+// scaffolding an empty app/ beside it, and says so in the steps.
+func TestRunAdoptsLegacyHtmlAsApp(t *testing.T) {
+	isolateRegistry(t)
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "html"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "html", "index.php"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RunIn(Options{Type: manifest.TypeWordPress, Name: "site"}, dir)
+	if err != nil {
+		t.Fatalf("RunIn: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "app", "index.php")); err != nil {
+		t.Errorf("app/index.php missing after migration: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "html")); !os.IsNotExist(err) {
+		t.Errorf("html/ should be gone (err=%v)", err)
+	}
+	var appSteps []Step
+	for _, s := range res.Steps {
+		if s.Path == "app/" {
+			appSteps = append(appSteps, s)
+		}
+	}
+	if len(appSteps) != 1 || appSteps[0].Action != StepRenamed {
+		t.Errorf("want one renamed app/ step, got %+v", appSteps)
+	}
+}
+
+// TestRunRefusesLegacyHtmlBesideApp verifies init stops, before writing
+// tainer.yaml, when both app/ and html/ hold files.
+func TestRunRefusesLegacyHtmlBesideApp(t *testing.T) {
+	isolateRegistry(t)
+	dir := t.TempDir()
+	for _, f := range []string{"html/index.php", "app/index.php"} {
+		p := filepath.Join(dir, f)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := RunIn(Options{Type: manifest.TypeWordPress, Name: "site"}, dir); err == nil || !strings.Contains(err.Error(), "both app/ and html/ exist") {
+		t.Fatalf("want both-exist refusal, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "tainer.yaml")); !os.IsNotExist(err) {
+		t.Errorf("tainer.yaml must not be written on refusal (err=%v)", err)
+	}
+}

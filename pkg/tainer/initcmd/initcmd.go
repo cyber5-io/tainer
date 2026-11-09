@@ -7,6 +7,7 @@
 package initcmd
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/cyber5-io/tainer/pkg/tainer/env"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
+	"github.com/cyber5-io/tainer/pkg/tainer/pod"
 	"github.com/cyber5-io/tainer/pkg/tainer/registry"
 	"github.com/cyber5-io/tainer/pkg/tainer/validate"
 	"gopkg.in/yaml.v3"
@@ -72,6 +74,8 @@ const (
 	StepCreated StepAction = "created"
 	StepAdopted StepAction = "adopted"
 	StepSkipped StepAction = "skipped"
+	// StepRenamed: a legacy html/ source folder was moved to app/.
+	StepRenamed StepAction = "renamed"
 )
 
 // StepKind buckets the kind of artefact so the CLI can render with the
@@ -139,6 +143,14 @@ func RunIn(opts Options, dir string) (*RunResult, error) {
 
 	res := &RunResult{ProjectName: name, ManifestPath: manifestPath}
 
+	// A folder that still carries the legacy html/ source folder has it
+	// moved to app/ before anything is written, so scaffolding never makes
+	// an empty app/ beside it. Refusals stop init before tainer.yaml lands.
+	var migrated bytes.Buffer
+	if err := pod.MigrateAppDir(dir, &migrated); err != nil {
+		return nil, fmt.Errorf("init: %w", err)
+	}
+
 	// Build and write the manifest. Since we guarded against existence
 	// above, this is always "created".
 	m := defaultManifest(opts, name)
@@ -154,6 +166,9 @@ func RunIn(opts Options, dir string) (*RunResult, error) {
 	// Create app/ (or whatever HostAppDir() returns).
 	if err := ensureDir(dir, m.HostAppDir(), res); err != nil {
 		return res, err
+	}
+	if migrated.Len() > 0 {
+		res.Steps[len(res.Steps)-1].Action = StepRenamed
 	}
 
 	// Plain nodejs projects have no framework image that ships an app, so

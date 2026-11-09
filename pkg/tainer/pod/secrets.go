@@ -191,6 +191,11 @@ func ensureProjectEnv(m *manifest.Manifest, projectDir string, s *Secrets) error
 		return fmt.Errorf("generate .env: %w", err)
 	}
 	if m.IsNode() {
+		// Never write app/.env beside a legacy html/: migrate (or refuse)
+		// first. Start has already done this, so it is normally a no-op.
+		if err := MigrateAppDir(projectDir, os.Stderr); err != nil {
+			return err
+		}
 		appEnv := filepath.Join(projectDir, m.HostAppDir(), ".env")
 		if err := env.GenerateAppEnv(m, appEnv, creds); err != nil {
 			return fmt.Errorf("generate %s/.env: %w", m.HostAppDir(), err)

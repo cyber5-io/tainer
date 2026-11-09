@@ -170,6 +170,30 @@ func TestEnsureProjectEnv(t *testing.T) {
 		}
 	})
 
+	t.Run("legacy html/ is migrated before app/.env is written", func(t *testing.T) {
+		dir := realDir(t)
+		writeFile(t, filepath.Join(dir, "html", "package.json"), "{}")
+		m := newManifest(manifest.TypeNodeJS, manifest.DatabasePostgres)
+		if err := ensureProjectEnv(m, dir, secrets); err != nil {
+			t.Fatalf("ensureProjectEnv: %v", err)
+		}
+		mustNotExist(t, filepath.Join(dir, "html"))
+		mustExist(t, filepath.Join(dir, "app", "package.json"))
+		mustExist(t, filepath.Join(dir, "app", ".env"))
+	})
+
+	t.Run("linked html/ is refused and no app/ is made", func(t *testing.T) {
+		dir := realDir(t)
+		if err := os.Symlink(realDir(t), filepath.Join(dir, "html")); err != nil {
+			t.Fatal(err)
+		}
+		m := newManifest(manifest.TypeNodeJS, manifest.DatabasePostgres)
+		if err := ensureProjectEnv(m, dir, secrets); err == nil {
+			t.Fatal("expected refusal")
+		}
+		mustNotExist(t, filepath.Join(dir, "app"))
+	})
+
 	t.Run("nil secrets or empty dir is a no-op", func(t *testing.T) {
 		m := newManifest(manifest.TypeNodeJS, manifest.DatabasePostgres)
 		if err := ensureProjectEnv(m, "", secrets); err != nil {
