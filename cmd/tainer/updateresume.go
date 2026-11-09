@@ -146,7 +146,27 @@ func snapshotRunning(ctx context.Context, ops resumeOps) ([]release.ResumeEntry,
 // caller watched the installer close; every other caller passes false and
 // waits for the install to finish, or for the file to go stale.
 func runResume(ctx context.Context, ops resumeOps, installerDone bool) error {
-	return release.WithResumeLock(func() error {
+	_, err := runResumeReport(ctx, ops, installerDone)
+	return err
+}
+
+// resumeFailure is a pod that didn't come back, and why.
+type resumeFailure struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
+}
+
+// resumeOutcome is what a resume started and what it couldn't.
+type resumeOutcome struct {
+	Resumed []string
+	Failed  []resumeFailure
+}
+
+// runResumeReport is runResume that also returns which pods came back
+// and which didn't; the printed progress is the same.
+func runResumeReport(ctx context.Context, ops resumeOps, installerDone bool) (resumeOutcome, error) {
+	var res resumeOutcome
+	err := release.WithResumeLock(func() error {
 		f, ok, err := release.ReadResume()
 		if err != nil {
 			// Nothing safe to act on: drop it and point at tainer start.
@@ -171,12 +191,15 @@ func runResume(ctx context.Context, ops resumeOps, installerDone bool) error {
 		for _, e := range f.Pods {
 			if err := ops.start(ctx, e); err != nil {
 				fmt.Fprintf(ops.out, "%s didn't come back: %v\n", e.Name, err)
+				res.Failed = append(res.Failed, resumeFailure{Name: e.Name, Reason: err.Error()})
 				continue
 			}
 			fmt.Fprintf(ops.out, "%s is back\n", e.Name)
+			res.Resumed = append(res.Resumed, e.Name)
 		}
 		return release.ClearResume()
 	})
+	return res, err
 }
 
 // sameVersion compares versions ignoring a leading "v"; an empty
