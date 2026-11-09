@@ -85,6 +85,8 @@ func TestStartRefusesUserTainerEnv(t *testing.T) {
 		{".env", "TAINER_ENV=live\n"},
 		{".env", "# mine\nexport TAINER_ENV=staging\n"},
 		{".env", "  TAINER_ENV = live\n"},
+		{".env", "export\tTAINER_ENV=live\n"},
+		{".env", "BLOB=" + strings.Repeat("A", 2<<20) + "\nTAINER_ENV=live\n"},
 		{"app/.env", "FOO=1\nTAINER_ENV=live\n"},
 	} {
 		p := realDir(t)
@@ -92,7 +94,11 @@ func TestStartRefusesUserTainerEnv(t *testing.T) {
 		err := checkProjectFolders(m, p, &bytes.Buffer{})
 		want := "TAINER_ENV is set by tainer — remove it from " + tc.file
 		if err == nil || err.Error() != want {
-			t.Errorf("%s %q: got %v, want %q", tc.file, tc.body, err, want)
+			body := tc.body
+			if len(body) > 60 {
+				body = body[:60] + "..."
+			}
+			t.Errorf("%s %q: got %v, want %q", tc.file, body, err, want)
 		}
 	}
 
@@ -108,6 +114,14 @@ func TestStartRefusesUserTainerEnv(t *testing.T) {
 		}
 		if err := checkProjectFolders(m, p, &bytes.Buffer{}); err != nil {
 			t.Fatalf("generated .env refused: %v", err)
+		}
+	})
+
+	t.Run("over-long line without the key passes", func(t *testing.T) {
+		p := realDir(t)
+		writeFile(t, filepath.Join(p, ".env"), "CERT="+strings.Repeat("A", 2<<20)+"\nFOO=1\n")
+		if err := checkProjectFolders(m, p, &bytes.Buffer{}); err != nil {
+			t.Fatalf("refused: %v", err)
 		}
 	})
 

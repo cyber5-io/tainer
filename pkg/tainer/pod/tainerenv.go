@@ -3,6 +3,7 @@ package pod
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 
@@ -21,7 +22,7 @@ const tainerOwnedEnv = "TAINER_ENV"
 // is not read.
 func checkTainerEnv(m *manifest.Manifest, projectDir string) error {
 	for _, rel := range []string{".env", m.HostAppDir() + "/.env"} {
-		set, err := envFileSets(filepath.Join(projectDir, filepath.FromSlash(rel)), tainerOwnedEnv)
+		set, err := envFileSets(filepath.Join(projectDir, filepath.FromSlash(rel)), rel, tainerOwnedEnv)
 		if err != nil {
 			return err
 		}
@@ -33,8 +34,10 @@ func checkTainerEnv(m *manifest.Manifest, projectDir string) error {
 }
 
 // envFileSets reports whether the dotenv file at path assigns key, in the
-// KEY=value or `export KEY=value` form.
-func envFileSets(path, key string) (bool, error) {
+// KEY=value or `export KEY=value` form. Lines of any length are fine: only
+// the start of each line is looked at, so a long blob (a certificate, a
+// base64 value) never stops the check. rel names the file in errors.
+func envFileSets(path, rel, key string) (bool, error) {
 	f, err := openNoFollow(path)
 	if err != nil {
 		// Missing, or a link or other non-regular file that tainer never
@@ -42,21 +45,40 @@ func envFileSets(path, key string) (bool, error) {
 		return false, nil
 	}
 	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+	r := bufio.NewReaderSize(f, 64*1024)
+	for {
+		head, more, err := r.ReadLine()
+		if err == io.EOF {
+			return false, nil
 		}
-		line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
-		k, _, ok := strings.Cut(line, "=")
-		if ok && strings.TrimSpace(k) == key {
+		if err != nil {
+			return false, fmt.Errorf("read %s: %w", rel, err)
+		}
+		set := lineSets(string(head), key)
+		// Drain the rest of an over-long line; the key sits at its start.
+		for more {
+			if _, more, err = r.ReadLine(); err != nil && err != io.EOF {
+				return false, fmt.Errorf("read %s: %w", rel, err)
+			}
+			if err == io.EOF {
+				break
+			}
+		}
+		if set {
 			return true, nil
 		}
 	}
-	if err := sc.Err(); err != nil {
-		return false, fmt.Errorf("read %s: %w", path, err)
+}
+
+// lineSets reports whether one dotenv line assigns key.
+func lineSets(line, key string) bool {
+	line = strings.TrimSpace(line)
+	if line == "" || strings.HasPrefix(line, "#") {
+		return false
 	}
-	return false, nil
+	if rest, ok := strings.CutPrefix(line, "export"); ok && rest != "" && (rest[0] == ' ' || rest[0] == '\t') {
+		line = strings.TrimSpace(rest)
+	}
+	k, _, ok := strings.Cut(line, "=")
+	return ok && strings.TrimSpace(k) == key
 }

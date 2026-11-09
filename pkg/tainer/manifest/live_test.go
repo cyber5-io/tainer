@@ -62,8 +62,8 @@ func TestLiveBlockMergesFromOverlay(t *testing.T) {
 
 	// Overlay adds a live block the base lacks.
 	dir2 := t.TempDir()
-	os.WriteFile(filepath.Join(dir2, FileName), []byte(liveBase), 0644)
-	os.WriteFile(filepath.Join(dir2, LocalOverlayName), []byte("live: { domain: shop.example.com }\n"), 0644)
+	mustWrite(t, filepath.Join(dir2, FileName), []byte(liveBase))
+	mustWrite(t, filepath.Join(dir2, LocalOverlayName), []byte("live: { domain: shop.example.com }\n"))
 	m, err = Load(filepath.Join(dir2, FileName))
 	if err != nil {
 		t.Fatal(err)
@@ -74,8 +74,8 @@ func TestLiveBlockMergesFromOverlay(t *testing.T) {
 
 	// An overlay without a live block leaves the base's alone.
 	dir3 := t.TempDir()
-	os.WriteFile(filepath.Join(dir3, FileName), []byte(liveBase+"live: { domain: shop.example.com }\n"), 0644)
-	os.WriteFile(filepath.Join(dir3, LocalOverlayName), []byte("pod: { size: large }\n"), 0644)
+	mustWrite(t, filepath.Join(dir3, FileName), []byte(liveBase+"live: { domain: shop.example.com }\n"))
+	mustWrite(t, filepath.Join(dir3, LocalOverlayName), []byte("pod: { size: large }\n"))
 	m, err = Load(filepath.Join(dir3, FileName))
 	if err != nil {
 		t.Fatal(err)
@@ -86,8 +86,8 @@ func TestLiveBlockMergesFromOverlay(t *testing.T) {
 
 	// The merged result is validated like tainer.yaml.
 	dir4 := t.TempDir()
-	os.WriteFile(filepath.Join(dir4, FileName), []byte(liveBase), 0644)
-	os.WriteFile(filepath.Join(dir4, LocalOverlayName), []byte("live: { domain: \"bad domain\" }\n"), 0644)
+	mustWrite(t, filepath.Join(dir4, FileName), []byte(liveBase))
+	mustWrite(t, filepath.Join(dir4, LocalOverlayName), []byte("live: { domain: \"bad domain\" }\n"))
 	if _, err := Load(filepath.Join(dir4, FileName)); err == nil {
 		t.Error("overlay with an invalid live.domain accepted")
 	}
@@ -122,5 +122,12 @@ func TestSaveOmitsEmptyLiveBlock(t *testing.T) {
 	}
 	if back.Live == nil || back.Live.Domain != "shop.example.com" {
 		t.Errorf("round trip lost live block: %+v", back.Live)
+	}
+}
+
+func mustWrite(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatal(err)
 	}
 }
