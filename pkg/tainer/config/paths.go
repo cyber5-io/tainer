@@ -29,6 +29,9 @@ func PublicKey() string       { return filepath.Join(KeysDir(), "tainer_rsa.pub"
 func ControlDir() string      { return filepath.Join(BaseDir(), "control") }
 func SSHPiperHostKey() string { return filepath.Join(KeysDir(), "sshpiper_host_ed25519") }
 
+func ReleaseCacheFile() string { return filepath.Join(BaseDir(), "release-check.json") }
+func ResumeFile() string       { return filepath.Join(BaseDir(), "update-resume.json") }
+
 func EnsureDirs() error {
 	dirs := []string{
 		BaseDir(),
