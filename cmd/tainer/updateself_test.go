@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cyber5-io/tainer/pkg/tainer/imagecheck"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
@@ -34,6 +35,9 @@ type fakeSelf struct {
 	// menuAfterTainer is the menu version the full pkg leaves behind.
 	menuAfterTainer string
 	opsYes          []bool
+	running         []string
+	handOffArgs     [][]string
+	checkDeadline   []time.Duration
 }
 
 func newFakeSelf() *fakeSelf {
@@ -51,17 +55,33 @@ func (f *fakeSelf) install(t *testing.T) {
 	t.Helper()
 	origCheck, origT, origM, origPods := releaseCheck, installedTainerFor, installedMenuFor, podCheck
 	origIT, origIM, origPod, origIn := selfInstallTainer, selfInstallMenu, updatePod, updateStdin
+	origRun, origHand := runningPodNames, handOffUpdate
 	t.Cleanup(func() {
 		releaseCheck, installedTainerFor, installedMenuFor, podCheck = origCheck, origT, origM, origPods
 		selfInstallTainer, selfInstallMenu, updatePod, updateStdin = origIT, origIM, origPod, origIn
+		runningPodNames, handOffUpdate = origRun, origHand
 	})
+	runningPodNames = func(context.Context) []string { return f.running }
+	// The new binary finishes the run: here, this same code with tainer
+	// now at the new version.
+	handOffUpdate = func(outArgs []string) int {
+		f.log = append(f.log, "handoff")
+		f.handOffArgs = append(f.handOffArgs, outArgs)
+		cmdUpdate(append([]string{"--yes"}, outArgs...))
+		return 0
+	}
 	releaseCheck = func(_ context.Context, force bool) (release.Latest, bool) {
 		f.forced = append(f.forced, force)
 		return f.latest, f.ok
 	}
 	installedTainerFor = func() string { return f.tainer }
 	installedMenuFor = func() string { return f.menu }
-	podCheck = func(_ context.Context, autoStart bool, projects map[string]registry.Project) (imagecheck.Report, error) {
+	podCheck = func(ctx context.Context, autoStart bool, projects map[string]registry.Project) (imagecheck.Report, error) {
+		if d, ok := ctx.Deadline(); ok {
+			f.checkDeadline = append(f.checkDeadline, time.Until(d))
+		} else {
+			f.checkDeadline = append(f.checkDeadline, -1)
+		}
 		names := make([]string, 0, len(projects))
 		for n := range projects {
 			names = append(names, n)
@@ -77,6 +97,11 @@ func (f *fakeSelf) install(t *testing.T) {
 		for _, p := range f.report.Pods {
 			if _, ok := projects[p.Name]; ok {
 				rep.Pods = append(rep.Pods, p)
+			}
+		}
+		for _, p := range rep.Pods {
+			if p.UpdateAvailable {
+				rep.Available++
 			}
 		}
 		return rep, nil
@@ -132,7 +157,7 @@ func registerProject(t *testing.T, parent, name string) string {
 func runUpdateCmd(t *testing.T, args []string) []byte {
 	t.Helper()
 	out, exit := failureHarness(t, false, func() { cmdUpdate(args) })
-	if exit != -1 {
+	if exit != -1 && exit != 0 {
 		t.Fatalf("cmdUpdate(%v) exited %d\n%s", args, exit, out)
 	}
 	return out
@@ -249,7 +274,7 @@ func TestUpdateNoArgsListsAndAsks(t *testing.T) {
 	f = newFakeSelf()
 	f.install(t)
 	out = runUpdateCmd(t, []string{"--yes"})
-	if got := podLog(f.log); !reflect.DeepEqual(got, []string{"tainer", "menu", "pod:blog"}) {
+	if got := podLog(f.log); !reflect.DeepEqual(got, []string{"tainer", "handoff", "menu", "pod:blog"}) {
 		t.Fatalf("order = %v, want tainer, menu, pods\n%s", got, out)
 	}
 	if strings.Contains(string(out), "[y/N]") {
@@ -262,7 +287,7 @@ func TestUpdateNoArgsListsAndAsks(t *testing.T) {
 	f = newFakeSelf()
 	f.install(t)
 	runUpdateCmd(t, []string{"-y"})
-	if len(f.log) != 3 {
+	if len(f.log) != 4 {
 		t.Errorf("-y must work like --yes, ran %v", f.log)
 	}
 }
@@ -409,7 +434,7 @@ func TestMenuNeedsTainerFirst(t *testing.T) {
 
 	f.log = nil
 	runUpdateCmd(t, []string{"--yes"})
-	if !reflect.DeepEqual(f.log, []string{"tainer", "menu"}) {
+	if !reflect.DeepEqual(f.log, []string{"tainer", "handoff", "menu"}) {
 		t.Errorf("ran %v, want tainer before menu", f.log)
 	}
 
@@ -419,7 +444,7 @@ func TestMenuNeedsTainerFirst(t *testing.T) {
 	f2.menuAfterTainer = "1.5.0"
 	f2.install(t)
 	runUpdateCmd(t, []string{"--yes"})
-	if !reflect.DeepEqual(f2.log, []string{"tainer"}) {
+	if !reflect.DeepEqual(f2.log, []string{"tainer", "handoff"}) {
 		t.Errorf("ran %v, want only tainer once the pkg brought the menu", f2.log)
 	}
 }
@@ -439,5 +464,134 @@ func goldenCheckReport() imagecheck.Report {
 		},
 		Available: 1,
 		Unknown:   1,
+	}
+}
+
+func TestUpdateNoArgsAsksOnce(t *testing.T) {
+	selfTestHome(t)
+	registerProject(t, t.TempDir(), "blog")
+	f := newFakeSelf()
+	f.running = []string{"blog", "shop"}
+	f.stdin = "y\n"
+	f.install(t)
+	out := string(runUpdateCmd(t, []string{"--plain"}))
+	if !strings.Contains(out, "Updating tainer restarts your running pods (blog, shop).\n") {
+		t.Errorf("missing the restart warning in the listing:\n%s", out)
+	}
+	if n := strings.Count(out, "[y/N]"); n != 1 {
+		t.Errorf("asked %d times, want once:\n%s", n, out)
+	}
+	if got := podLog(f.log); !reflect.DeepEqual(got, []string{"tainer", "handoff", "menu", "pod:blog"}) {
+		t.Fatalf("ran %v", got)
+	}
+	if !reflect.DeepEqual(f.opsYes, []bool{true, true}) {
+		t.Errorf("installers must not ask again, yes = %v", f.opsYes)
+	}
+	if !reflect.DeepEqual(f.handOffArgs, [][]string{{"--plain"}}) {
+		t.Errorf("hand-off args = %v, want the output flags", f.handOffArgs)
+	}
+}
+
+func TestMissingMenuAppIsNotAnUpdate(t *testing.T) {
+	selfTestHome(t)
+	f := newFakeSelf()
+	f.menu = ""
+	f.latest.Tainer.Version = "1.4.0"
+	f.install(t)
+	out, _ := failureHarness(t, true, func() { cmdUpdate([]string{"--json", "--check"}) })
+	mn, _ := checkDocFrom(t, out)["menu"].(map[string]any)
+	if mn["updateAvailable"] != false || mn["installed"] != "" {
+		t.Errorf("menu = %v", mn)
+	}
+	text := string(runUpdateCmd(t, nil))
+	if strings.Contains(text, "menu app") || !strings.Contains(text, "everything is up to date") {
+		t.Errorf("a missing menu app must not be listed:\n%s", text)
+	}
+	runUpdateCmd(t, []string{"menu"})
+	if !reflect.DeepEqual(f.log, []string{"menu"}) {
+		t.Errorf("update menu must still install it, ran %v", f.log)
+	}
+}
+
+func TestHeldPodsAreListed(t *testing.T) {
+	selfTestHome(t)
+	registerProject(t, t.TempDir(), "control")
+	f := newFakeSelf()
+	f.latest.Tainer.Version = "1.4.0"
+	f.latest.Menu.Version = "1.4.0"
+	f.report = imagecheck.Report{Pods: []imagecheck.PodReport{{Name: "control", State: "running", Roles: []imagecheck.RoleReport{},
+		Control: &imagecheck.ControlCheck{Running: "1.0.0", Stable: "1.2.0", MinTainer: "1.6.0", State: imagecheck.ControlNeedsNewerTainer}}}}
+	f.install(t)
+	out := string(runUpdateCmd(t, nil))
+	if !strings.Contains(out, "control  needs a newer tainer — dashboard 1.2.0 needs tainer 1.6.0 or later") {
+		t.Errorf("held pod not listed:\n%s", out)
+	}
+	if strings.Contains(out, "everything is up to date") || strings.Contains(out, "[y/N]") {
+		t.Errorf("a held pod is information, not up to date and not an action:\n%s", out)
+	}
+	if len(f.log) != 0 {
+		t.Errorf("ran %v", f.log)
+	}
+}
+
+func TestReservedTargetClashRefusedForJSON(t *testing.T) {
+	cwd := selfTestHome(t)
+	registerProject(t, cwd, "menu")
+	f := newFakeSelf()
+	f.install(t)
+	out, exit := failureHarness(t, true, func() { cmdUpdate([]string{"menu", "--json", "--yes"}) })
+	if exit != 1 || !strings.Contains(string(out), `"invalid-arguments"`) ||
+		!strings.Contains(string(out), `\"menu\" is both a project and an update target; pass the project's folder path instead`) {
+		t.Fatalf("exit=%d out=%s", exit, out)
+	}
+	if len(f.log) != 0 {
+		t.Errorf("nothing may run: %v", f.log)
+	}
+}
+
+func TestHandOffRunsTheInstalledBinary(t *testing.T) {
+	cwd := selfTestHome(t)
+	f := newFakeSelf()
+	f.stdin = "y\n"
+	f.install(t)
+	handOffUpdate = liveHandOffUpdate
+	rec := filepath.Join(t.TempDir(), "rec")
+	bin := filepath.Join(t.TempDir(), "tainer")
+	script := "#!/bin/sh\necho \"$@\" > " + rec + "\npwd >> " + rec + "\nexit 3\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orig := installedTainerBin
+	installedTainerBin = bin
+	t.Cleanup(func() { installedTainerBin = orig })
+
+	_, exit := failureHarness(t, false, func() { cmdUpdate([]string{"--plain"}) })
+	if exit != 3 {
+		t.Fatalf("exit = %d, want the new binary's 3", exit)
+	}
+	got, err := os.ReadFile(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(got)), "\n")
+	want, _ := filepath.EvalSymlinks(cwd)
+	gotDir, _ := filepath.EvalSymlinks(lines[len(lines)-1])
+	if lines[0] != "update --yes --plain" || gotDir != want {
+		t.Errorf("binary saw %q", got)
+	}
+	if !reflect.DeepEqual(f.log, []string{"tainer"}) {
+		t.Errorf("the old process must stop after tainer, ran %v", f.log)
+	}
+}
+
+func TestNoArgsCheckPhaseIsBounded(t *testing.T) {
+	selfTestHome(t)
+	registerProject(t, t.TempDir(), "blog")
+	f := newFakeSelf()
+	f.stdin = "n\n"
+	f.install(t)
+	runUpdateCmd(t, nil)
+	if len(f.checkDeadline) != 1 || f.checkDeadline[0] <= 0 || f.checkDeadline[0] > 2*time.Minute {
+		t.Errorf("check deadline = %v, want within 2m", f.checkDeadline)
 	}
 }

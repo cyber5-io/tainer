@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -40,7 +41,45 @@ var (
 	selfInstallMenu              = installMenu
 	updatePod                    = liveUpdatePod
 	updateStdin        io.Reader = os.Stdin
+	runningPodNames              = liveRunningPodNames
+	handOffUpdate                = liveHandOffUpdate
 )
+
+// checkPhaseTimeout bounds the checks before a listing, as --check does.
+const checkPhaseTimeout = 2 * time.Minute
+
+// liveRunningPodNames are the pods a tainer update would restart; none
+// when tainer isn't running or they can't be listed.
+func liveRunningPodNames(ctx context.Context) []string {
+	entries, err := snapshotRunning(ctx, liveResumeOps())
+	if err != nil {
+		return nil
+	}
+	names := make([]string, len(entries))
+	for i, e := range entries {
+		names[i] = e.Name
+	}
+	return names
+}
+
+// liveHandOffUpdate runs `<installed tainer> update --yes` with this run's
+// output flags, cwd and stdio, and returns its exit code: once tainer is
+// updated, the rest is done by the new binary.
+func liveHandOffUpdate(outArgs []string) int {
+	cmd := exec.Command(installedTainerBin, append([]string{"update", "--yes"}, outArgs...)...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	err := cmd.Run()
+	var ee *exec.ExitError
+	switch {
+	case err == nil:
+		return 0
+	case errors.As(err, &ee) && ee.ExitCode() > 0:
+		return ee.ExitCode()
+	default:
+		fmt.Fprintln(os.Stderr, "tainer: couldn't run the updated tainer to finish: ", err)
+		return 1
+	}
+}
 
 // tainerRelease is the `tainer` key of `update --check --json`.
 type tainerRelease struct {
@@ -68,17 +107,11 @@ type selfStatus struct {
 	Menu   menuRelease
 }
 
-// menuWanted reports whether the menu app at installed should be updated
-// to available. A missing menu app is installed on macOS, as installMenu
-// does; elsewhere there is no menu app.
+// menuWanted reports whether the menu app at installed has an update to
+// available. A missing menu app is not an update: `tainer update menu`
+// installs it, but listings don't offer it.
 func menuWanted(available, installed string) bool {
-	if available == "" {
-		return false
-	}
-	if installed == "" {
-		return selfUpdateSupported
-	}
-	return release.Newer(available, installed)
+	return available != "" && installed != "" && release.Newer(available, installed)
 }
 
 // checkSelf reads latest.json (cached unless force) and the installed
@@ -219,22 +252,30 @@ func podsWithUpdates(rep imagecheck.Report) []imagecheck.PodReport {
 // updateEverything is `tainer update` outside a project folder: it lists
 // tainer, the menu app and every pod with an update, asks once, then
 // updates tainer first, the menu app if still needed, then the pods.
-func updateEverything(ctx context.Context, r selfUpdateRun) error {
-	st := checkSelf(ctx, false)
+// handOff is true when tainer itself was updated: the caller then lets the
+// new binary do the rest.
+func updateEverything(ctx context.Context, r selfUpdateRun) (handOff bool, err error) {
+	checkCtx, cancel := context.WithTimeout(ctx, checkPhaseTimeout)
+	st := checkSelf(checkCtx, false)
 	all := registry.All()
-	var pods []imagecheck.PodReport
+	var pods, held []imagecheck.PodReport
 	podsChecked := true
 	if len(all) > 0 {
-		rep, err := podCheck(ctx, false, all)
+		rep, err := podCheck(checkCtx, false, all)
 		if err != nil {
 			podsChecked = false
 		} else {
-			pods = podsWithUpdates(rep)
+			pods, held = podsWithUpdates(rep), heldPods(rep)
 		}
 	}
-
 	doTainer := st.Tainer.UpdateAvailable && selfUpdateSupported
 	doMenu := st.Menu.UpdateAvailable && selfUpdateSupported
+	var running []string
+	if doTainer {
+		running = runningPodNames(checkCtx)
+	}
+	cancel()
+
 	var lines []string
 	if st.Tainer.UpdateAvailable {
 		lines = append(lines, tainerLine(st.Tainer))
@@ -244,6 +285,9 @@ func updateEverything(ctx context.Context, r selfUpdateRun) error {
 	}
 	for _, p := range pods {
 		lines = append(lines, podLine(p))
+	}
+	for _, p := range held {
+		lines = append(lines, p.Name+"  needs a newer tainer — "+heldDetail(p))
 	}
 	if !podsChecked {
 		fmt.Fprintln(r.out, "pods weren't checked — tainer isn't running")
@@ -255,22 +299,30 @@ func updateEverything(ctx context.Context, r selfUpdateRun) error {
 		if len(lines) == 0 && podsChecked {
 			fmt.Fprintln(r.out, "everything is up to date")
 		}
-		return nil
+		return false, nil
 	}
 	fmt.Fprintln(r.out, "Updates available:")
 	for _, l := range lines {
 		fmt.Fprintln(r.out, "  "+l)
 	}
+	if len(running) > 0 {
+		fmt.Fprintf(r.out, "Updating tainer restarts your running pods (%s).\n", strings.Join(running, ", "))
+	}
 	if !r.yes && !confirm(r.in, r.out, "Update all of these?") {
 		fmt.Fprintln(r.out, "nothing updated")
-		return nil
+		return false, nil
 	}
+	// That answer covers every step: the installers don't ask again.
+	r.yes = true
 
 	var errs []error
 	if doTainer {
-		_, err := selfInstallTainer(ctx, r.installOpsFor(false, st))
+		res, err := selfInstallTainer(ctx, r.installOpsFor(false, st))
 		if errors.Is(err, errUpdateInterrupted) || ctx.Err() != nil {
-			return errors.Join(err, ctx.Err())
+			return false, errors.Join(err, ctx.Err())
+		}
+		if err == nil && res.Updated {
+			return true, nil
 		}
 		if err != nil {
 			errs = append(errs, err)
@@ -278,9 +330,11 @@ func updateEverything(ctx context.Context, r selfUpdateRun) error {
 	}
 	// The full pkg carries a menu app: if it was new enough, the separate
 	// menu update is no longer needed.
-	if doMenu && menuWanted(st.Menu.Available, installedMenuFor()) {
-		if _, err := selfInstallMenu(ctx, r.installOpsFor(true, st)); err != nil {
-			errs = append(errs, err)
+	if doMenu {
+		if now := installedMenuFor(); now == "" || release.Newer(st.Menu.Available, now) {
+			if _, err := selfInstallMenu(ctx, r.installOpsFor(true, st)); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
 	for _, p := range pods {
@@ -296,7 +350,7 @@ func updateEverything(ctx context.Context, r selfUpdateRun) error {
 			errs = append(errs, fmt.Errorf("%s: %w", p.Name, err))
 		}
 	}
-	return errors.Join(errs...)
+	return false, errors.Join(errs...)
 }
 
 // updateHere is `tainer update` inside a project folder: only that pod is
@@ -306,11 +360,14 @@ func updateHere(ctx context.Context, r selfUpdateRun, name, manifestPath, dir st
 	if !ok || proj.Path != dir {
 		proj = registry.Project{Path: dir}
 	}
-	rep, err := podCheck(ctx, true, map[string]registry.Project{name: proj})
+	checkCtx, cancel := context.WithTimeout(ctx, checkPhaseTimeout)
+	rep, err := podCheck(checkCtx, true, map[string]registry.Project{name: proj})
 	if err != nil {
+		cancel()
 		return err
 	}
-	st := checkSelf(ctx, false)
+	st := checkSelf(checkCtx, false)
+	cancel()
 	defer func() {
 		if st.Tainer.UpdateAvailable {
 			fmt.Fprintln(r.out, tainerHintHere)
@@ -365,7 +422,9 @@ func updateOnePod(ctx context.Context, out io.Writer, name, manifestPath, dir st
 }
 
 // runUpdateNoArgs is `tainer update` with no target.
-func runUpdateNoArgs(outMode tui.OutputMode, yes bool) {
+// outArgs are the output flags to pass on when handing off to the new
+// binary.
+func runUpdateNoArgs(outMode tui.OutputMode, yes bool, outArgs []string) {
 	r := selfUpdateRun{in: bufio.NewReader(updateStdin), out: os.Stdout, yes: yes}
 	cwd, err := os.Getwd()
 	must(err)
@@ -390,7 +449,38 @@ func runUpdateNoArgs(outMode tui.OutputMode, yes bool) {
 		must(updateHere(ctx, r, m.Project.Name, manifestPath, dir))
 		return
 	}
-	must(updateEverything(ctx, r))
+	handOff, err := updateEverything(ctx, r)
+	must(err)
+	if handOff {
+		exitFn(handOffUpdate(outArgs))
+	}
+}
+
+// outputFlagArgs turns the parsed output flags back into arguments.
+func outputFlagArgs(f tui.OutputFlags) []string {
+	var out []string
+	if f.UI {
+		out = append(out, "--ui")
+	}
+	if f.Plain {
+		out = append(out, "--plain")
+	}
+	if f.JSON {
+		out = append(out, "--json")
+	}
+	if f.NoColor {
+		out = append(out, "--no-color")
+	}
+	return out
+}
+
+// reservedClash refuses a reserved target for a JSON caller when a project
+// has the same name: a program must say which one it means.
+func reservedClash(name string) error {
+	if _, ok := registry.Get(name); !ok {
+		return nil
+	}
+	return withCode("invalid-arguments", fmt.Errorf("%q is both a project and an update target; pass the project's folder path instead", name))
 }
 
 // reservedTargets always mean tainer itself, the menu app and the resume
