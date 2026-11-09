@@ -3107,6 +3107,11 @@ func cmdUpdate(args []string) {
 		runUpdateBase(mode, *baseType)
 	case *all:
 		runUpdateAll(mode)
+	case fs.NArg() == 1 && fs.Arg(0) == "resume":
+		// Hidden: brings back the pods that were running before a
+		// tainer update. Called by postinstall, the menu app and the
+		// installer flow; not listed in usage.
+		runUpdateResume()
 	default:
 		runUpdateSingle(mode, fs.Args())
 	}
