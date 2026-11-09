@@ -13,7 +13,7 @@ enum BarIconRenderer {
         return NSImage(contentsOf: url)
     }()
 
-    static func markImage(style: BarIconStyle, pulseHigh: Bool) -> NSImage {
+    static func markImage(style: BarIconStyle, pulseHigh: Bool, updateBadge: Bool = false) -> NSImage {
         let image = NSImage(size: size, flipped: false) { rect in
             guard let mark else { return false }
             let alpha: CGFloat
@@ -30,6 +30,9 @@ enum BarIconRenderer {
             }
             tinted.draw(in: rect, from: .zero, operation: .sourceOver, fraction: alpha)
             if style == .error { drawBadge(in: NSRect(x: rect.maxX - 9, y: 0, width: 9, height: 9)) }
+            if style.showsUpdateBadge(hasUpdates: updateBadge) {
+                drawUpdateDot(in: NSRect(x: rect.maxX - 7, y: rect.maxY - 7, width: 7, height: 7), template: style == .dimmed)
+            }
             return true
         }
         image.isTemplate = style == .dimmed || style == .pulsing
@@ -43,6 +46,27 @@ enum BarIconRenderer {
         case .full: NSColor(MenuPalette.brandTeal)
         case .error: NSColor(white: 0.55, alpha: 1)
         case .dimmed, .pulsing: .black
+        }
+    }
+
+    /// The "updates available" dot, top-right. A thin gap is cut out of the mark first so the dot
+    /// reads as separate. Coloured icon: white dot with a thin dark ring. Template icon: a plain
+    /// opaque dot (the mark is drawn at reduced opacity, so the dot stands out in any bar).
+    private static func drawUpdateDot(in rect: NSRect, template: Bool) {
+        let gap = rect.insetBy(dx: -1.2, dy: -1.2)
+        NSGraphicsContext.current?.compositingOperation = .clear
+        NSBezierPath(ovalIn: gap).fill()
+        NSGraphicsContext.current?.compositingOperation = .sourceOver
+        let dot = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
+        if template {
+            NSColor.black.setFill()
+            dot.fill()
+        } else {
+            NSColor.white.setFill()
+            dot.fill()
+            NSColor(white: 0.15, alpha: 1).setStroke()
+            dot.lineWidth = 0.8
+            dot.stroke()
         }
     }
 
@@ -64,9 +88,11 @@ enum BarIconRenderer {
 struct BarIcon: View {
     let health: BarHealth
     let pulseHigh: Bool
+    var hasUpdates = false
 
     var body: some View {
-        Image(nsImage: BarIconRenderer.markImage(style: BarIconStyle(health), pulseHigh: pulseHigh))
-            .accessibilityLabel("Tainer")
+        let style = BarIconStyle(health)
+        Image(nsImage: BarIconRenderer.markImage(style: style, pulseHigh: pulseHigh, updateBadge: hasUpdates))
+            .accessibilityLabel(style.showsUpdateBadge(hasUpdates: hasUpdates) ? "Tainer, updates available" : "Tainer")
     }
 }

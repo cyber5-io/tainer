@@ -2,9 +2,13 @@ import SwiftUI
 
 struct MenuContent: View {
     let state: StackState
+    let updates: UpdateChecker
     let onAction: (PodAction, String?) -> Void
     let onQuit: () -> Void
     var onOpen: () async -> Void = {}
+    var onUpdateTainer: () -> Void = {}
+    var onUpdateMenu: () -> Void = {}
+    var onUpdateAllPods: () -> Void = {}
     @Environment(\.colorScheme) private var scheme
     @Environment(\.openURL) private var openURL
 
@@ -12,7 +16,8 @@ struct MenuContent: View {
         let palette = MenuPalette.forScheme(scheme)
         VStack(spacing: 0) {
             BrandHeader(palette: palette)
-            StatusHeader(line: state.statusLine, palette: palette)
+            StatusHeader(line: statusLine, palette: palette)
+            updateRows(palette)
             divider(palette, vertical: 4)
             Text("PODS")
                 .font(.system(size: 10, weight: .bold)).tracking(1.2)
@@ -56,10 +61,41 @@ struct MenuContent: View {
         } else {
             VStack(spacing: 0) {
                 ForEach(state.visiblePods) { pod in
-                    PodRow(model: PodRowModel(pod: pod, busy: state.busy.contains(pod.name)), palette: palette, onAction: onAction)
+                    PodRow(model: PodRowModel(pod: pod, busy: state.busy.contains(pod.name), update: updates.pods[pod.name]), palette: palette, onAction: onAction)
                 }
                 if state.showsPager { pager(palette) }
+                if updates.pods.count >= 2 {
+                    MenuItem(symbol: "arrow.down.circle", title: UpdateCopy.updateAllPods, color: palette.link, palette: palette,
+                             action: onUpdateAllPods)
+                        .padding(.top, 2)
+                }
             }
+        }
+    }
+
+    /// The header's counts give way to the update in flight.
+    private var statusLine: (pill: String, counts: String) {
+        let line = state.statusLine
+        return (line.pill, updates.activity?.text ?? line.counts)
+    }
+
+    /// "Tainer <v> is available — Update…" / "Menu <v> …", only when there is one; notes as help.
+    @ViewBuilder private func updateRows(_ palette: MenuPalette) -> some View {
+        let busy = updates.activity != nil
+        if let release = updates.tainerUpdate, let title = updates.tainerRow {
+            MenuItem(symbol: "arrow.down.circle", title: title, color: palette.link, weight: .semibold, palette: palette,
+                     action: onUpdateTainer)
+                .help(release.notes)
+                .disabled(busy)
+        }
+        if let release = updates.menuUpdate, let title = updates.menuRow {
+            let help = release.needsTainerFirst
+                ? [release.notes, UpdateCopy.needsTainerFirst(release.minTainer)].filter { !$0.isEmpty }.joined(separator: "\n")
+                : release.notes
+            MenuItem(symbol: "arrow.down.circle", title: title, color: palette.link, weight: .semibold, palette: palette,
+                     action: onUpdateMenu)
+                .help(help)
+                .disabled(busy)
         }
     }
 

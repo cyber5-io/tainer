@@ -67,6 +67,7 @@ extension PodAction {
         case .start: "play.fill"
         case .manage: "slider.horizontal.3"
         case .doctor: "waveform.path.ecg"
+        case .update: "arrow.down.circle"
         }
     }
 
@@ -78,6 +79,7 @@ extension PodAction {
         case .start: "Start \(pod)"
         case .manage: "Manage \(pod)"
         case .doctor: "Run Doctor"
+        case .update: "Update \(pod)"
         }
     }
 }

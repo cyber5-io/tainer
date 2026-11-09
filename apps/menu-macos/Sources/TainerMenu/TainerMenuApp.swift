@@ -6,9 +6,11 @@ struct TainerMenuApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuContent(state: model.state, onAction: { model.onAction($0, $1) }, onQuit: model.quit, onOpen: model.refreshList)
+            MenuContent(state: model.state, updates: model.updates, onAction: { model.onAction($0, $1) }, onQuit: model.quit,
+                        onOpen: model.refreshList, onUpdateTainer: model.updateTainer, onUpdateMenu: model.updateMenu,
+                        onUpdateAllPods: model.updateAllPods)
         } label: {
-            BarIcon(health: model.state.engine, pulseHigh: model.pulse.high)
+            BarIcon(health: model.state.engine, pulseHigh: model.pulse.high, hasUpdates: model.updates.hasUpdates)
         }
         .menuBarExtraStyle(.window)
     }

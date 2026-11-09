@@ -53,6 +53,10 @@ final class ActionRunner {
     private let sink: any NotificationSink
     private let locate: () -> String?
     private var doctorRunning = false
+    private var selfUpdateRunning = false
+
+    /// Words the CLI always reads as update targets, never as a project name.
+    static let reservedUpdateTargets: Set<String> = ["tainer", "menu", "resume"]
 
     init(
         state: StackState,
@@ -78,6 +82,14 @@ final class ActionRunner {
             guard !state.busy.contains(pod) else { return }
             label = pod
             arguments = [command(action), pod, "--json"]
+        case (.update, let pod?):
+            guard !state.busy.contains(pod) else { return }
+            label = pod
+            guard let target = updateTarget(pod) else {
+                await sink.post("\(pod): update it from its folder with tainer update ./\(pod)")
+                return
+            }
+            arguments = ["update", target, "--json"]
         default:
             return
         }
@@ -90,6 +102,39 @@ final class ActionRunner {
         if let message = await failure(arguments, isDoctor: action == .doctor) {
             await sink.post("\(label): \(message)")
         }
+    }
+
+    /// A pod named like an update target is updated by its folder path, which the CLI never
+    /// mistakes for a target; nil when that path isn't known.
+    private func updateTarget(_ pod: String) -> String? {
+        guard Self.reservedUpdateTargets.contains(pod) else { return pod }
+        let path = state.listed.first(where: { $0.name == pod })?.path ?? ""
+        return path.isEmpty ? nil : path
+    }
+
+    enum SelfUpdateTarget: String { case tainer, menu }
+
+    /// `tainer update tainer|menu --yes --json`: download, verify, open Installer. The installer may
+    /// relaunch this app mid-run; the CLI and postinstall bring the pods back either way.
+    func runSelfUpdate(_ target: SelfUpdateTarget) async {
+        guard !selfUpdateRunning else { return }
+        selfUpdateRunning = true
+        defer { selfUpdateRunning = false }
+        let output = LineCollector()
+        if let message = await failure(["update", target.rawValue, "--yes", "--json"], isDoctor: false, into: output) {
+            await sink.post("\(target.rawValue): \(message)")
+            return
+        }
+        for pod in SelfUpdateDocument.failed(await output.lines) {
+            await sink.post("\(pod.name) didn't come back: \(pod.reason)")
+        }
+    }
+
+    /// The launch-time safety net: brings back pods an interrupted update left stopped, if any.
+    /// Its output is ignored.
+    func runResume() async {
+        guard let cli = locate() else { return }
+        _ = try? await runner.run(executable: cli, arguments: ["update", "resume"]) { _ in }
     }
 
     private func command(_ action: PodAction) -> String {
@@ -107,9 +152,8 @@ final class ActionRunner {
 
     /// A failure message, or nil on success. A top-level error object is always a failure, and
     /// so is a non-zero exit; the one exemption is doctor, whose report document accompanies exit 1.
-    private func failure(_ arguments: [String], isDoctor: Bool) async -> String? {
+    private func failure(_ arguments: [String], isDoctor: Bool, into output: LineCollector = LineCollector()) async -> String? {
         guard let cli = locate() else { return "tainer was not found" }
-        let output = LineCollector()
         let result: ProcessResult
         do {
             result = try await runner.run(executable: cli, arguments: arguments) { await output.add($0) }
@@ -130,6 +174,18 @@ final class ActionRunner {
             }
         }
         return nil
+    }
+}
+
+/// The `failed` list of `update tainer|menu --json`.
+enum SelfUpdateDocument {
+    struct Failed: Decodable, Equatable { var name: String; var reason: String }
+    private struct Doc: Decodable { var failed: [Failed]? }
+
+    static func failed(_ lines: [String]) -> [Failed] {
+        let text = lines.joined(separator: "\n")
+        guard let data = text.data(using: .utf8), let doc = try? JSONDecoder().decode(Doc.self, from: data) else { return [] }
+        return doc.failed ?? []
     }
 }
 

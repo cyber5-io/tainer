@@ -4,18 +4,22 @@ import Foundation
 struct ListedProject: Equatable, Decodable {
     var name: String
     var domain: String
+    /// The project folder; "" when the CLI didn't send one.
+    var path: String
 
-    init(name: String, domain: String) {
+    init(name: String, domain: String, path: String = "") {
         self.name = name
         self.domain = domain
+        self.path = path
     }
 
-    private enum Key: String, CodingKey { case name, domain }
+    private enum Key: String, CodingKey { case name, domain, path }
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: Key.self)
         name = try c.decode(String.self, forKey: .name)
         domain = (try? c.decode(String.self, forKey: .domain)) ?? ""
+        path = (try? c.decode(String.self, forKey: .path)) ?? ""
     }
 }
 

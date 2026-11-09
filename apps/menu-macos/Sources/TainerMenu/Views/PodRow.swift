@@ -67,7 +67,7 @@ struct PodRow: View {
                 .frame(width: 14)
             Text(model.title)
                 .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(model.isActive ? palette.text : palette.countsText)
+                .foregroundStyle(model.hasUpdate ? palette.link : (model.isActive ? palette.text : palette.countsText))
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 4)
@@ -76,7 +76,7 @@ struct PodRow: View {
                     .accessibilityLabel("Working on \(pod.name)")
             } else {
                 ForEach(model.actions, id: \.self) { action in
-                    IconButton(symbol: action.symbol, label: action.label(pod: pod.name),
+                    IconButton(symbol: action.symbol, label: label(action),
                                tint: tint(action), palette: palette) { perform(action) }
                 }
             }
@@ -96,6 +96,9 @@ struct PodRow: View {
                     }
                     if let hint = model.startHint {
                         Text(hint).font(.system(size: 10)).foregroundStyle(palette.secondaryText)
+                    }
+                    if let help = model.updateHelp {
+                        Text(help).font(.system(size: 10, weight: .medium)).foregroundStyle(palette.link)
                     }
                 }
                 .padding(.horizontal, 8).padding(.vertical, 4)
@@ -130,8 +133,14 @@ struct PodRow: View {
         switch action {
         case .manage: palette.teal
         case .start: palette.teal
+        case .update: palette.link
         default: nil
         }
+    }
+
+    private func label(_ action: PodAction) -> String {
+        if action == .update, let help = model.updateHelp { return help }
+        return action.label(pod: model.pod.name)
     }
 
     private func perform(_ action: PodAction) {

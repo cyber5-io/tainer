@@ -16,7 +16,7 @@ private func names(_ n: Int, prefix: String = "p") -> [String] {
 
 @Test func listDocumentParses() {
     let doc = #"{"v":1,"projects":[{"name":"blog","type":"wordpress","domain":"blog.tainer.me","path":"/p/blog","status":"running"},{"name":"shop"}]}"#
-    #expect(ListDocument.parse([doc]) == [ListedProject(name: "blog", domain: "blog.tainer.me"), ListedProject(name: "shop", domain: "")])
+    #expect(ListDocument.parse([doc]) == [ListedProject(name: "blog", domain: "blog.tainer.me", path: "/p/blog"), ListedProject(name: "shop", domain: "")])
     #expect(ListDocument.parse(["{\"v\":1,", "\"projects\":[]}"]) == [])
     #expect(ListDocument.parse([#"{"v":1,"error":{"code":"x","message":"m"}}"#]) == nil)
     #expect(ListDocument.parse(["garbage"]) == nil)
