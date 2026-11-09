@@ -1,14 +1,12 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"golang.org/x/term"
@@ -131,9 +129,7 @@ func controlDevAllow(ctx context.Context, dir string, stdout, stderr io.Writer, 
 		return 1
 	}
 
-	fmt.Fprintf(stdout, "Folder: %s\n\n%s\n\nAllow? [y/N] ", dir, controlDevWarning)
-	line, _ := bufio.NewReader(ops.stdin).ReadString('\n')
-	if a := strings.ToLower(strings.TrimSpace(line)); a != "y" && a != "yes" {
+	if !confirm(ops.stdin, stdout, fmt.Sprintf("Folder: %s\n\n%s\n\nAllow?", dir, controlDevWarning)) {
 		fmt.Fprintln(stdout, "Not approved.")
 		return 1
 	}
