@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/cyber5-io/tainer/pkg/tainer/config"
 	"github.com/cyber5-io/tainer/pkg/tainer/pod"
 	"github.com/cyber5-io/tainer/pkg/tainer/registry"
 	"github.com/cyber5-io/tainer/pkg/tainer/release"
@@ -217,5 +221,47 @@ func TestSnapshotSkipsStoppedAndPinned(t *testing.T) {
 	want := []release.ResumeEntry{{Name: "half", Path: "/p/half"}, {Name: "web", Path: "/p/web"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("snapshot %v, want %v", got, want)
+	}
+}
+
+func TestResumeClearsCorruptFile(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	path := config.ResumeFile()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeResume{installed: "1.5.0", now: resumeT0}
+	if err := runResume(context.Background(), f.ops(), true); err != nil {
+		t.Fatalf("corrupt file should not be an error: %v", err)
+	}
+	if len(f.started) != 0 {
+		t.Fatalf("started %v from a corrupt file", f.started)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("corrupt file not cleared: %v", err)
+	}
+	if want := "couldn't read the list of pods to bring back; start them with tainer start\n"; f.out.String() != want {
+		t.Fatalf("output %q, want %q", f.out.String(), want)
+	}
+}
+
+func TestSnapshotTreatsUnreachableRuntimeAsNothingRunning(t *testing.T) {
+	ops := resumeOps{list: func(context.Context) ([]release.ResumeEntry, error) {
+		return nil, fmt.Errorf("%w: socket gone", errRuntimeUnreachable)
+	}}
+	got, err := snapshotRunning(context.Background(), ops)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("snapshot = %v, %v; want empty, nil", got, err)
+	}
+}
+
+func TestSnapshotReturnsOtherListErrors(t *testing.T) {
+	boom := errors.New("list failed")
+	ops := resumeOps{list: func(context.Context) ([]release.ResumeEntry, error) { return nil, boom }}
+	if _, err := snapshotRunning(context.Background(), ops); !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want %v", err, boom)
 	}
 }

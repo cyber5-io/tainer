@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -22,6 +23,13 @@ import (
 // cannot tell whether an install is still open treats it as abandoned.
 const resumeStaleAfter = time.Hour
 
+// errRuntimeUnreachable marks a list failure caused by the runtime not
+// answering; when snapshotting, that means nothing is running.
+var errRuntimeUnreachable = errors.New("tainer isn't running")
+
+// resumeUnreadableMsg is printed when the resume file can't be read.
+const resumeUnreadableMsg = "couldn't read the list of pods to bring back; start them with tainer start"
+
 // resumeOps is everything runResume and snapshotRunning touch outside
 // the resume file, so tests can drive them without a runtime.
 type resumeOps struct {
@@ -39,7 +47,8 @@ func liveResumeOps() resumeOps {
 		list: func(ctx context.Context) ([]release.ResumeEntry, error) {
 			eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: false})
 			if err != nil {
-				return nil, engineErr(err)
+				// Without AutoStart, every Engine failure is "not answering".
+				return nil, fmt.Errorf("%w: %v", errRuntimeUnreachable, err)
 			}
 			defer eng.Close()
 			pods, err := pod.List(ctx, eng)
@@ -89,8 +98,12 @@ func runningEntries(pods []pod.Pod, projects map[string]registry.Project) []rele
 
 // snapshotRunning lists the pods to bring back after an update. The
 // control pod is left out: it returns on its own when the runtime boots.
+// A runtime that doesn't answer has nothing running: empty list, no error.
 func snapshotRunning(ctx context.Context, ops resumeOps) ([]release.ResumeEntry, error) {
 	entries, err := ops.list(ctx)
+	if errors.Is(err, errRuntimeUnreachable) {
+		return []release.ResumeEntry{}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -112,8 +125,13 @@ func snapshotRunning(ctx context.Context, ops resumeOps) ([]release.ResumeEntry,
 func runResume(ctx context.Context, ops resumeOps, installerDone bool) error {
 	return release.WithResumeLock(func() error {
 		f, ok, err := release.ReadResume()
-		if err != nil || !ok {
-			return err
+		if err != nil {
+			// Nothing safe to act on: drop it and point at tainer start.
+			fmt.Fprintln(ops.out, resumeUnreadableMsg)
+			return release.ClearResume()
+		}
+		if !ok {
+			return nil
 		}
 		installed := ops.installed()
 		switch {
