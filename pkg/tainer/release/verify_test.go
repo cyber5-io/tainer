@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -54,30 +55,63 @@ func TestDownloadRefusesNonHTTPS(t *testing.T) {
 	}
 }
 
-func fakeRunner(sig string, spctlErr error) Runner {
+func fakeRunner(sig string, sigErr error, spctl string, spctlErr error) Runner {
 	return func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		switch name {
 		case "pkgutil":
-			return []byte(sig), nil
+			return []byte(sig), sigErr
 		case "spctl":
-			return nil, spctlErr
+			return []byte(spctl), spctlErr
 		}
 		return nil, errors.New("unexpected " + name)
 	}
 }
 
-const goodSig = "Package \"x.pkg\":\n   Status: signed by a developer certificate issued by Apple\n   Certificate Chain:\n    1. Developer ID Installer: Cyber5 IO Ltd (C8J8D9XJP6)\n"
+const goodSig = "Package \"x.pkg\":\n   Status: signed by a developer certificate issued by Apple\n   Certificate Chain:\n    1. Developer ID Installer: Cyber5 IO Ltd (C8J8D9XJP6)\n       SHA256 Fingerprint: AA\n    2. Developer ID Certification Authority\n"
+const goodSpctl = "x.pkg: accepted\nsource=Notarized Developer ID\n"
 
 func TestVerifyPkgRequiresCyber5Team(t *testing.T) {
 	ctx := context.Background()
-	if err := VerifyPkg(ctx, fakeRunner(goodSig, nil), "x.pkg"); err != nil {
+	if err := VerifyPkg(ctx, fakeRunner(goodSig, nil, goodSpctl, nil), "x.pkg"); err != nil {
 		t.Fatalf("good: %v", err)
 	}
 	other := strings.ReplaceAll(goodSig, "C8J8D9XJP6", "AAAAAAAAAA")
-	if err := VerifyPkg(ctx, fakeRunner(other, nil), "x.pkg"); err == nil || !strings.Contains(err.Error(), "Cyber5") {
+	if err := VerifyPkg(ctx, fakeRunner(other, nil, goodSpctl, nil), "x.pkg"); err == nil || !strings.Contains(err.Error(), "Cyber5") {
 		t.Fatalf("other team: %v", err)
 	}
-	if err := VerifyPkg(ctx, fakeRunner(goodSig, errors.New("rejected")), "x.pkg"); err == nil || !strings.Contains(err.Error(), "notarised") {
+	if err := VerifyPkg(ctx, fakeRunner(goodSig, nil, goodSpctl, errors.New("rejected")), "x.pkg"); err == nil || !strings.Contains(err.Error(), "notarised") {
 		t.Fatalf("spctl: %v", err)
+	}
+}
+
+func TestVerifyPkgIgnoresPathAndOtherLines(t *testing.T) {
+	sig := "Package \"/tmp/Developer ID Installer C8J8D9XJP6.pkg\":\n   Certificate Chain:\n    1. Developer ID Installer: Other Ltd (AAAAAAAAAA)\n    2. Developer ID Installer C8J8D9XJP6\n"
+	err := VerifyPkg(context.Background(), fakeRunner(sig, nil, goodSpctl, nil), "x.pkg")
+	if err == nil || !strings.Contains(err.Error(), "Cyber5") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestVerifyPkgUnsignedFails(t *testing.T) {
+	err := VerifyPkg(context.Background(), fakeRunner("Status: no signature\n", errors.New("exit 1"), goodSpctl, nil), "x.pkg")
+	if err == nil || !strings.Contains(err.Error(), "Cyber5") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestVerifyPkgGatekeeperDisabledFails(t *testing.T) {
+	err := VerifyPkg(context.Background(), fakeRunner(goodSig, nil, "x.pkg: accepted\noverride=security disabled\n", nil), "x.pkg")
+	if err == nil || !strings.Contains(err.Error(), "notarised") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestDownloadUsesFixedName(t *testing.T) {
+	body := "b"
+	sum := sha256.Sum256([]byte(body))
+	url := serve(t, body)[:len(serve(t, body))-len("tainer.pkg")] + "Developer%20ID%20Installer%20C8J8D9XJP6.pkg"
+	p, err := Download(context.Background(), Artifact{URL: url, SHA256: hex.EncodeToString(sum[:])}, t.TempDir())
+	if err != nil || filepath.Base(p) != "tainer-update.pkg" {
+		t.Fatalf("path %q err %v", p, err)
 	}
 }

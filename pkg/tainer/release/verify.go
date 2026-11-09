@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -49,11 +49,8 @@ func Download(ctx context.Context, a Artifact, dir string) (string, error) {
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("the download failed (HTTP %d)", resp.StatusCode)
 	}
-	name := path.Base(req.URL.Path)
-	if name == "" || name == "." || name == "/" {
-		name = "download.pkg"
-	}
-	dest := filepath.Join(dir, name)
+	// Fixed name: the URL must never influence what pkgutil prints.
+	dest := filepath.Join(dir, "tainer-update.pkg")
 	f, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return "", err
@@ -74,15 +71,26 @@ func Download(ctx context.Context, a Artifact, dir string) (string, error) {
 	return dest, nil
 }
 
-// VerifyPkg checks the package is signed by Cyber5's Developer ID
-// Installer certificate and accepted by Gatekeeper (notarised).
+var leafCert = regexp.MustCompile(`^1\. Developer ID Installer: .+ \(C8J8D9XJP6\)$`)
+
+// VerifyPkg checks the package's leaf certificate is Cyber5's Developer ID
+// Installer certificate and that Gatekeeper accepts it as notarised.
 func VerifyPkg(ctx context.Context, run Runner, pkg string) error {
 	out, err := run(ctx, "pkgutil", "--check-signature", pkg)
-	s := string(out)
-	if err != nil || !strings.Contains(s, "Developer ID Installer") || !strings.Contains(s, "C8J8D9XJP6") {
+	signed := false
+	if err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			if leafCert.MatchString(strings.TrimSpace(line)) {
+				signed = true
+				break
+			}
+		}
+	}
+	if !signed {
 		return errors.New("the download isn't signed by Cyber5")
 	}
-	if _, err := run(ctx, "spctl", "-a", "-t", "install", pkg); err != nil {
+	out, err = run(ctx, "spctl", "-a", "-vv", "-t", "install", pkg)
+	if err != nil || !strings.Contains(string(out), "source=Notarized Developer ID") {
 		return errors.New("the download isn't notarised by Apple")
 	}
 	return nil
