@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // legacyAppDir is the source folder's name before the app/ rename. A
@@ -27,6 +28,8 @@ const appDir = "app"
 //   - app/ absent, html/ a real folder → rename, and say so on out.
 //   - app/ an empty folder beside a real html/ (a half-migrated project) →
 //     remove the empty app/, rename, same notice.
+//   - app/ holds files and html/ holds only dot-prefixed entries (caches an
+//     old pod recreated, like .vite) → leave html/ alone, say so, go on.
 //   - both hold files → refuse; tainer will not pick one.
 //   - html/ (or app/, when html/ is there) a link → refuse; only a real
 //     folder is moved, the mount-safety rule.
@@ -79,6 +82,19 @@ func MigrateAppDir(projectDir string, out io.Writer) error {
 				// app/ holds the code; a leftover empty html/ is harmless.
 				return nil
 			}
+			cachesOnly, err := onlyDotEntries(legacy)
+			if err != nil {
+				return fmt.Errorf("check %s/: %w", legacyAppDir, err)
+			}
+			if cachesOnly {
+				// An old pod still running recreated its cache folders
+				// (.vite and the like) under html/. Nothing of the user's
+				// is there; it is neither moved, mounted nor deleted.
+				if out != nil {
+					fmt.Fprintf(out, "ignoring leftover %s/ (old caches) — safe to delete\n", legacyAppDir)
+				}
+				return nil
+			}
 			return bothExist()
 		}
 		// os.Remove only removes an empty folder, so anything written
@@ -114,4 +130,24 @@ func emptyDir(dir string) (bool, error) {
 		return true, nil
 	}
 	return false, err
+}
+
+// onlyDotEntries reports whether every top-level entry of dir is
+// dot-prefixed. An empty dir reports true.
+func onlyDotEntries(dir string) (bool, error) {
+	f, err := os.Open(dir)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	names, err := f.Readdirnames(-1)
+	if err != nil {
+		return false, err
+	}
+	for _, n := range names {
+		if !strings.HasPrefix(n, ".") {
+			return false, nil
+		}
+	}
+	return true, nil
 }

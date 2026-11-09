@@ -212,3 +212,53 @@ func TestStartMigratesBeforeMounts(t *testing.T) {
 		mustNotExist(t, filepath.Join(p, "app"))
 	})
 }
+
+// An old pod still running after the rename recreates html/ cache folders
+// (.vite and the like). They hold nothing of the user's, so start says so
+// and carries on rather than refusing; nothing is deleted or mounted.
+func TestMigrateIgnoresDotOnlyHtmlBesideApp(t *testing.T) {
+	p := realDir(t)
+	writeFile(t, filepath.Join(p, "app", "index.php"), "x")
+	writeFile(t, filepath.Join(p, "html", ".vite", "deps", "_metadata.json"), "{}")
+	writeFile(t, filepath.Join(p, "html", ".cache"), "c")
+	var out bytes.Buffer
+	if err := MigrateAppDir(p, &out); err != nil {
+		t.Fatalf("dot-only html/ beside app/: %v", err)
+	}
+	if got, want := out.String(), "ignoring leftover html/ (old caches) — safe to delete\n"; got != want {
+		t.Errorf("notice = %q, want %q", got, want)
+	}
+	mustExist(t, filepath.Join(p, "html", ".vite", "deps", "_metadata.json"))
+	mustExist(t, filepath.Join(p, "app", "index.php"))
+}
+
+// One non-dot entry in html/ is real content: still refused.
+func TestMigrateRefusesHtmlWithContentBesideApp(t *testing.T) {
+	p := realDir(t)
+	writeFile(t, filepath.Join(p, "app", "index.php"), "x")
+	writeFile(t, filepath.Join(p, "html", ".vite", "x"), "{}")
+	writeFile(t, filepath.Join(p, "html", "wp-config.php"), "<?php")
+	var out bytes.Buffer
+	err := MigrateAppDir(p, &out)
+	if err == nil || !strings.Contains(err.Error(), "both app/ and html/ exist") {
+		t.Fatalf("err = %v, want the both-exist refusal", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("no notice expected, got %q", out.String())
+	}
+}
+
+// With no app/, a dot-only html/ is still the project's folder and moves.
+func TestMigrateRenamesDotOnlyHtmlWithoutApp(t *testing.T) {
+	p := realDir(t)
+	writeFile(t, filepath.Join(p, "html", ".env"), "A=1")
+	var out bytes.Buffer
+	if err := MigrateAppDir(p, &out); err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); got != "renamed html/ to app/\n" {
+		t.Errorf("notice = %q", got)
+	}
+	mustExist(t, filepath.Join(p, "app", ".env"))
+	mustNotExist(t, filepath.Join(p, "html"))
+}
