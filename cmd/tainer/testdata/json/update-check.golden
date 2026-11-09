@@ -34,5 +34,21 @@
   ],
   "upToDate": 0,
   "available": 1,
-  "unknown": 1
+  "unknown": 1,
+  "tainer": {
+    "installed": "1.4.0",
+    "available": "1.5.0",
+    "updateAvailable": true,
+    "notes": "Faster starts"
+  },
+  "menu": {
+    "installed": "1.4.0",
+    "available": "1.5.0",
+    "updateAvailable": true,
+    "notes": "New badge",
+    "minTainer": "1.5.0",
+    "needsTainerFirst": true
+  },
+  "releaseCheck": "ok",
+  "podsCheck": "ok"
 }

@@ -13,7 +13,7 @@
 //	tainer exec <project> [<role>] -- <cmd>  run a command in a container
 //	tainer list (ls)                         list all pods
 //	tainer db export|import <project> ...    dump / restore database
-//	tainer update [--base <type>|--all|project] refresh images
+//	tainer update [tainer|menu|project|--all|--check] update tainer, menu, pods
 //	tainer network mode show|set <mode>      inspect / switch network mode
 package main
 
@@ -161,7 +161,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  list (ls)                              list all pods")
 	fmt.Fprintln(os.Stderr, "  db export <project> [outfile]          dump database")
 	fmt.Fprintln(os.Stderr, "  db import <project> <file>             restore database")
-	fmt.Fprintln(os.Stderr, "  update [project|--base <type>|--all]   refresh image(s)")
+	fmt.Fprintln(os.Stderr, "  update [tainer|menu|project|--all|--check] [-y]  update tainer, the menu app or pods")
 	fmt.Fprintln(os.Stderr, "  network mode show|set <perf|compat>    inspect / switch network mode")
 	fmt.Fprintln(os.Stderr, "  login | logout | whoami                sign in to your tainer account")
 	fmt.Fprintln(os.Stderr, "  signup [email] | password-reset <email>  create an account, or reset its password")
@@ -3076,10 +3076,14 @@ func fileSizeHuman(p string) (string, bool) {
 	}
 }
 
-// cmdUpdate refreshes images for one or all pods. Three modes:
+// cmdUpdate updates tainer, the menu app and pods. Modes:
 //
-//	tainer update                project: cwd walk-up resolves the project
+//	tainer update                in a project folder: that pod, after y/N;
+//	                             elsewhere: tainer, menu and every pod, after y/N
+//	tainer update tainer|menu    tainer itself / the menu app (reserved words)
 //	tainer update <project>      project: registry lookup
+//	tainer update ./<dir> | .    project: the one in that folder
+//	tainer update --check        list what has updates, change nothing
 //	tainer update --all          iterate every registered pod, update each
 //	tainer update --base <type>  pull just the base image(s) for <type>
 //
@@ -3092,10 +3096,11 @@ func cmdUpdate(args []string) {
 	flags, rest := tui.ParseOutputFlags(args)
 	mode := resolveMode(flags, false)
 
+	rest, yes := stripYes(rest)
 	fs := flag.NewFlagSet("update", flag.ExitOnError)
 	baseType := fs.String("base", "", "refresh base image for project type (skips pod-level update)")
 	all := fs.Bool("all", false, "update every registered pod sequentially")
-	check := fs.Bool("check", false, "report which pods have updates available (no changes)")
+	check := fs.Bool("check", false, "report what has updates available: tainer, the menu app and pods (no changes)")
 	_ = fs.Parse(rest)
 
 	switch {
@@ -3107,11 +3112,16 @@ func cmdUpdate(args []string) {
 		runUpdateBase(mode, *baseType)
 	case *all:
 		runUpdateAll(mode)
+	case fs.NArg() == 0:
+		runUpdateNoArgs(mode, yes)
 	case fs.NArg() == 1 && fs.Arg(0) == "resume":
 		// Hidden: brings back the pods that were running before a
 		// tainer update. Called by postinstall, the menu app and the
 		// installer flow; not listed in usage.
+		reservedHint(os.Stdout, "resume")
 		runUpdateResume()
+	case fs.NArg() == 1 && reservedTargets[fs.Arg(0)]:
+		runUpdateSelf(mode, fs.Arg(0), yes)
 	default:
 		runUpdateSingle(mode, fs.Args())
 	}
@@ -3191,7 +3201,7 @@ func emitUpdateBaseJSON(baseType string, err error, elapsed time.Duration) {
 // Positional args follow the locateManifest contract (empty → cwd
 // walk-up; single arg → registry lookup).
 func runUpdateSingle(outMode tui.OutputMode, positional []string) {
-	manifestPath, projectDir, err := locateManifest(positional)
+	manifestPath, projectDir, err := locateUpdateTarget(positional)
 	must(err)
 	m, err := manifest.Load(manifestPath)
 	must(withCode("manifest-invalid", err))
@@ -3204,12 +3214,8 @@ func runUpdateSingle(outMode tui.OutputMode, positional []string) {
 	run := func() error {
 		ctx, cancel := ctxWithTimeout(10 * time.Minute)
 		defer cancel()
-		eng, err := runtime.Engine(ctx, runtime.Options{AutoStart: true})
-		if err != nil {
-			return engineErr(err)
-		}
-		defer eng.Close()
-		res, err = updateProject(ctx, projectName, manifestPath, projectDir, liveControlUpdateOps(eng))
+		var err error
+		res, err = updatePod(ctx, projectName, manifestPath, projectDir)
 		return err
 	}
 

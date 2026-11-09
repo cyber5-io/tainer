@@ -266,7 +266,7 @@ Base image (`update --base <type>`; error envelope on failure):
 {"v": 1, "mode": "base", "baseType": "wordpress", "updated": true, "elapsedMs": 1000}
 ```
 
-`update --check` is a metadata-only report: it compares each registered pod's local parts with the registry and changes nothing. It exits 0 even when updates exist. Every visible registered project is listed. A project with no containers (never started, or updated while stopped) appears with `state` `stopped`, `updateAvailable` false, empty `roles`, and counts as up to date: its next start pulls fresh parts. If a check fails (registry unreachable, local record unreadable), the pod carries `error`. It counts as `unknown` only when no other role shows an update; one failed role plus one role with an update is `available`, with `error` riding along. A pod whose manifest cannot be read counts as `unknown`. With the stack not running it is an error envelope (`stack-unreachable`). Combining `--check` with `--all`, `--base` or a project name is `invalid-arguments`.
+`update --check` is a metadata-only report: it checks tainer and the menu app against the published release (always a fresh fetch), then compares each registered pod's local parts with the registry, and changes nothing. It exits 0 even when updates exist. Every visible registered project is listed. A project with no containers (never started, or updated while stopped) appears with `state` `stopped`, `updateAvailable` false, empty `roles`, and counts as up to date: its next start pulls fresh parts. If a check fails (registry unreachable, local record unreadable), the pod carries `error`. It counts as `unknown` only when no other role shows an update; one failed role plus one role with an update is `available`, with `error` riding along. A pod whose manifest cannot be read counts as `unknown`. With tainer not running the document is still printed (exit 0): `tainer` and `menu` are filled, `pods` is `[]` and `podsCheck` is `"unavailable"`. Combining `--check` with `--all`, `--base` or a project name is `invalid-arguments`.
 
 ```json
 {
@@ -298,11 +298,29 @@ Base image (`update --base <type>`; error envelope on failure):
   ],
   "upToDate": 0,
   "available": 1,
-  "unknown": 1
+  "unknown": 1,
+  "tainer": {"installed": "1.4.0", "available": "1.5.0", "updateAvailable": true, "notes": "Faster starts"},
+  "menu": {"installed": "1.4.0", "available": "1.5.0", "updateAvailable": true, "notes": "New badge", "minTainer": "1.5.0", "needsTainerFirst": true},
+  "releaseCheck": "ok",
+  "podsCheck": "ok"
 }
 ```
 
 `state` is `running` or `stopped`. `parts` is a display line, not a stable identifier. `error` is present only when something failed.
+
+`tainer` and `menu` compare the installed versions with the published release. `installed` is `""` when it can't be read (a missing menu app); `available` is `""` when the release couldn't be fetched and nothing is cached, in which case `releaseCheck` is `"unavailable"` and both `updateAvailable` are false — the pods are still checked. A missing menu app on macOS counts as `updateAvailable` (installing it is the update). `menu.needsTainerFirst` is true when the menu update needs a newer tainer (`minTainer`) than the one installed; the combined `tainer update` then updates tainer first, and drops the menu update if the new tainer package already brought a new enough menu app. `notes` are the release notes, a display line. `podsCheck` is `"ok"` or `"unavailable"`; `releaseCheck` is `"ok"` or `"unavailable"`.
+
+`update tainer` and `update menu` update tainer itself or the menu app from a verified package (macOS only). Prompts and progress go to stderr; stdout carries one document. Pass `--yes` (or `-y`) to skip the restart question, which otherwise reads stdin. Failure is an error envelope (`update-failed`).
+
+```json
+{"v": 1, "mode": "tainer", "from": "1.4.0", "to": "1.5.0", "updated": true, "resumed": ["blog"], "failed": []}
+```
+
+`mode` is `tainer` or `menu`. `updated` is false when there was nothing newer, when the update was postponed at the restart question, or when the installed version didn't change (the install was cancelled). `resumed` lists the pods brought back after a tainer update; `failed` lists `{"name", "reason"}` for those that didn't come back. A menu update touches no pods, so both are `[]`. Elsewhere than macOS nothing is installed: the document has `updated: false` and a line pointing to https://tainer.dev goes to stderr.
+
+`tainer`, `menu` and `resume` are reserved targets: they always mean these updates, never a project. Update a project with one of those names by its folder, `update ./menu` (any argument starting with `.` or containing `/` is a project folder), or `update .` inside it.
+
+`update` with no target asks before doing anything, so it has no JSON form outside a project folder (`invalid-arguments`; use `update --check --json`, then update each target). Inside a project folder `update --json` keeps the single-project document above and doesn't ask. In a terminal, inside a project folder it offers only that pod (plus a one-line note when tainer has an update); elsewhere it lists tainer, the menu app and every pod with an update and asks once; `--yes`/`-y` skips the question.
 
 `update --all` is a report: it exits 1 if any pod failed, but still prints this document.
 
