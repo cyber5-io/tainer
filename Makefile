@@ -70,6 +70,18 @@ clean:
 # ---------------------------------------------------------------------------
 SIGN_IDENTITY := $(if $(TAINER_SIGNING_IDENTITY),$(TAINER_SIGNING_IDENTITY),-)
 SIGN_FLAGS_BASE := --force --options runtime --timestamp
+
+# Fail fast when a signed package is requested without the signing identities.
+# Without this, an unset TAINER_SIGNING_IDENTITY only warned and shipped
+# ad-hoc binaries, which Apple's notary then rejects after a full upload.
+.PHONY: require-sign-identity
+require-sign-identity:
+	@if [ "$(SIGN_IDENTITY)" = "-" ]; then \
+		echo "set TAINER_SIGNING_IDENTITY — a signed package can't be built ad-hoc" >&2; exit 1; \
+	fi
+	@if [ -z "$(INSTALLER_SIGN_IDENTITY)" ]; then \
+		echo "set TAINER_SIGNING_INSTALLER_IDENTITY" >&2; exit 1; \
+	fi
 ENT_DIR := packaging/entitlements
 
 sign: build
@@ -124,7 +136,7 @@ pkg-only: pkg-only-root
 INSTALLER_SIGN_IDENTITY := $(TAINER_SIGNING_INSTALLER_IDENTITY)
 NOTARY_PROFILE := $(if $(TAINER_NOTARY_PROFILE),$(TAINER_NOTARY_PROFILE),tainer-notarize)
 
-pkg-only-signed: pkg-only
+pkg-only-signed: require-sign-identity pkg-only
 	@if [ -z "$(INSTALLER_SIGN_IDENTITY)" ]; then \
 		echo "set TAINER_SIGNING_INSTALLER_IDENTITY" >&2; exit 1; \
 	fi
@@ -178,7 +190,7 @@ pkg-dist-only: pkg-only
 		$(PKG_DIST_ONLY_OUT)
 	@echo "Built $(PKG_DIST_ONLY_OUT) (unsigned distribution pkg)"
 
-pkg-dist-only-signed: pkg-dist-only
+pkg-dist-only-signed: require-sign-identity pkg-dist-only
 	@if [ -z "$(INSTALLER_SIGN_IDENTITY)" ]; then \
 		echo "set TAINER_SIGNING_INSTALLER_IDENTITY" >&2; exit 1; \
 	fi
@@ -191,7 +203,7 @@ pkg-dist-only-notarised: pkg-dist-only-signed
 		--keychain-profile "$(NOTARY_PROFILE)" --wait
 	xcrun stapler staple $(PKG_DIST_ONLY_OUT)
 
-pkg-dist-signed: pkg-dist
+pkg-dist-signed: require-sign-identity pkg-dist
 	@if [ -z "$(INSTALLER_SIGN_IDENTITY)" ]; then \
 		echo "set TAINER_SIGNING_INSTALLER_IDENTITY" >&2; exit 1; \
 	fi
@@ -294,7 +306,7 @@ pkg-full: pkg-full-root
 		$(PKG_FULL_OUT)
 	@echo "Built $(PKG_FULL_OUT) (unsigned)"
 
-pkg-full-signed: pkg-full
+pkg-full-signed: require-sign-identity pkg-full
 	@if [ -z "$(INSTALLER_SIGN_IDENTITY)" ]; then \
 		echo "set TAINER_SIGNING_INSTALLER_IDENTITY" >&2; exit 1; \
 	fi
@@ -341,7 +353,7 @@ pkg-menu: pkg-menu-root
 		$(PKG_MENU_OUT)
 	@echo "Built $(PKG_MENU_OUT) (unsigned)"
 
-pkg-menu-signed: pkg-menu
+pkg-menu-signed: require-sign-identity pkg-menu
 	@if [ -z "$(INSTALLER_SIGN_IDENTITY)" ]; then \
 		echo "set TAINER_SIGNING_INSTALLER_IDENTITY" >&2; exit 1; \
 	fi
@@ -367,7 +379,7 @@ pkg-dist-menu: pkg-menu
 		$(PKG_DIST_MENU_OUT)
 	@echo "Built $(PKG_DIST_MENU_OUT) (unsigned distribution pkg)"
 
-pkg-dist-menu-signed: pkg-dist-menu
+pkg-dist-menu-signed: require-sign-identity pkg-dist-menu
 	@if [ -z "$(INSTALLER_SIGN_IDENTITY)" ]; then \
 		echo "set TAINER_SIGNING_INSTALLER_IDENTITY" >&2; exit 1; \
 	fi
