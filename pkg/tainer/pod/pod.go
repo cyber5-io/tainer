@@ -148,8 +148,20 @@ func ManifestHash(m *manifest.Manifest) string {
 		live = m.Live.Domain
 	}
 	fmt.Fprintf(h, "env=dev live=%s\n", live)
+	// Settings below are hashed only when set, so a pod that doesn't use
+	// them keeps the hash it was made with.
+	if m.Runtime.BuildDir != "" {
+		fmt.Fprintf(h, "build-dir=%s\n", m.Runtime.BuildDir)
+	}
+	if m.Runtime.PHPLimits != (manifest.PHPLimits{}) {
+		fmt.Fprintf(h, "php-limits %s\n", strings.Join(m.Runtime.PHPLimits.EnvFlags(), " "))
+	}
 	for _, p := range m.Ports {
-		fmt.Fprintf(h, "port %s/%d/%s\n", p.Role, p.Container, p.Protocol)
+		fmt.Fprintf(h, "port %s/%d/%s", p.Role, p.Container, p.Protocol)
+		if p.HostPort != 0 {
+			fmt.Fprintf(h, " host=%d", p.HostPort)
+		}
+		fmt.Fprintln(h)
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }

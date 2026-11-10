@@ -42,7 +42,6 @@ func TestManifestDriftNeedsRecreating(t *testing.T) {
 // the new manifest needs are already present, so a size change works
 // offline.
 func TestChangedManifestReplacesWholePod(t *testing.T) {
-	roles := []string{RoleWeb, RoleDB, RoleApp}
 	refs := []string{"web:1", "db:1", "app:1"}
 	n := func(role string) string { return ContainerName("site", role) }
 	run := func(have map[string]container.InspectResponse) ([]string, error) {
@@ -72,7 +71,7 @@ func TestChangedManifestReplacesWholePod(t *testing.T) {
 				return nil
 			},
 		}
-		return calls, refreshOutdatedPod(context.Background(), ops, "site", roles, refs, "newhash")
+		return calls, refreshOutdatedPod(context.Background(), ops, "site", refs, "newhash")
 	}
 	all := func(web, db, app container.InspectResponse) map[string]container.InspectResponse {
 		return map[string]container.InspectResponse{n(RoleWeb): web, n(RoleDB): db, n(RoleApp): app}
@@ -158,5 +157,113 @@ func TestCustomBudgetIsInTheManifestHash(t *testing.T) {
 	}
 	if got := ManifestHash(named); got != "eb3f4aa26e89e6bd" {
 		t.Errorf("named size hash = %q, want it unchanged", got)
+	}
+}
+
+// pinnedWP is a wordpress pod with a database and a db port, as hashed
+// since TAINER_ENV: settings left unset must keep exactly this hash.
+func pinnedWP() *manifest.Manifest {
+	return &manifest.Manifest{
+		Project: manifest.ProjectConfig{Name: "site", Type: manifest.TypeWordPress, Domain: "site.tainer.me"},
+		Pod:     &manifest.PodConfig{Size: manifest.PodSizeSmall},
+		Runtime: manifest.RuntimeConfig{PHP: "8.3", Database: manifest.DatabaseMariaDB},
+		Ports:   []manifest.PortEntry{{Role: RoleDB, Container: 3306, Protocol: manifest.PortTCP}},
+	}
+}
+
+const pinnedWPHash = "d9a5f6f849cee347"
+
+// The leader's host ports are fixed when it is made, so pinning a host
+// port, or moving it, changes the hash.
+func TestHostPortIsInTheManifestHash(t *testing.T) {
+	m := pinnedWP()
+	if got := ManifestHash(m); got != pinnedWPHash {
+		t.Fatalf("no host port: hash %q, want it unchanged (%q)", got, pinnedWPHash)
+	}
+	m.Ports[0].HostPort = 40001
+	pinned := ManifestHash(m)
+	if pinned == pinnedWPHash {
+		t.Error("adding a host port: want a new hash")
+	}
+	m.Ports[0].HostPort = 40002
+	if ManifestHash(m) == pinned {
+		t.Error("changing the host port: want a new hash")
+	}
+}
+
+// TAINER_BUILD_DIR and the PHP limits are container env, fixed at
+// creation: setting or changing them changes the hash; leaving them unset
+// keeps it.
+func TestBuildDirAndPHPLimitsAreInTheManifestHash(t *testing.T) {
+	m := pinnedWP()
+	m.Runtime.BuildDir = "build"
+	h := ManifestHash(m)
+	if h == pinnedWPHash {
+		t.Error("setting build-dir: want a new hash")
+	}
+	m.Runtime.BuildDir = "out"
+	if ManifestHash(m) == h {
+		t.Error("changing build-dir: want a new hash")
+	}
+
+	m = pinnedWP()
+	m.Runtime.PHPLimits.MemoryLimit = "1G"
+	h = ManifestHash(m)
+	if h == pinnedWPHash {
+		t.Error("setting a PHP limit: want a new hash")
+	}
+	m.Runtime.PHPLimits.MemoryLimit = "2G"
+	if ManifestHash(m) == h {
+		t.Error("changing a PHP limit: want a new hash")
+	}
+}
+
+// Dropping the database (or changing the type so a role goes) must not
+// leave that role's old container running in the pod's network and
+// budget: the replacement covers every role a pod can have, not only the
+// ones the new tainer.yaml lists, and the dropped one isn't made again.
+func TestDroppedRoleIsRemovedOnReplace(t *testing.T) {
+	m := pinnedWP()
+	m.Runtime.Database = manifest.DatabaseNone
+	n := func(role string) string { return ContainerName("site", role) }
+	old := inspWith(MountsVersion, "oldhash")
+	have := map[string]container.InspectResponse{n(RoleWeb): old, n(RoleDB): old, n(RoleApp): old}
+	var stopped, removed []string
+	ops := replaceOps{
+		inspect: func(_ context.Context, name string) (container.InspectResponse, error) {
+			c, ok := have[name]
+			if !ok {
+				return container.InspectResponse{}, errors.New("No such container: " + name)
+			}
+			return c, nil
+		},
+		pull: func(context.Context, string) error { return nil },
+		stop: func(_ context.Context, name string, _ *int) error {
+			stopped = append(stopped, name)
+			return nil
+		},
+		remove: func(_ context.Context, name string) error {
+			removed = append(removed, name)
+			return nil
+		},
+	}
+	if err := refreshOutdatedPod(context.Background(), ops, "site", nil, ManifestHash(m)); err != nil {
+		t.Fatal(err)
+	}
+	has := func(list []string, s string) bool {
+		for _, x := range list {
+			if x == s {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(stopped, n(RoleDB)) || !has(removed, n(RoleDB)) {
+		t.Errorf("stopped %v removed %v: want the dropped db stopped and removed", stopped, removed)
+	}
+	for _, r := range RolesForPod(m) {
+		if r == RoleDB {
+			t.Errorf("roles to start %v: the dropped db must not be made again", RolesForPod(m))
+		}
 	}
 }

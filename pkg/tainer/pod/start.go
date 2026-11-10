@@ -306,21 +306,22 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 	// web docroot, unchecked folders) keep those mounts until recreated, and
 	// containers made from an older tainer.yaml (another size, ports,
 	// runtime versions, live domain) keep that too. Replace the whole pod,
-	// leader first, so followers rejoin the new leader's network — and so
-	// no container left behind re-asserts the old pod budget on the shared
-	// pod cgroup when it next starts. Only containers go: the project's files, data/ and
-	// db/ are folders in the project and stay as they are. A removal that
-	// fails stops the start, so an old container is never reused.
-	// For older mounts the replacement runs the current images, not whatever
-	// older ones the moving tags last resolved to: every role's image is
-	// pulled first.
+	// leader first, so followers rejoin the new leader's network, and so no
+	// container left behind re-asserts the old pod budget on the shared pod
+	// cgroup when it next starts. Every role a pod can have is replaced, so
+	// a role the new tainer.yaml dropped doesn't linger. Only containers go:
+	// the project's files, data/ and db/ are folders in the project and stay
+	// as they are. A removal that fails stops the start, so an old container
+	// is never reused. For older mounts the replacement runs the current
+	// images, not whatever older ones the moving tags last resolved to:
+	// every role's image is pulled first.
 	ops := replaceOps{
 		inspect: eng.Inspect,
 		pull:    eng.Pull,
 		stop:    eng.StopTimeout,
 		remove:  func(ctx context.Context, name string) error { return eng.Remove(ctx, name, true) },
 	}
-	if err := refreshOutdatedPod(ctx, ops, m.Project.Name, roles, refs, mhash); err != nil {
+	if err := refreshOutdatedPod(ctx, ops, m.Project.Name, refs, mhash); err != nil {
 		return nil, err
 	}
 
@@ -604,6 +605,11 @@ type replaceOps struct {
 	remove  func(ctx context.Context, name string) error
 }
 
+// podContainerRoles is every role a pod can have a container for, in start
+// order. Replacement covers all of them, not only the roles the current
+// tainer.yaml lists, so a role it dropped is stopped and removed too.
+var podContainerRoles = []string{RoleWeb, RoleDB, RoleApp}
+
 // refreshOutdatedPod replaces a pod made under older mount rules or from
 // another tainer.yaml (mhash), and does nothing to a current one. For older
 // mounts it first pulls every role's image (refs), present locally or not,
@@ -612,7 +618,8 @@ type replaceOps struct {
 // pod left as it was. A changed tainer.yaml alone pulls nothing: Start has
 // already fetched any image the new one needs, so a size change works
 // offline.
-func refreshOutdatedPod(ctx context.Context, ops replaceOps, project string, roles, refs []string, mhash string) error {
+func refreshOutdatedPod(ctx context.Context, ops replaceOps, project string, refs []string, mhash string) error {
+	roles := podContainerRoles
 	mounts, drifted, err := podOutdated(ctx, ops.inspect, project, roles, mhash)
 	if err != nil || (!mounts && !drifted) {
 		return err
@@ -626,11 +633,11 @@ func refreshOutdatedPod(ctx context.Context, ops replaceOps, project string, rol
 }
 
 // replaceOutdatedPod removes every container of a pod made under older
-// mount rules or from another tainer.yaml so Start recreates them. Running containers are stopped
-// gracefully first, in reverse start order (app, then db with
-// dbStopTimeout, then web), so the database shuts down cleanly. A stop
-// that fails is logged and the container is removed anyway — an old
-// container is never reused; a removal that fails is returned.
+// mount rules or from another tainer.yaml so Start recreates them. Running
+// containers are stopped gracefully first, in reverse start order (app,
+// then db with dbStopTimeout, then web), so the database shuts down
+// cleanly. A stop that fails is logged and the container is removed anyway
+// — an old container is never reused; a removal that fails is returned.
 func replaceOutdatedPod(ctx context.Context, ops replaceOps, project string, roles []string) error {
 	for i := len(roles) - 1; i >= 0; i-- {
 		var timeout *int

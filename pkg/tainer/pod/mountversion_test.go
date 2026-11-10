@@ -173,7 +173,6 @@ func TestReplaceOutdatedPodStopsGracefullyFirst(t *testing.T) {
 // pull refuses the start before anything is removed. A pod whose mounts are
 // current is left alone and nothing is pulled.
 func TestOutdatedPodPullsEveryImageBeforeReplacing(t *testing.T) {
-	roles := []string{RoleWeb, RoleDB, RoleApp}
 	refs := []string{"web:1", "db:1", "app:1"}
 	run := func(label string, pullErr error) ([]string, error) {
 		var calls []string
@@ -194,7 +193,7 @@ func TestOutdatedPodPullsEveryImageBeforeReplacing(t *testing.T) {
 				return nil
 			},
 		}
-		return calls, refreshOutdatedPod(context.Background(), ops, "site", roles, refs, "h")
+		return calls, refreshOutdatedPod(context.Background(), ops, "site", refs, "h")
 	}
 
 	calls, err := run("", nil)
