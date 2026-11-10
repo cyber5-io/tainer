@@ -288,6 +288,9 @@ pkg-full-root: sign menu-app
 	mkdir -p $(PKG_FULL_ROOT)/Library/LaunchAgents
 	install -m 0644 packaging/menu/io.cyber5.tainer.menu.plist \
 		$(PKG_FULL_ROOT)/Library/LaunchAgents/io.cyber5.tainer.menu.plist
+	# The uninstaller ships with the product so any machine can be
+	# cleaned without a checkout: sudo bash /opt/tainer/bin/tainer-uninstall.sh
+	install -m 0755 packaging/scripts/tainer-uninstall.sh $(PKG_FULL_ROOT)/opt/tainer/bin/
 	# Combined postinstall — does cyberstack's setup PLUS the symlink.
 	install -m 0755 packaging/scripts/postinstall-full $(PKG_FULL_SCRIPTS)/postinstall
 	install -m 0755 packaging/scripts/preinstall-menu $(PKG_FULL_SCRIPTS)/preinstall

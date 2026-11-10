@@ -68,6 +68,7 @@ done
 echo "==> removing tainer SSH client config"
 # Remove tainer SSH client config (both drop-ins + the ~/.ssh/config include).
 rm -f /etc/ssh/ssh_config.d/0-tainer.conf
+rm -f /etc/resolver/tainer.me
 rm -f "$CONSOLE_HOME/.cyberstack/0-tainer.conf"
 SSH_CFG="$CONSOLE_HOME/.ssh/config"
 if [ -f "$SSH_CFG" ]; then
