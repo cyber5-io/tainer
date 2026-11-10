@@ -179,7 +179,7 @@ func TestOutdatedPodPullsEveryImageBeforeReplacing(t *testing.T) {
 		var calls []string
 		ops := replaceOps{
 			inspect: func(_ context.Context, name string) (container.InspectResponse, error) {
-				return inspWithMounts(label), nil
+				return inspWith(label, "h"), nil
 			},
 			pull: func(_ context.Context, ref string) error {
 				calls = append(calls, "pull "+ref)
@@ -194,7 +194,7 @@ func TestOutdatedPodPullsEveryImageBeforeReplacing(t *testing.T) {
 				return nil
 			},
 		}
-		return calls, refreshOutdatedPod(context.Background(), ops, "site", roles, refs)
+		return calls, refreshOutdatedPod(context.Background(), ops, "site", roles, refs, "h")
 	}
 
 	calls, err := run("", nil)

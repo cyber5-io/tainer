@@ -134,6 +134,11 @@ func Get(ctx context.Context, eng *engine.Client, name string) (*Pod, error) {
 func ManifestHash(m *manifest.Manifest) string {
 	h := sha256.New()
 	fmt.Fprintf(h, "%s/%s/%s/%s\n", m.Project.Name, m.Project.Type, m.Project.Domain, m.Pod.Size)
+	// A custom budget is the pod's memory/cpu. Only written for custom so
+	// named sizes keep the hash they always had.
+	if m.Pod.Size == manifest.PodSizeCustom {
+		fmt.Fprintf(h, "budget mem=%s cpu=%g\n", m.Pod.Memory, m.Pod.CPU)
+	}
 	fmt.Fprintf(h, "php=%s node=%s db=%s\n", m.Runtime.PHP, m.Runtime.Node, m.Runtime.Database)
 	// TAINER_ENV and TAINER_LIVE_DOMAIN are container env: a change must
 	// recreate the containers, which also gives pods made before these

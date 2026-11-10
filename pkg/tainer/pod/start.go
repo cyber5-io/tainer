@@ -303,20 +303,24 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 	}
 
 	// Containers made under older mount rules (an older tainer: a writable
-	// web docroot, unchecked folders) keep those mounts until recreated.
-	// Replace the whole pod, leader first, so followers rejoin the new
-	// leader's network. Only containers go: the project's files, data/ and
+	// web docroot, unchecked folders) keep those mounts until recreated, and
+	// containers made from an older tainer.yaml (another size, ports,
+	// runtime versions, live domain) keep that too. Replace the whole pod,
+	// leader first, so followers rejoin the new leader's network — and so
+	// no container left behind re-asserts the old pod budget on the shared
+	// pod cgroup when it next starts. Only containers go: the project's files, data/ and
 	// db/ are folders in the project and stay as they are. A removal that
 	// fails stops the start, so an old container is never reused.
-	// The replacement runs the current images, not whatever older ones the
-	// moving tags last resolved to: every role's image is pulled first.
+	// For older mounts the replacement runs the current images, not whatever
+	// older ones the moving tags last resolved to: every role's image is
+	// pulled first.
 	ops := replaceOps{
 		inspect: eng.Inspect,
 		pull:    eng.Pull,
 		stop:    eng.StopTimeout,
 		remove:  func(ctx context.Context, name string) error { return eng.Remove(ctx, name, true) },
 	}
-	if err := refreshOutdatedPod(ctx, ops, m.Project.Name, roles, refs); err != nil {
+	if err := refreshOutdatedPod(ctx, ops, m.Project.Name, roles, refs, mhash); err != nil {
 		return nil, err
 	}
 
@@ -492,12 +496,13 @@ func startContainer(
 	// changed count on the control pod) is recreated, since its mounts and
 	// env were fixed at creation.
 	//
-	// So is a container made under older mount rules (see MountsVersion).
-	// Start replaces such a pod whole before this runs; checking here too
-	// means an older container is never started in place.
+	// So is a container made under older mount rules (see MountsVersion)
+	// or from another tainer.yaml (see ManifestHash). Start replaces such a
+	// pod whole before this runs; checking here too means an older
+	// container is never started in place.
 	insp, ierr := eng.Inspect(ctx, spec.Name)
 	switch {
-	case ierr == nil && (accessChanged(insp, stamp) || mountsOutdated(insp)):
+	case ierr == nil && (accessChanged(insp, stamp) || mountsOutdated(insp) || manifestDrifted(insp, mhash)):
 		if err := eng.Remove(ctx, spec.Name, true); err != nil {
 			if isBusyRemoval(err) {
 				return false, removeErr(m.Project.Name, Container{Name: spec.Name, Role: role}, "replace", err)
@@ -551,23 +556,39 @@ func mountsOutdated(insp container.InspectResponse) bool {
 	return insp.Config == nil || insp.Config.Labels[LabelMounts] != MountsVersion
 }
 
+// manifestDrifted reports whether a container was made from another
+// tainer.yaml than the one whose ManifestHash is mhash (or before tainer
+// recorded the hash). Its size, ports, env and images were fixed then.
+func manifestDrifted(insp container.InspectResponse, mhash string) bool {
+	return insp.Config == nil || insp.Config.Labels[LabelManifestHash] != mhash
+}
+
 // podMountsOutdated reports whether any existing container of the pod was
 // made under older mount rules. Missing containers don't count; any other
 // inspect failure is returned rather than read as "current".
 func podMountsOutdated(ctx context.Context, inspect func(context.Context, string) (container.InspectResponse, error), project string, roles []string) (bool, error) {
+	mounts, _, err := podOutdated(ctx, inspect, project, roles, "")
+	return mounts, err
+}
+
+// podOutdated reports whether any existing container of the pod was made
+// under older mount rules, and whether any was made from another
+// tainer.yaml than the one hashing to mhash. Missing containers don't
+// count; any other inspect failure is returned rather than read as
+// "current".
+func podOutdated(ctx context.Context, inspect func(context.Context, string) (container.InspectResponse, error), project string, roles []string, mhash string) (mounts, drifted bool, err error) {
 	for _, role := range roles {
 		insp, err := inspect(ctx, ContainerName(project, role))
 		if isNotFound(err) {
 			continue
 		}
 		if err != nil {
-			return false, fmt.Errorf("pod start: check %s: %w", ContainerName(project, role), err)
+			return false, false, fmt.Errorf("pod start: check %s: %w", ContainerName(project, role), err)
 		}
-		if mountsOutdated(insp) {
-			return true, nil
-		}
+		mounts = mounts || mountsOutdated(insp)
+		drifted = drifted || manifestDrifted(insp, mhash)
 	}
-	return false, nil
+	return mounts, drifted, nil
 }
 
 // dbStopTimeout is how long the database gets to shut down cleanly when a
@@ -583,24 +604,29 @@ type replaceOps struct {
 	remove  func(ctx context.Context, name string) error
 }
 
-// refreshOutdatedPod replaces a pod made under older mount rules, and does
-// nothing to a current one. Before anything is stopped it pulls every
-// role's image (refs), present locally or not, so the recreated pod runs
-// the images its tags point at now rather than old ones under new mounts.
-// A pull that fails refuses the start with the pod left as it was.
-func refreshOutdatedPod(ctx context.Context, ops replaceOps, project string, roles, refs []string) error {
-	outdated, err := podMountsOutdated(ctx, ops.inspect, project, roles)
-	if err != nil || !outdated {
+// refreshOutdatedPod replaces a pod made under older mount rules or from
+// another tainer.yaml (mhash), and does nothing to a current one. For older
+// mounts it first pulls every role's image (refs), present locally or not,
+// so the recreated pod runs the images its tags point at now rather than
+// old ones under new mounts; a pull that fails refuses the start with the
+// pod left as it was. A changed tainer.yaml alone pulls nothing: Start has
+// already fetched any image the new one needs, so a size change works
+// offline.
+func refreshOutdatedPod(ctx context.Context, ops replaceOps, project string, roles, refs []string, mhash string) error {
+	mounts, drifted, err := podOutdated(ctx, ops.inspect, project, roles, mhash)
+	if err != nil || (!mounts && !drifted) {
 		return err
 	}
-	if err := engine.PullImages(ctx, refs, ops.pull); err != nil {
-		return fmt.Errorf("pod start: %w", err)
+	if mounts {
+		if err := engine.PullImages(ctx, refs, ops.pull); err != nil {
+			return fmt.Errorf("pod start: %w", err)
+		}
 	}
 	return replaceOutdatedPod(ctx, ops, project, roles)
 }
 
 // replaceOutdatedPod removes every container of a pod made under older
-// mount rules so Start recreates them. Running containers are stopped
+// mount rules or from another tainer.yaml so Start recreates them. Running containers are stopped
 // gracefully first, in reverse start order (app, then db with
 // dbStopTimeout, then web), so the database shuts down cleanly. A stop
 // that fails is logged and the container is removed anyway — an old
