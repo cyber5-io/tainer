@@ -7,8 +7,16 @@ struct ProcessResult: Sendable, Equatable {
 
 /// Runs a child to completion, feeding each stdout line to `onLine`.
 /// Cancelling the calling task must terminate the child. Throws only if the child cannot be spawned.
+/// A nil `currentDirectory` inherits the app's.
 protocol ProcessRunner: Sendable {
-    func run(executable: String, arguments: [String], onLine: @escaping @Sendable (String) async -> Void) async throws -> ProcessResult
+    func run(executable: String, arguments: [String], currentDirectory: URL?,
+             onLine: @escaping @Sendable (String) async -> Void) async throws -> ProcessResult
+}
+
+extension ProcessRunner {
+    func run(executable: String, arguments: [String], onLine: @escaping @Sendable (String) async -> Void) async throws -> ProcessResult {
+        try await run(executable: executable, arguments: arguments, currentDirectory: nil, onLine: onLine)
+    }
 }
 
 protocol WatchClock: Sendable {
@@ -167,10 +175,12 @@ struct SubprocessRunner: ProcessRunner {
     /// Only the tail of stderr is kept; a watch child can run for hours.
     static let stderrLimit = 4096
 
-    func run(executable: String, arguments: [String], onLine: @escaping @Sendable (String) async -> Void) async throws -> ProcessResult {
+    func run(executable: String, arguments: [String], currentDirectory: URL?,
+             onLine: @escaping @Sendable (String) async -> Void) async throws -> ProcessResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
+        if let currentDirectory { process.currentDirectoryURL = currentDirectory }
         let out = Pipe(), err = Pipe()
         process.standardOutput = out
         process.standardError = err

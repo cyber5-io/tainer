@@ -247,7 +247,7 @@ final class GateRunner: ProcessRunner, @unchecked Sendable {
     var spawnCount: Int { lock.withLock { spawns } }
     func release() { lock.withLock { open = true } }
 
-    func run(executable: String, arguments: [String], onLine: @escaping @Sendable (String) async -> Void) async throws -> ProcessResult {
+    func run(executable: String, arguments: [String], currentDirectory: URL?, onLine: @escaping @Sendable (String) async -> Void) async throws -> ProcessResult {
         let first = lock.withLock { () -> Bool in spawns += 1; return spawns == 1 }
         if first { while !lock.withLock({ open }) { await Task.yield() } }
         await onLine(line)

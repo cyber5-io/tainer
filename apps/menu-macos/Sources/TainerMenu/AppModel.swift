@@ -24,6 +24,20 @@ final class AppModel {
         Task { await actions.run(action, pod: pod) }
     }
 
+    /// Asks for a project folder, then starts it from there.
+    func openExistingProject() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Open"
+        panel.message = OpenProjectCopy.panelMessage
+        NSApp.activate()
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        let actions = self.actions
+        Task { await actions.openProject(at: folder) }
+    }
+
     private var runningPods: [String] { state.allPods.filter(\.isActive).map(\.name) }
 
     /// Warn when pods are running (Update now / Later), then run `update tainer`. The installer

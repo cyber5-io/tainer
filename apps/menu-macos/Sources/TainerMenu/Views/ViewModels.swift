@@ -66,6 +66,13 @@ enum UpdateCopy {
     static let updateAllPods = "Update all pods"
 }
 
+/// Exact wording for opening an existing project folder.
+enum OpenProjectCopy {
+    static let menuItem = "Open Existing Project…"
+    static let notAProject = "That folder isn't a tainer project yet — create one from the dashboard"
+    static let panelMessage = "Choose a folder with a tainer.yaml in it"
+}
+
 /// Exact doctor wording: the row's title per state, and the failure banner.
 enum DoctorCopy {
     static let idle = "Run Doctor — check & heal"

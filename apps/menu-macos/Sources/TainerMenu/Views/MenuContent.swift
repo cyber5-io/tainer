@@ -9,6 +9,7 @@ struct MenuContent: View {
     var onUpdateTainer: () -> Void = {}
     var onUpdateMenu: () -> Void = {}
     var onUpdateAllPods: () -> Void = {}
+    var onOpenProject: () -> Void = {}
     @Environment(\.colorScheme) private var scheme
     @Environment(\.openURL) private var openURL
 
@@ -29,6 +30,8 @@ struct MenuContent: View {
             MenuItem(symbol: "plus.circle", title: "New Pod", color: palette.menuItemText, palette: palette) {
                 openURL(MenuLinks.newPod)
             }
+            MenuItem(symbol: "folder", title: OpenProjectCopy.menuItem, color: palette.menuItemText, palette: palette,
+                     action: onOpenProject)
             MenuItem(symbol: "square.grid.2x2", title: "Open Control Dashboard", color: palette.teal, weight: .semibold, palette: palette) {
                 openURL(MenuLinks.dashboard)
             }

@@ -81,17 +81,20 @@ final class FakeRunner: ProcessRunner, @unchecked Sendable {
     private var spawns = 0
     private var cancelled = 0
     private var args: [[String]] = []
+    private var dirs: [URL?] = []
 
     init(_ script: [Step]) { self.script = script }
 
     var spawnCount: Int { lock.withLock { spawns } }
     var terminations: Int { lock.withLock { cancelled } }
     var arguments: [[String]] { lock.withLock { args } }
+    var directories: [URL?] { lock.withLock { dirs } }
 
-    func run(executable: String, arguments: [String], onLine: @escaping @Sendable (String) async -> Void) async throws -> ProcessResult {
+    func run(executable: String, arguments: [String], currentDirectory: URL?, onLine: @escaping @Sendable (String) async -> Void) async throws -> ProcessResult {
         let step = lock.withLock { () -> Step in
             spawns += 1
             args.append(arguments)
+            dirs.append(currentDirectory)
             return script.isEmpty ? .blockUntilCancelled : script.removeFirst()
         }
         switch step {

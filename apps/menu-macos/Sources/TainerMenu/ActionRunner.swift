@@ -55,6 +55,7 @@ final class ActionRunner {
     private let doctorResultHold: Duration
     private var doctorGeneration = 0
     private var selfUpdateRunning = false
+    private var openingFolders: Set<String> = []
 
     /// Words the CLI always reads as update targets, never as a project name.
     static let reservedUpdateTargets: Set<String> = ["tainer", "menu", "resume"]
@@ -130,6 +131,49 @@ final class ActionRunner {
             guard let self, self.doctorGeneration == generation, case .finished = self.state.doctor else { return }
             self.state.doctor = .idle
         }
+    }
+
+    /// `tainer start --plain` run inside `folder`, the way a user starts a project from its
+    /// folder. The pod then appears on the watch stream; only a failure is reported. A folder
+    /// without tainer.yaml is refused here rather than initialised.
+    func openProject(at folder: URL) async {
+        let label = folder.lastPathComponent
+        guard FileManager.default.fileExists(atPath: folder.appendingPathComponent("tainer.yaml").path) else {
+            await sink.post(OpenProjectCopy.notAProject)
+            return
+        }
+        guard openingFolders.insert(folder.path).inserted else { return }
+        defer { openingFolders.remove(folder.path) }
+        guard let cli = locate() else {
+            await sink.post("\(label): tainer was not found")
+            return
+        }
+        let output = LineCollector()
+        let result: ProcessResult
+        do {
+            result = try await runner.run(executable: cli, arguments: ["start", "--plain"], currentDirectory: folder) {
+                await output.add($0)
+            }
+        } catch {
+            await sink.post("\(label): could not run tainer")
+            return
+        }
+        guard result.status != 0 else { return }
+        await sink.post("\(label): \(Self.firstErrorLine(stderr: result.stderr, stdout: await output.lines, status: result.status))")
+    }
+
+    /// The first thing a failed plain-text run said: its first stderr line (minus the CLI's
+    /// "tainer: " prefix), else its last stdout line, else the exit status.
+    nonisolated static func firstErrorLine(stderr: String, stdout: [String], status: Int32) -> String {
+        let trimmed = { (s: Substring) in s.trimmingCharacters(in: .whitespaces) }
+        if let line = stderr.split(whereSeparator: \.isNewline).map(trimmed).first(where: { !$0.isEmpty }) {
+            let message = line.hasPrefix("tainer: ") ? String(line.dropFirst("tainer: ".count)) : line
+            return String(message.prefix(200))
+        }
+        if let line = stdout.map({ trimmed(Substring($0)) }).last(where: { !$0.isEmpty }) {
+            return String(line.prefix(200))
+        }
+        return "tainer exited with status \(status)"
     }
 
     /// A pod named like an update target is updated by its folder path, which the CLI never

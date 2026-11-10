@@ -112,7 +112,7 @@ final class PerArgRunner: ProcessRunner, @unchecked Sendable {
     init(blocking blockedArg: String) { self.blockedArg = blockedArg }
     var arguments: [[String]] { lock.withLock { spawned } }
 
-    func run(executable: String, arguments: [String], onLine: @escaping @Sendable (String) async -> Void) async throws -> ProcessResult {
+    func run(executable: String, arguments: [String], currentDirectory: URL?, onLine: @escaping @Sendable (String) async -> Void) async throws -> ProcessResult {
         lock.withLock { spawned.append(arguments) }
         if arguments.contains(blockedArg) {
             while !Task.isCancelled { await Task.yield() }
@@ -247,4 +247,74 @@ final class PerArgRunner: ProcessRunner, @unchecked Sendable {
     #expect(DoctorRowModel(run: .finished(.failing(check: "dns", detail: ""))).title == "Needs attention: dns")
     #expect(DoctorRowModel(run: .finished(.fixed(1))).enabled)
     #expect(DoctorCopy.failureBanner(check: "tls", detail: "") == "doctor: the tls check failed")
+}
+
+// MARK: - Open existing project (tain-102)
+
+private func projectFolder(withManifest: Bool) throws -> URL {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("tainer-menu-\(UUID().uuidString)/shop")
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    if withManifest { try Data("version: 2\n".utf8).write(to: dir.appendingPathComponent("tainer.yaml")) }
+    return dir
+}
+
+@MainActor
+@Test func openFolderWithoutManifestIsRefusedWithoutRunning() async throws {
+    let folder = try projectFolder(withManifest: false)
+    let sink = FakeSink()
+    let fake = FakeRunner([])
+    await makeRunner(fake, sink: sink).openProject(at: folder)
+    #expect(fake.spawnCount == 0)
+    #expect(sink.posted == ["That folder isn't a tainer project yet — create one from the dashboard"])
+}
+
+@MainActor
+@Test func openProjectStartsPlainInsideTheFolder() async throws {
+    let folder = try projectFolder(withManifest: true)
+    let sink = FakeSink()
+    let fake = FakeRunner([.stream(lines: ["starting shop...", "shop started   (pod 3, 4.1s)"], status: 0)])
+    await makeRunner(fake, sink: sink).openProject(at: folder)
+    #expect(fake.arguments == [["start", "--plain"]])
+    #expect(fake.directories == [folder])
+    #expect(sink.posted.isEmpty)
+}
+
+@MainActor
+@Test func openProjectFailureSurfacesTheFirstErrorLine() async throws {
+    let folder = try projectFolder(withManifest: true)
+    let sink = FakeSink()
+    let stderr = "tainer: tainer.yaml is version 1 — run tainer migrate first\nmore detail\n"
+    let fake = FakeRunner([.stream(lines: ["starting shop..."], stderr: stderr, status: 1)])
+    await makeRunner(fake, sink: sink).openProject(at: folder)
+    #expect(sink.posted == ["shop: tainer.yaml is version 1 — run tainer migrate first"])
+}
+
+@MainActor
+@Test func openProjectSpawnFailureAndMissingCLIReport() async throws {
+    let folder = try projectFolder(withManifest: true)
+    let sink = FakeSink()
+    await makeRunner(FakeRunner([.spawnFailure]), sink: sink).openProject(at: folder)
+    let missing = FakeRunner([])
+    await makeRunner(missing, sink: sink, cli: nil).openProject(at: folder)
+    #expect(missing.spawnCount == 0)
+    #expect(sink.posted == ["shop: could not run tainer", "shop: tainer was not found"])
+}
+
+@MainActor
+@Test func openingTheSameFolderTwiceRunsOnce() async throws {
+    let folder = try projectFolder(withManifest: true)
+    let fake = FakeRunner([.blockUntilCancelled])
+    let runner = makeRunner(fake)
+    let first = Task { await runner.openProject(at: folder) }
+    await settle { fake.spawnCount == 1 }
+    await runner.openProject(at: folder)
+    #expect(fake.spawnCount == 1)
+    first.cancel()
+    await first.value
+}
+
+@Test func firstErrorLineFallbacks() {
+    #expect(ActionRunner.firstErrorLine(stderr: "\n  tainer: port 80 is in use\n", stdout: [], status: 1) == "port 80 is in use")
+    #expect(ActionRunner.firstErrorLine(stderr: "", stdout: ["starting shop...", "pod failed to start", ""], status: 1) == "pod failed to start")
+    #expect(ActionRunner.firstErrorLine(stderr: "", stdout: [], status: 2) == "tainer exited with status 2")
 }
