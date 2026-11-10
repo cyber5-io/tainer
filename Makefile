@@ -82,6 +82,22 @@ require-sign-identity:
 	@if [ -z "$(INSTALLER_SIGN_IDENTITY)" ]; then \
 		echo "set TAINER_SIGNING_INSTALLER_IDENTITY" >&2; exit 1; \
 	fi
+# Release preflight: the control image this build pins must exist on ghcr,
+# otherwise a signed release ships a tainer whose control pod can't be pulled.
+# CONTROL_IMAGE_VERSION_OVERRIDE swaps the version (for testing the failure).
+CONTROL_IMAGE_VERSION := $(or $(CONTROL_IMAGE_VERSION_OVERRIDE),$(shell sed -n 's/^const controlImageVersion = "\(.*\)"/\1/p' pkg/tainer/pod/control.go))
+
+.PHONY: preflight-control-image
+preflight-control-image:
+	@v="$(CONTROL_IMAGE_VERSION)"; \
+	if [ -z "$$v" ]; then echo "can't read controlImageVersion from pkg/tainer/pod/control.go" >&2; exit 1; fi; \
+	token=$$(curl -fsS "https://ghcr.io/token?service=ghcr.io&scope=repository:cyber5-io/tainer-control:pull" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p'); \
+	code=$$(curl -s -o /dev/null -w '%{http_code}' -I -H "Authorization: Bearer $$token" -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json" "https://ghcr.io/v2/cyber5-io/tainer-control/manifests/$$v"); \
+	if [ "$$code" != "200" ]; then \
+		echo "control image $$v is not published on ghcr — tag tainer-control v$$v first" >&2; exit 1; \
+	fi; \
+	echo "control image $$v is published on ghcr"
+
 ENT_DIR := packaging/entitlements
 
 sign: build
@@ -136,7 +152,7 @@ pkg-only: pkg-only-root
 INSTALLER_SIGN_IDENTITY := $(TAINER_SIGNING_INSTALLER_IDENTITY)
 NOTARY_PROFILE := $(if $(TAINER_NOTARY_PROFILE),$(TAINER_NOTARY_PROFILE),tainer-notarize)
 
-pkg-only-signed: require-sign-identity pkg-only
+pkg-only-signed: require-sign-identity preflight-control-image pkg-only
 	@if [ -z "$(INSTALLER_SIGN_IDENTITY)" ]; then \
 		echo "set TAINER_SIGNING_INSTALLER_IDENTITY" >&2; exit 1; \
 	fi
@@ -190,7 +206,7 @@ pkg-dist-only: pkg-only
 		$(PKG_DIST_ONLY_OUT)
 	@echo "Built $(PKG_DIST_ONLY_OUT) (unsigned distribution pkg)"
 
-pkg-dist-only-signed: require-sign-identity pkg-dist-only
+pkg-dist-only-signed: require-sign-identity preflight-control-image pkg-dist-only
 	@if [ -z "$(INSTALLER_SIGN_IDENTITY)" ]; then \
 		echo "set TAINER_SIGNING_INSTALLER_IDENTITY" >&2; exit 1; \
 	fi
@@ -203,7 +219,7 @@ pkg-dist-only-notarised: pkg-dist-only-signed
 		--keychain-profile "$(NOTARY_PROFILE)" --wait
 	xcrun stapler staple $(PKG_DIST_ONLY_OUT)
 
-pkg-dist-signed: require-sign-identity pkg-dist
+pkg-dist-signed: require-sign-identity preflight-control-image pkg-dist
 	@if [ -z "$(INSTALLER_SIGN_IDENTITY)" ]; then \
 		echo "set TAINER_SIGNING_INSTALLER_IDENTITY" >&2; exit 1; \
 	fi
@@ -309,7 +325,7 @@ pkg-full: pkg-full-root
 		$(PKG_FULL_OUT)
 	@echo "Built $(PKG_FULL_OUT) (unsigned)"
 
-pkg-full-signed: require-sign-identity pkg-full
+pkg-full-signed: require-sign-identity preflight-control-image pkg-full
 	@if [ -z "$(INSTALLER_SIGN_IDENTITY)" ]; then \
 		echo "set TAINER_SIGNING_INSTALLER_IDENTITY" >&2; exit 1; \
 	fi
@@ -356,7 +372,7 @@ pkg-menu: pkg-menu-root
 		$(PKG_MENU_OUT)
 	@echo "Built $(PKG_MENU_OUT) (unsigned)"
 
-pkg-menu-signed: require-sign-identity pkg-menu
+pkg-menu-signed: require-sign-identity preflight-control-image pkg-menu
 	@if [ -z "$(INSTALLER_SIGN_IDENTITY)" ]; then \
 		echo "set TAINER_SIGNING_INSTALLER_IDENTITY" >&2; exit 1; \
 	fi
@@ -382,7 +398,7 @@ pkg-dist-menu: pkg-menu
 		$(PKG_DIST_MENU_OUT)
 	@echo "Built $(PKG_DIST_MENU_OUT) (unsigned distribution pkg)"
 
-pkg-dist-menu-signed: require-sign-identity pkg-dist-menu
+pkg-dist-menu-signed: require-sign-identity preflight-control-image pkg-dist-menu
 	@if [ -z "$(INSTALLER_SIGN_IDENTITY)" ]; then \
 		echo "set TAINER_SIGNING_INSTALLER_IDENTITY" >&2; exit 1; \
 	fi
