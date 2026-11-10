@@ -127,8 +127,8 @@ func TestSvelteSpec(t *testing.T) {
 	if s.ExecWorkdir != "/var/www/app" {
 		t.Errorf("svelte: ExecWorkdir = %q, want /var/www/app", s.ExecWorkdir)
 	}
-	if s.DefaultRuntime.Node != "20" {
-		t.Errorf("svelte: default node = %q, want 20", s.DefaultRuntime.Node)
+	if s.DefaultRuntime.Node != "22" {
+		t.Errorf("svelte: default node = %q, want 22", s.DefaultRuntime.Node)
 	}
 }
 
@@ -154,8 +154,8 @@ func TestSvelteKitSpec(t *testing.T) {
 	if s.ExecWorkdir != "/var/www/app" {
 		t.Errorf("sveltekit: ExecWorkdir = %q, want /var/www/app", s.ExecWorkdir)
 	}
-	if s.DefaultRuntime.Node != "20" {
-		t.Errorf("sveltekit: default node = %q, want 20", s.DefaultRuntime.Node)
+	if s.DefaultRuntime.Node != "22" {
+		t.Errorf("sveltekit: default node = %q, want 22", s.DefaultRuntime.Node)
 	}
 	if s.DefaultRuntime.Database != DatabaseNone {
 		t.Errorf("sveltekit: default db = %q, want none", s.DefaultRuntime.Database)
@@ -206,5 +206,23 @@ func TestDefaultDatabases(t *testing.T) {
 		if s.DefaultRuntime.Database != db {
 			t.Errorf("%s: default db = %q, want %q", pt, s.DefaultRuntime.Database, db)
 		}
+	}
+}
+
+// TestNodeFamilyDefaultsToNode22 pins every node-family type (kompozi
+// included) to the node generation the stack actively tests.
+func TestNodeFamilyDefaultsToNode22(t *testing.T) {
+	n := 0
+	for _, s := range typeSpecs {
+		if s.Family != FamilyNode {
+			continue
+		}
+		n++
+		if s.DefaultRuntime.Node != "22" {
+			t.Errorf("%s: default node = %q, want 22", s.Type, s.DefaultRuntime.Node)
+		}
+	}
+	if n == 0 {
+		t.Fatal("no node-family types found")
 	}
 }

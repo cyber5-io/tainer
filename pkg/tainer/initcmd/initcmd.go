@@ -280,7 +280,7 @@ func defaultManifest(opts Options, name string) *manifest.Manifest {
 	if spec, ok := manifest.SpecFor(opts.Type); ok {
 		m.Runtime = spec.DefaultRuntime
 	} else {
-		m.Runtime = manifest.RuntimeConfig{Node: "20", Database: manifest.DatabaseMariaDB}
+		m.Runtime = manifest.RuntimeConfig{Node: "22", Database: manifest.DatabaseMariaDB}
 	}
 	// Only the family's own version field is overridable — a stray
 	// --node on a wordpress init shouldn't write a node version into

@@ -139,5 +139,5 @@ func defaultRuntimeFor(t manifest.ProjectType) manifest.RuntimeConfig {
 	}
 	// Unknown type: node defaults keep Update usable on a manifest
 	// the validator would reject anyway.
-	return manifest.RuntimeConfig{Node: "20", Database: manifest.DatabaseMariaDB}
+	return manifest.RuntimeConfig{Node: "22", Database: manifest.DatabaseMariaDB}
 }
