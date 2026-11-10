@@ -91,11 +91,16 @@ CONTROL_IMAGE_VERSION := $(or $(CONTROL_IMAGE_VERSION_OVERRIDE),$(shell sed -n '
 preflight-control-image:
 	@v="$(CONTROL_IMAGE_VERSION)"; \
 	if [ -z "$$v" ]; then echo "can't read controlImageVersion from pkg/tainer/pod/control.go" >&2; exit 1; fi; \
-	token=$$(curl -fsS "https://ghcr.io/token?service=ghcr.io&scope=repository:cyber5-io/tainer-control:pull" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p'); \
+	token=$$(curl -fsS --max-time 20 "https://ghcr.io/token?service=ghcr.io&scope=repository:cyber5-io/tainer-control:pull" 2>/dev/null | sed -n 's/.*"token":"\([^"]*\)".*/\1/p'); \
+	if [ -z "$$token" ]; then echo "couldn't get a ghcr token (offline?)" >&2; exit 1; fi; \
 	code=$$(curl -s -o /dev/null -w '%{http_code}' -I -H "Authorization: Bearer $$token" -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json" "https://ghcr.io/v2/cyber5-io/tainer-control/manifests/$$v"); \
-	if [ "$$code" != "200" ]; then \
-		echo "control image $$v is not published on ghcr — tag tainer-control v$$v first" >&2; exit 1; \
-	fi; \
+	case "$$code" in \
+		200) ;; \
+		404) echo "control image $$v is not published on ghcr — tag tainer-control v$$v first" >&2; exit 1 ;; \
+		000) echo "couldn't reach ghcr" >&2; exit 1 ;; \
+		401|403) echo "ghcr refused the request" >&2; exit 1 ;; \
+		*) echo "unexpected ghcr response ($$code) checking control image $$v" >&2; exit 1 ;; \
+	esac; \
 	echo "control image $$v is published on ghcr"
 
 ENT_DIR := packaging/entitlements

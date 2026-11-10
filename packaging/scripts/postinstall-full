@@ -65,9 +65,11 @@ fi
 
 # DNS resolver: send *.tainer.me to the local responder (127.0.0.1:7753).
 # Same content as pkg/tainer/dns ResolverConfig. Idempotent; never fails the install.
-{ mkdir -p /etc/resolver && printf 'nameserver 127.0.0.1\nport 7753\n' > /etc/resolver/tainer.me && chmod 0644 /etc/resolver/tainer.me; } 2>/dev/null || true
-echo "postinstall-full: DNS resolver for tainer.me written"
-
+if { mkdir -p /etc/resolver && printf 'nameserver 127.0.0.1\nport 7753\n' > /etc/resolver/tainer.me && chmod 0644 /etc/resolver/tainer.me; } 2>/dev/null; then
+    echo "postinstall-full: DNS resolver for tainer.me written"
+else
+    echo "postinstall-full: could not write /etc/resolver/tainer.me" >&2
+fi
 
 # 4. Tainer Menu — load the login agent for the current GUI user so the
 #    menu-bar app appears immediately (and at every login after). The

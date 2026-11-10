@@ -153,7 +153,7 @@ func TestCheckSSHConfig(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores file modes")
 	}
-	hint := "sudo chown $USER ~/.ssh/config"
+	hint := "sudo chown $USER ~/.ssh/config (or chmod u+w"
 
 	t.Run("absent is ok", func(t *testing.T) {
 		r := sshConfigResult(t.TempDir())
@@ -165,6 +165,14 @@ func TestCheckSSHConfig(t *testing.T) {
 		home := t.TempDir()
 		os.MkdirAll(filepath.Join(home, ".ssh"), 0700)
 		os.WriteFile(filepath.Join(home, ".ssh", "config"), []byte("x\n"), 0600)
+		if r := sshConfigResult(home); r.Status != StatusOK {
+			t.Fatalf("status = %v", r.Status)
+		}
+	})
+	t.Run("read-only but already included is ok", func(t *testing.T) {
+		home := t.TempDir()
+		os.MkdirAll(filepath.Join(home, ".ssh"), 0700)
+		os.WriteFile(filepath.Join(home, ".ssh", "config"), []byte("\nInclude ~/.cyberstack/0-tainer.conf\nHost x\n"), 0400)
 		if r := sshConfigResult(home); r.Status != StatusOK {
 			t.Fatalf("status = %v", r.Status)
 		}
@@ -181,4 +189,15 @@ func TestCheckSSHConfig(t *testing.T) {
 			t.Errorf("result = %+v", r)
 		}
 	})
+}
+
+func TestDNSRepairHint(t *testing.T) {
+	for _, want := range []string{"/etc/resolver/tainer.me", "nameserver 127.0.0.1", "port 7753", "sudo"} {
+		if !strings.Contains(dnsRepairHint, want) {
+			t.Errorf("hint missing %q: %s", want, dnsRepairHint)
+		}
+	}
+	if strings.Contains(dnsRepairHint, "tainer start") {
+		t.Errorf("start no longer installs the resolver: %s", dnsRepairHint)
+	}
 }

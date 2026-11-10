@@ -32,6 +32,7 @@ import (
 	"github.com/cyber5-io/tainer/pkg/tainer/pod"
 	"github.com/cyber5-io/tainer/pkg/tainer/router"
 	"github.com/cyber5-io/tainer/pkg/tainer/runtime"
+	"github.com/cyber5-io/tainer/pkg/tainer/ssh"
 	tainertls "github.com/cyber5-io/tainer/pkg/tainer/tls"
 )
 
@@ -432,6 +433,9 @@ func (d *run) checkTLS() {
 	d.add(Result{Name: "tls", Status: StatusOK, Detail: "valid until " + expiry.Format("2006-01-02")})
 }
 
+// dnsRepairHint rewrites the resolver file the installer normally writes.
+const dnsRepairHint = `sudo sh -c 'mkdir -p /etc/resolver && printf "nameserver 127.0.0.1\nport 7753\n" > /etc/resolver/tainer.me' (or reinstall tainer)`
+
 // checkDNS verifies the OS resolver hook is installed AND that a live
 // query against the embedded responder answers 127.0.0.1. The two can
 // diverge: the file can exist while the daemon (and its DNS listener)
@@ -454,7 +458,7 @@ func (d *run) checkDNS(ctx context.Context) {
 	default:
 		d.add(Result{Name: "dns", Status: StatusFail,
 			Detail: "OS resolver hook not installed for tainer.me",
-			Hint:   "run `tainer start` from a project — it installs the resolver (asks for sudo)"})
+			Hint:   dnsRepairHint})
 	}
 }
 
@@ -471,18 +475,33 @@ func (d *run) checkSSHConfig() {
 }
 
 func sshConfigResult(home string) Result {
+	const name = "ssh config"
 	path := filepath.Join(home, ".ssh", "config")
-	if _, err := os.Stat(path); err != nil {
-		return Result{Name: "ssh config", Status: StatusOK, Detail: "no ~/.ssh/config to update"}
+	data, rerr := os.ReadFile(path)
+	if rerr != nil && os.IsNotExist(rerr) {
+		return Result{Name: name, Status: StatusOK, Detail: "no ~/.ssh/config to update"}
+	}
+	if rerr == nil && includeIsFirst(string(data)) {
+		return Result{Name: name, Status: StatusOK, Detail: "~/.ssh/config already includes the tainer config"}
 	}
 	f, err := os.OpenFile(path, os.O_WRONLY, 0)
 	if err != nil {
-		return Result{Name: "ssh config", Status: StatusWarn,
+		return Result{Name: name, Status: StatusWarn,
 			Detail: "~/.ssh/config is not writable, so tainer can't add its Include (tainer ssh still works)",
-			Hint:   "sudo chown $USER ~/.ssh/config"}
+			Hint:   "fix with: sudo chown $USER ~/.ssh/config (or chmod u+w ~/.ssh/config)"}
 	}
 	f.Close()
-	return Result{Name: "ssh config", Status: StatusOK, Detail: "~/.ssh/config is writable"}
+	return Result{Name: name, Status: StatusOK, Detail: "~/.ssh/config is writable"}
+}
+
+// includeIsFirst reports whether the tainer Include is the first non-empty line.
+func includeIsFirst(content string) bool {
+	for _, ln := range strings.Split(content, "\n") {
+		if t := strings.TrimSpace(ln); t != "" {
+			return t == ssh.UserConfigIncludeLine
+		}
+	}
+	return false
 }
 
 // checkPods probes each RUNNING pod's public URL end to end: DNS
