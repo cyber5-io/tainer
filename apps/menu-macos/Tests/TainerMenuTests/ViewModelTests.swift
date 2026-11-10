@@ -162,3 +162,25 @@ private func hasRedPixel(_ image: NSImage) -> Bool {
 @Test func newPodLinkOpensTheWizard() {
     #expect(MenuLinks.newPod.absoluteString == "https://my.tainer.me/new")
 }
+
+// MARK: - Dashboard gate (tain-105)
+
+@Test func dashboardItemsWaitForAHealthyStack() {
+    #expect(DashboardGate.enabled(.healthy(runningPods: 2)))
+    #expect(DashboardGate.enabled(.idle))
+    #expect(DashboardGate.help(.healthy(runningPods: 1)) == nil)
+    #expect(!DashboardGate.enabled(.recovering))
+    #expect(DashboardGate.help(.recovering) == "tainer is starting up…")
+    #expect(!DashboardGate.enabled(.unreachable))
+    #expect(DashboardGate.help(.unreachable) == "tainer is not responding")
+}
+
+@MainActor
+@Test func dashboardGateFollowsStackState() {
+    let state = StackState()
+    #expect(!DashboardGate.enabled(state.engine))
+    state.apply(.event(.hello(engine: EngineState(state: .healthy, since: Date(), detail: ""), pods: [])))
+    #expect(DashboardGate.enabled(state.engine))
+    state.apply(.recovering(hint: nil))
+    #expect(!DashboardGate.enabled(state.engine))
+}

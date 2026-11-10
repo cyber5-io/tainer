@@ -27,14 +27,19 @@ struct MenuContent: View {
                 .padding(.horizontal, 14).padding(.top, 8).padding(.bottom, 4)
             podList(palette)
             divider(palette, vertical: 6)
+            let dashboardHelp = DashboardGate.help(state.engine)
             MenuItem(symbol: "plus.circle", title: "New Pod", color: palette.menuItemText, palette: palette) {
                 openURL(MenuLinks.newPod)
             }
+            .help(dashboardHelp ?? "")
+            .disabled(dashboardHelp != nil)
             MenuItem(symbol: "folder", title: OpenProjectCopy.menuItem, color: palette.menuItemText, palette: palette,
                      action: onOpenProject)
             MenuItem(symbol: "square.grid.2x2", title: "Open Control Dashboard", color: palette.teal, weight: .semibold, palette: palette) {
                 openURL(MenuLinks.dashboard)
             }
+            .help(dashboardHelp ?? "")
+            .disabled(dashboardHelp != nil)
             let doctor = DoctorRowModel(run: state.doctor)
             MenuItem(symbol: doctor.symbol, title: doctor.title, color: palette.menuItemText, palette: palette) {
                 onAction(.doctor, nil)

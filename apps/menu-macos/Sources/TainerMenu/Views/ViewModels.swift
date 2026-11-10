@@ -66,6 +66,25 @@ enum UpdateCopy {
     static let updateAllPods = "Update all pods"
 }
 
+/// "New Pod" and "Open Control Dashboard" open pages the control pod serves, so they wait for a
+/// healthy stack (idle is healthy too). Pod actions stay enabled throughout because the CLI starts
+/// the stack itself; a browser tab can't.
+enum DashboardGate {
+    static let startingUp = "tainer is starting up…"
+    static let notResponding = "tainer is not responding"
+
+    static func enabled(_ health: BarHealth) -> Bool { help(health) == nil }
+
+    /// Why the items are disabled; nil when they are enabled.
+    static func help(_ health: BarHealth) -> String? {
+        switch health {
+        case .healthy, .idle: nil
+        case .recovering: startingUp
+        case .unreachable: notResponding
+        }
+    }
+}
+
 /// Exact wording for opening an existing project folder.
 enum OpenProjectCopy {
     static let menuItem = "Open Existing Project…"
