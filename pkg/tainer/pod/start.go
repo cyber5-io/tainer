@@ -106,13 +106,20 @@ func ensureClientSSHConfig() {
 		log.Printf("ssh client config: home dir: %v", err)
 		return
 	}
+	ensureClientSSHConfigAt(home, os.Stderr)
+}
+
+// ensureClientSSHConfigAt does the work for a given home directory. A
+// ~/.ssh/config the user can't write (typically root-owned) is reported as one
+// plain notice on w; the start carries on since `tainer ssh` doesn't need it.
+func ensureClientSSHConfigAt(home string, w io.Writer) {
 	userDrop := filepath.Join(home, ".cyberstack", ssh.DropInName)
 	if err := ssh.WriteDropIn(userDrop, ssh.ClientIdentityTilde); err != nil {
 		log.Printf("ssh client config: write %s: %v", userDrop, err)
 	}
 	sshCfg := filepath.Join(home, ".ssh", "config")
 	if err := ssh.EnsureUserConfigInclude(sshCfg, ssh.UserConfigIncludeLine); err != nil {
-		log.Printf("ssh client config: include in %s: %v", sshCfg, err)
+		fmt.Fprintln(w, "couldn't update ~/.ssh/config (not writable) — tainer ssh still works; fix with: sudo chown $USER ~/.ssh/config")
 	}
 }
 

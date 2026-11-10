@@ -16,7 +16,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -153,6 +155,7 @@ func Run(ctx context.Context, opts Options) Report {
 	d.checkEdge()
 	d.checkTLS()
 	d.checkDNS(ctx)
+	d.checkSSHConfig()
 	d.checkPods(ctx, eng)
 
 	return d.report
@@ -453,6 +456,33 @@ func (d *run) checkDNS(ctx context.Context) {
 			Detail: "OS resolver hook not installed for tainer.me",
 			Hint:   "run `tainer start` from a project — it installs the resolver (asks for sudo)"})
 	}
+}
+
+// checkSSHConfig warns when ~/.ssh/config exists but the user can't write it,
+// which stops tainer adding its Include line (tainer ssh keeps working).
+func (d *run) checkSSHConfig() {
+	d.start("ssh config")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		d.add(Result{Name: "ssh config", Status: StatusOK, Detail: "no home directory"})
+		return
+	}
+	d.add(sshConfigResult(home))
+}
+
+func sshConfigResult(home string) Result {
+	path := filepath.Join(home, ".ssh", "config")
+	if _, err := os.Stat(path); err != nil {
+		return Result{Name: "ssh config", Status: StatusOK, Detail: "no ~/.ssh/config to update"}
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		return Result{Name: "ssh config", Status: StatusWarn,
+			Detail: "~/.ssh/config is not writable, so tainer can't add its Include (tainer ssh still works)",
+			Hint:   "sudo chown $USER ~/.ssh/config"}
+	}
+	f.Close()
+	return Result{Name: "ssh config", Status: StatusOK, Detail: "~/.ssh/config is writable"}
 }
 
 // checkPods probes each RUNNING pod's public URL end to end: DNS

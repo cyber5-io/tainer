@@ -148,3 +148,37 @@ func TestCountStoppedCoversRegistryOnlyProjects(t *testing.T) {
 		t.Fatalf("countStopped(nil) = %d, want 0", got)
 	}
 }
+
+func TestCheckSSHConfig(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores file modes")
+	}
+	hint := "sudo chown $USER ~/.ssh/config"
+
+	t.Run("absent is ok", func(t *testing.T) {
+		r := sshConfigResult(t.TempDir())
+		if r.Status != StatusOK {
+			t.Fatalf("status = %v", r.Status)
+		}
+	})
+	t.Run("writable is ok", func(t *testing.T) {
+		home := t.TempDir()
+		os.MkdirAll(filepath.Join(home, ".ssh"), 0700)
+		os.WriteFile(filepath.Join(home, ".ssh", "config"), []byte("x\n"), 0600)
+		if r := sshConfigResult(home); r.Status != StatusOK {
+			t.Fatalf("status = %v", r.Status)
+		}
+	})
+	t.Run("read-only warns with hint", func(t *testing.T) {
+		home := t.TempDir()
+		os.MkdirAll(filepath.Join(home, ".ssh"), 0700)
+		os.WriteFile(filepath.Join(home, ".ssh", "config"), []byte("x\n"), 0400)
+		r := sshConfigResult(home)
+		if r.Status != StatusWarn {
+			t.Fatalf("status = %v", r.Status)
+		}
+		if !strings.Contains(r.Hint, hint) || !strings.Contains(r.Detail, "not writable") {
+			t.Errorf("result = %+v", r)
+		}
+	})
+}
