@@ -22,6 +22,7 @@ final class StackState {
     private(set) var pods: [Pod] = []
     private(set) var hint: String?
     var busy: Set<String> = []
+    var doctor: DoctorRun = .idle
     private(set) var listed: [ListedProject] = []
     private(set) var page = 1
 

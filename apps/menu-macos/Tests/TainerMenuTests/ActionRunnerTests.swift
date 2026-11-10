@@ -77,10 +77,12 @@ private func makeRunner(_ runner: FakeRunner, state: StackState = StackState(), 
 @MainActor
 @Test func nonZeroExitWithReportDocumentIsNotAFailure() async {
     let sink = FakeSink()
-    let report = #"{"v":1,"ok":false,"checks":[{"name":"engine","status":"fail"}]}"#
+    let report = #"{"v":1,"checks":[{"name":"daemon","status":"ok"},{"name":"dns","status":"fail","detail":"resolver missing"}],"fixed":[],"healthy":false}"#
+    let state = StackState()
     let fake = FakeRunner([.stream(lines: [report], status: 1)])
-    await makeRunner(fake, sink: sink).run(.doctor, pod: nil)
-    #expect(sink.posted.isEmpty)
+    await makeRunner(fake, state: state, sink: sink).run(.doctor, pod: nil)
+    #expect(sink.posted == ["doctor: the dns check failed — resolver missing"])
+    #expect(state.doctor == .finished(.failing(check: "dns", detail: "resolver missing")))
 }
 
 @MainActor
@@ -180,4 +182,69 @@ final class PerArgRunner: ProcessRunner, @unchecked Sendable {
     await runner.run(.manage, pod: "ops")
     await runner.run(.stop, pod: nil)
     #expect(fake.spawnCount == 0)
+}
+
+// MARK: - Doctor feedback (tain-101)
+
+@MainActor
+@Test func doctorDocumentOutcomes() {
+    func outcome(_ json: String) -> DoctorOutcome? { DoctorDocument.parse(["noise", json])?.outcome }
+    #expect(outcome(#"{"v":1,"checks":[{"name":"daemon","status":"ok"}],"fixed":[],"healthy":true}"#) == .healthy)
+    #expect(outcome(#"{"v":1,"checks":[{"name":"pods","status":"ok","fixed":true}],"fixed":["pods","dns"],"healthy":true}"#) == .fixed(2))
+    #expect(outcome(#"{"v":1,"checks":[{"name":"daemon","status":"ok"},{"name":"router","status":"fail","detail":"not answering"},{"name":"tls","status":"fail"}],"healthy":false}"#)
+        == .failing(check: "router", detail: "not answering"))
+    #expect(outcome(#"{"v":1,"checks":[{"name":"edge","status":"warn"}],"healthy":true}"#) == .healthy)
+    // Without a "healthy" field, a failing check still decides.
+    #expect(outcome(#"{"v":1,"checks":[{"name":"agent","status":"fail"}]}"#) == .failing(check: "agent", detail: ""))
+    #expect(DoctorDocument.parse(["not json", #"{"v":1,"name":"ops"}"#]) == nil)
+}
+
+@MainActor
+@Test func doctorShowsRunningThenOutcomeThenReverts() async {
+    let state = StackState()
+    let sink = FakeSink()
+    let fixedDoc = #"{"v":1,"checks":[{"name":"pods","status":"ok","fixed":true}],"fixed":["pods"],"healthy":true}"#
+    let fake = FakeRunner([.streamThenBlock(lines: [fixedDoc])])
+    let runner = ActionRunner(state: state, runner: fake, sink: sink, locate: { "/bin/tainer" }, doctorResultHold: .milliseconds(1))
+    let task = Task { await runner.run(.doctor, pod: nil) }
+    await settle { state.doctor == .running }
+    #expect(DoctorRowModel(run: state.doctor).enabled == false)
+    #expect(DoctorRowModel(run: state.doctor).title == "Running doctor…")
+    task.cancel()
+    await task.value
+    // A cancelled child exits non-zero, but its report document was read: still a report.
+    #expect(state.doctor == .finished(.fixed(1)))
+    #expect(sink.posted.isEmpty)
+    for _ in 0..<200 where state.doctor != .idle { try? await Task.sleep(for: .milliseconds(5)) }
+    #expect(state.doctor == .idle)
+}
+
+@MainActor
+@Test func doctorHealthyRunPostsNothing() async {
+    let state = StackState()
+    let sink = FakeSink()
+    let doc = #"{"v":1,"checks":[{"name":"daemon","status":"ok"}],"fixed":[],"healthy":true}"#
+    await makeRunner(FakeRunner([.stream(lines: [doc], status: 0)]), state: state, sink: sink).run(.doctor, pod: nil)
+    #expect(state.doctor == .finished(.healthy))
+    #expect(sink.posted.isEmpty)
+}
+
+@MainActor
+@Test func doctorThatCannotRunSaysSo() async {
+    let state = StackState()
+    let sink = FakeSink()
+    await makeRunner(FakeRunner([]), state: state, sink: sink, cli: nil).run(.doctor, pod: nil)
+    #expect(state.doctor == .finished(.couldNotRun))
+    #expect(sink.posted == ["doctor: tainer was not found"])
+}
+
+@Test func doctorRowCopy() {
+    #expect(DoctorRowModel(run: .idle).title == "Run Doctor — check & heal")
+    #expect(DoctorRowModel(run: .idle).enabled)
+    #expect(DoctorRowModel(run: .finished(.healthy)).title == "Everything looks healthy")
+    #expect(DoctorRowModel(run: .finished(.fixed(1))).title == "Fixed: 1 issue")
+    #expect(DoctorRowModel(run: .finished(.fixed(3))).title == "Fixed: 3 issues")
+    #expect(DoctorRowModel(run: .finished(.failing(check: "dns", detail: ""))).title == "Needs attention: dns")
+    #expect(DoctorRowModel(run: .finished(.fixed(1))).enabled)
+    #expect(DoctorCopy.failureBanner(check: "tls", detail: "") == "doctor: the tls check failed")
 }

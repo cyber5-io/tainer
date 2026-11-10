@@ -66,6 +66,51 @@ enum UpdateCopy {
     static let updateAllPods = "Update all pods"
 }
 
+/// Exact doctor wording: the row's title per state, and the failure banner.
+enum DoctorCopy {
+    static let idle = "Run Doctor — check & heal"
+    static let running = "Running doctor…"
+    static let healthy = "Everything looks healthy"
+    static let couldNotRun = "Doctor couldn't run — see notification"
+
+    static func fixed(_ n: Int) -> String { "Fixed: \(n) \(n == 1 ? "issue" : "issues")" }
+
+    static func failing(_ check: String) -> String {
+        check.isEmpty ? "Doctor found a problem" : "Needs attention: \(check)"
+    }
+
+    static func failureBanner(check: String, detail: String) -> String {
+        let name = check.isEmpty ? "a check" : "the \(check) check"
+        return detail.isEmpty ? "doctor: \(name) failed" : "doctor: \(name) failed — \(detail)"
+    }
+}
+
+/// The doctor row: its title, symbol and whether it can be clicked.
+struct DoctorRowModel: Equatable {
+    let run: DoctorRun
+
+    var title: String {
+        switch run {
+        case .idle: DoctorCopy.idle
+        case .running: DoctorCopy.running
+        case .finished(.healthy): DoctorCopy.healthy
+        case .finished(.fixed(let n)): DoctorCopy.fixed(n)
+        case .finished(.failing(let check, _)): DoctorCopy.failing(check)
+        case .finished(.couldNotRun): DoctorCopy.couldNotRun
+        }
+    }
+
+    var symbol: String {
+        switch run {
+        case .idle, .running: "waveform.path.ecg"
+        case .finished(.healthy), .finished(.fixed): "checkmark.circle"
+        case .finished(.failing), .finished(.couldNotRun): "exclamationmark.triangle"
+        }
+    }
+
+    var enabled: Bool { run != .running }
+}
+
 /// What the status header says while an update is in flight.
 enum UpdateActivity: Equatable {
     case updatingTainer

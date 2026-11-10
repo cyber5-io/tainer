@@ -32,9 +32,11 @@ struct MenuContent: View {
             MenuItem(symbol: "square.grid.2x2", title: "Open Control Dashboard", color: palette.teal, weight: .semibold, palette: palette) {
                 openURL(MenuLinks.dashboard)
             }
-            MenuItem(symbol: "waveform.path.ecg", title: "Run Doctor — check & heal", color: palette.menuItemText, palette: palette) {
+            let doctor = DoctorRowModel(run: state.doctor)
+            MenuItem(symbol: doctor.symbol, title: doctor.title, color: palette.menuItemText, palette: palette) {
                 onAction(.doctor, nil)
             }
+            .disabled(!doctor.enabled)
             MenuItem(symbol: "power", title: "Quit Tainer Menu", color: palette.secondaryText, palette: palette, action: onQuit)
             divider(palette, vertical: 4)
             footer(palette)

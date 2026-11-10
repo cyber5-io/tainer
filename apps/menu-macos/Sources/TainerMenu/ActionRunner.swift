@@ -52,7 +52,8 @@ final class ActionRunner {
     private let runner: any ProcessRunner
     private let sink: any NotificationSink
     private let locate: () -> String?
-    private var doctorRunning = false
+    private let doctorResultHold: Duration
+    private var doctorGeneration = 0
     private var selfUpdateRunning = false
 
     /// Words the CLI always reads as update targets, never as a project name.
@@ -62,12 +63,14 @@ final class ActionRunner {
         state: StackState,
         runner: any ProcessRunner = SubprocessRunner(),
         sink: any NotificationSink = SystemNotificationSink(),
-        locate: @escaping () -> String? = { CLILocator.find() }
+        locate: @escaping () -> String? = { CLILocator.find() },
+        doctorResultHold: Duration = .seconds(8)
     ) {
         self.state = state
         self.runner = runner
         self.sink = sink
         self.locate = locate
+        self.doctorResultHold = doctorResultHold
     }
 
     func run(_ action: PodAction, pod: String?) async {
@@ -75,9 +78,8 @@ final class ActionRunner {
         let arguments: [String]
         switch (action, pod) {
         case (.doctor, _):
-            guard !doctorRunning else { return }
-            label = "doctor"
-            arguments = ["doctor", "--fix", "--json"]
+            await runDoctor()
+            return
         case (.start, let pod?), (.stop, let pod?), (.restart, let pod?):
             guard !state.busy.contains(pod) else { return }
             label = pod
@@ -94,13 +96,39 @@ final class ActionRunner {
             return
         }
 
-        if action == .doctor { doctorRunning = true } else { state.busy.insert(label) }
-        defer {
-            if action == .doctor { doctorRunning = false } else { state.busy.remove(label) }
-        }
+        state.busy.insert(label)
+        defer { state.busy.remove(label) }
 
-        if let message = await failure(arguments, isDoctor: action == .doctor) {
+        if let message = await failure(arguments, isDoctor: false) {
             await sink.post("\(label): \(message)")
+        }
+    }
+
+    /// `doctor --fix --json`. The row shows the run and then its outcome for `doctorResultHold`;
+    /// a failing check, or a run that could not execute, also goes to the notification sink.
+    private func runDoctor() async {
+        guard state.doctor != .running else { return }
+        state.doctor = .running
+        doctorGeneration += 1
+        let generation = doctorGeneration
+        let output = LineCollector()
+        let outcome: DoctorOutcome
+        if let message = await failure(["doctor", "--fix", "--json"], isDoctor: true, into: output) {
+            await sink.post("doctor: \(message)")
+            outcome = .couldNotRun
+        } else {
+            // A clean exit is a healthy run even if its document can't be read.
+            outcome = DoctorDocument.parse(await output.lines)?.outcome ?? .healthy
+            if case .failing(let check, let detail) = outcome {
+                await sink.post(DoctorCopy.failureBanner(check: check, detail: detail))
+            }
+        }
+        state.doctor = .finished(outcome)
+        let hold = doctorResultHold
+        Task { [weak self] in
+            try? await Task.sleep(for: hold)
+            guard let self, self.doctorGeneration == generation, case .finished = self.state.doctor else { return }
+            self.state.doctor = .idle
         }
     }
 
