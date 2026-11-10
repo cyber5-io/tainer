@@ -157,8 +157,8 @@ func TestSvelteKitSpec(t *testing.T) {
 	if s.DefaultRuntime.Node != "20" {
 		t.Errorf("sveltekit: default node = %q, want 20", s.DefaultRuntime.Node)
 	}
-	if s.DefaultRuntime.Database != DatabaseMariaDB {
-		t.Errorf("sveltekit: default db = %q, want mariadb", s.DefaultRuntime.Database)
+	if s.DefaultRuntime.Database != DatabaseNone {
+		t.Errorf("sveltekit: default db = %q, want none", s.DefaultRuntime.Database)
 	}
 }
 
@@ -179,6 +179,32 @@ func TestStaticBundle(t *testing.T) {
 		}
 		if s.StaticBundle != want {
 			t.Errorf("%s: StaticBundle = %v, want %v", typ, s.StaticBundle, want)
+		}
+	}
+}
+
+// TestDefaultDatabases locks the per-type database default: PHP types use
+// mariadb, kompozi needs postgres, every other node type starts without one.
+func TestDefaultDatabases(t *testing.T) {
+	want := map[ProjectType]DatabaseType{
+		TypeWordPress: DatabaseMariaDB,
+		TypePHP:       DatabaseMariaDB,
+		TypeNodeJS:    DatabaseNone,
+		TypeNextJS:    DatabaseNone,
+		TypeNuxtJS:    DatabaseNone,
+		TypeNestJS:    DatabaseNone,
+		TypeReact:     DatabaseNone,
+		TypeSvelte:    DatabaseNone,
+		TypeSvelteKit: DatabaseNone,
+		TypeKompozi:   DatabasePostgres,
+	}
+	for pt, db := range want {
+		s, ok := SpecFor(pt)
+		if !ok {
+			t.Fatalf("no spec for %s", pt)
+		}
+		if s.DefaultRuntime.Database != db {
+			t.Errorf("%s: default db = %q, want %q", pt, s.DefaultRuntime.Database, db)
 		}
 	}
 }

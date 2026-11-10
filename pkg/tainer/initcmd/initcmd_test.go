@@ -252,3 +252,63 @@ func TestRunRefusesLegacyHtmlBesideApp(t *testing.T) {
 		t.Errorf("tainer.yaml must not be written on refusal (err=%v)", err)
 	}
 }
+
+// TestRunNodeJSScaffoldsWithoutDatabase verifies a node project defaults to
+// no database: no db/ folder and no engine in the generated tainer.yaml.
+func TestRunNodeJSScaffoldsWithoutDatabase(t *testing.T) {
+	isolateRegistry(t)
+	dir := t.TempDir()
+	if _, err := RunIn(Options{Type: manifest.TypeNodeJS, Name: "api"}, dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "db")); !os.IsNotExist(err) {
+		t.Errorf("db/ must not exist for a nodejs project, stat err = %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "tainer.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"mariadb", "postgres"} {
+		if strings.Contains(string(raw), bad) {
+			t.Errorf("tainer.yaml mentions %s:\n%s", bad, raw)
+		}
+	}
+	m, err := manifest.Load(filepath.Join(dir, "tainer.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.HasDatabase() {
+		t.Errorf("nodejs HasDatabase = true, db = %q", m.Runtime.Database)
+	}
+}
+
+// TestRunNodeJSExplicitDatabase verifies an explicit engine still wins.
+func TestRunNodeJSExplicitDatabase(t *testing.T) {
+	isolateRegistry(t)
+	dir := t.TempDir()
+	if _, err := RunIn(Options{Type: manifest.TypeNodeJS, Name: "api", Database: manifest.DatabasePostgres}, dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "db")); err != nil {
+		t.Errorf("db/ should exist with explicit postgres: %v", err)
+	}
+}
+
+// TestRunWordPressKeepsMariaDB verifies wordpress still scaffolds db/ + mariadb.
+func TestRunWordPressKeepsMariaDB(t *testing.T) {
+	isolateRegistry(t)
+	dir := t.TempDir()
+	if _, err := RunIn(Options{Type: manifest.TypeWordPress, Name: "wp"}, dir); err != nil {
+		t.Fatal(err)
+	}
+	m, err := manifest.Load(filepath.Join(dir, "tainer.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Runtime.Database != manifest.DatabaseMariaDB {
+		t.Errorf("wordpress db = %q, want mariadb", m.Runtime.Database)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "db")); err != nil {
+		t.Errorf("db/ should exist for wordpress: %v", err)
+	}
+}

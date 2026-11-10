@@ -172,12 +172,10 @@ func dbChoices(pt manifest.ProjectType) []string {
 		return []string{"mariadb"}
 	case manifest.TypePHP:
 		return []string{"mariadb", "postgres", "none"}
-	case manifest.TypeNodeJS, manifest.TypeNestJS:
-		return []string{"postgres", "mariadb", "none"}
-	case manifest.TypeReact, manifest.TypeSvelte:
-		return []string{"none", "postgres", "mariadb"}
-	default:
+	case manifest.TypeKompozi:
 		return []string{"postgres", "mariadb"}
+	default:
+		return []string{"none", "postgres", "mariadb"}
 	}
 }
 

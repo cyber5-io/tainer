@@ -86,7 +86,7 @@ var typeSpecs = []TypeSpec{
 		Type:           TypeNodeJS,
 		Family:         FamilyNode,
 		Aliases:        []string{"node"},
-		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseMariaDB},
+		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseNone},
 		HasAppRole:     true,
 		ExecUser:       "1000:1000", // node in the official-node-derived images
 		ExecWorkdir:    "/var/www/app",
@@ -96,7 +96,7 @@ var typeSpecs = []TypeSpec{
 		Type:           TypeNextJS,
 		Family:         FamilyNode,
 		Aliases:        []string{"next"},
-		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseMariaDB},
+		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseNone},
 		HasAppRole:     true,
 		ExecUser:       "1000:1000",
 		ExecWorkdir:    "/var/www/app",
@@ -106,7 +106,7 @@ var typeSpecs = []TypeSpec{
 		Type:           TypeNuxtJS,
 		Family:         FamilyNode,
 		Aliases:        []string{"nuxt"},
-		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseMariaDB},
+		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseNone},
 		HasAppRole:     true,
 		ExecUser:       "1000:1000",
 		ExecWorkdir:    "/var/www/app",
@@ -116,7 +116,7 @@ var typeSpecs = []TypeSpec{
 		Type:           TypeNestJS,
 		Family:         FamilyNode,
 		Aliases:        []string{"nest"},
-		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseMariaDB},
+		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseNone},
 		HasAppRole:     true,
 		ExecUser:       "1000:1000",
 		ExecWorkdir:    "/var/www/app",
@@ -125,7 +125,7 @@ var typeSpecs = []TypeSpec{
 	{
 		Type:           TypeReact,
 		Family:         FamilyNode,
-		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseMariaDB},
+		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseNone},
 		HasAppRole:     true, // TAIN-98: app = sshd + node tooling; caddy still serves the static bundle
 		StaticBundle:   true,
 		ExecUser:       "1000:1000",
@@ -135,7 +135,7 @@ var typeSpecs = []TypeSpec{
 	{
 		Type:           TypeSvelte,
 		Family:         FamilyNode,
-		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseMariaDB},
+		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseNone},
 		HasAppRole:     true, // same shape as react: app = sshd + node tooling
 		StaticBundle:   true,
 		ExecUser:       "1000:1000",
@@ -146,7 +146,7 @@ var typeSpecs = []TypeSpec{
 		Type:           TypeSvelteKit,
 		Family:         FamilyNode,
 		Aliases:        []string{"kit"},
-		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseMariaDB},
+		DefaultRuntime: RuntimeConfig{Node: "20", Database: DatabaseNone},
 		HasAppRole:     true,
 		ExecUser:       "1000:1000",
 		ExecWorkdir:    "/var/www/app",
