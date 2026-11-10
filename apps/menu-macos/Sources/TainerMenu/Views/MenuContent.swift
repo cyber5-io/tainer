@@ -53,6 +53,7 @@ struct MenuContent: View {
         .frame(width: 340)
         .background(palette.background)
         .foregroundStyle(palette.text)
+        .focusEffectDisabled()
         .task {
             state.resetPage()
             while !Task.isCancelled {
