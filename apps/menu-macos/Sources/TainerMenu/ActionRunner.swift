@@ -162,18 +162,34 @@ final class ActionRunner {
         await sink.post("\(label): \(Self.firstErrorLine(stderr: result.stderr, stdout: await output.lines, status: result.status))")
     }
 
-    /// The first thing a failed plain-text run said: its first stderr line (minus the CLI's
-    /// "tainer: " prefix), else its last stdout line, else the exit status.
+    /// Lines a start prints on success too; never the reason it failed.
+    nonisolated static let startNoticePrefixes = [
+        "couldn't update ~/.ssh/config",
+        "renamed html/ to app/",
+        "ignoring leftover html/",
+    ]
+
+    /// What a failed plain-text run said: the CLI's own error line ("tainer: <message>", prefix
+    /// removed), else the first stderr line that isn't a known notice, else the last stdout line
+    /// that isn't one, else the first stderr line, else the exit status.
     nonisolated static func firstErrorLine(stderr: String, stdout: [String], status: Int32) -> String {
         let trimmed = { (s: Substring) in s.trimmingCharacters(in: .whitespaces) }
-        if let line = stderr.split(whereSeparator: \.isNewline).map(trimmed).first(where: { !$0.isEmpty }) {
-            let message = line.hasPrefix("tainer: ") ? String(line.dropFirst("tainer: ".count)) : line
-            return String(message.prefix(200))
+        let errLines = stderr.split(whereSeparator: \.isNewline).map(trimmed).filter { !$0.isEmpty }
+        let outLines = stdout.map { trimmed(Substring($0)) }.filter { !$0.isEmpty }
+        let isNotice = { (line: String) in startNoticePrefixes.contains { line.hasPrefix($0) } }
+        let pick: String
+        if let line = errLines.first(where: { $0.hasPrefix("tainer: ") }) {
+            pick = String(line.dropFirst("tainer: ".count))
+        } else if let line = errLines.first(where: { !isNotice($0) }) {
+            pick = line
+        } else if let line = outLines.last(where: { !isNotice($0) }) {
+            pick = line
+        } else if let line = errLines.first ?? outLines.last {
+            pick = line
+        } else {
+            return "tainer exited with status \(status)"
         }
-        if let line = stdout.map({ trimmed(Substring($0)) }).last(where: { !$0.isEmpty }) {
-            return String(line.prefix(200))
-        }
-        return "tainer exited with status \(status)"
+        return String(pick.prefix(200))
     }
 
     /// A pod named like an update target is updated by its folder path, which the CLI never

@@ -359,3 +359,12 @@ private func goldenDoctorLines(healthy: Bool) throws -> [String] {
     #expect(state.doctor == .finished(.fixed(1)))
     #expect(sink.posted.isEmpty)
 }
+
+@Test func startNoticeDoesNotShadowTheRealError() {
+    let notice = "couldn't update ~/.ssh/config (not writable) — tainer ssh still works; fix with: sudo chown $USER ~/.ssh/config"
+    #expect(ActionRunner.firstErrorLine(stderr: "\(notice)\ntainer: port 443 is in use\n", stdout: [], status: 1) == "port 443 is in use")
+    #expect(ActionRunner.firstErrorLine(stderr: "\(notice)\nrenamed html/ to app/\nsomething broke\n", stdout: [], status: 1) == "something broke")
+    #expect(ActionRunner.firstErrorLine(stderr: "", stdout: ["starting shop...", "pod failed", "ignoring leftover html/ (app/ exists)"], status: 1) == "pod failed")
+    // Only notices: the first one is still better than a bare status.
+    #expect(ActionRunner.firstErrorLine(stderr: "\(notice)\n", stdout: [], status: 1) == notice)
+}
