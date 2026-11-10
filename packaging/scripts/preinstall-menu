@@ -15,6 +15,12 @@ if [[ -n "$CONSOLE_USER" && "$CONSOLE_USER" != "root" ]]; then
     fi
 fi
 
+# A menu instance the agent does not manage (or the retired Go menu) survives
+# bootout and would keep running the deleted binary beside the new one.
+pkill -TERM -x TainerMenu 2>/dev/null || true
+pkill -TERM -x tainer-menu 2>/dev/null || true
+sleep 1
+
 if [[ -e "$APP" ]]; then
     rm -rf "/Applications/Tainer Menu.app" || true
     echo "preinstall: removed previous Tainer Menu.app"
