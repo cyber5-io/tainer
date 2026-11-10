@@ -217,11 +217,6 @@ final class ActionRunner {
         }
     }
 
-    private static func isJSONDocument(_ line: String) -> Bool {
-        guard let data = line.data(using: .utf8) else { return false }
-        return (try? JSONSerialization.jsonObject(with: data)) is [String: Any]
-    }
-
     /// A failure message, or nil on success. A top-level error object is always a failure, and
     /// so is a non-zero exit; the one exemption is doctor, whose report document accompanies exit 1.
     private func failure(_ arguments: [String], isDoctor: Bool, into output: LineCollector = LineCollector()) async -> String? {
@@ -239,7 +234,7 @@ final class ActionRunner {
             }
         }
         if result.status != 0 {
-            let reportAllowed = isDoctor && lines.contains(where: Self.isJSONDocument)
+            let reportAllowed = isDoctor && DoctorDocument.parse(lines) != nil
             if !reportAllowed {
                 let tail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
                 return tail.isEmpty ? "tainer exited with status \(result.status)" : String(tail.suffix(200))

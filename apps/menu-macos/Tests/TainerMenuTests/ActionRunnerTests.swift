@@ -318,3 +318,44 @@ private func projectFolder(withManifest: Bool) throws -> URL {
     #expect(ActionRunner.firstErrorLine(stderr: "", stdout: ["starting shop...", "pod failed to start", ""], status: 1) == "pod failed to start")
     #expect(ActionRunner.firstErrorLine(stderr: "", stdout: [], status: 2) == "tainer exited with status 2")
 }
+
+// MARK: - Review round: pretty-printed doctor report, start notices
+
+/// The CLI's own doctor golden (pretty-printed, as the real binary prints it) with the "v":1 the
+/// golden omits, split into output lines the way the runner delivers them.
+private func goldenDoctorLines(healthy: Bool) throws -> [String] {
+    let golden = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("../../cmd/tainer/testdata/json/doctor.golden").standardized
+    var text = try String(contentsOf: golden, encoding: .utf8)
+    #expect(text.hasPrefix("{\n"))
+    text = "{\n  \"v\": 1,\n" + text.dropFirst(2)
+    if healthy {
+        text = text.replacingOccurrences(of: "\"status\": \"fail\"", with: "\"status\": \"ok\"")
+            .replacingOccurrences(of: "\"healthy\": false", with: "\"fixed\": [\"pods\"],\n  \"healthy\": true")
+    }
+    let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    #expect(lines.count > 5)
+    return lines
+}
+
+@MainActor
+@Test func prettyPrintedFailingDoctorReportIsRead() async throws {
+    let lines = try goldenDoctorLines(healthy: false)
+    #expect(DoctorDocument.parse(lines)?.outcome == .failing(check: "pods", detail: "blog down"))
+    let state = StackState()
+    let sink = FakeSink()
+    await makeRunner(FakeRunner([.stream(lines: lines, status: 1)]), state: state, sink: sink).run(.doctor, pod: nil)
+    #expect(state.doctor == .finished(.failing(check: "pods", detail: "blog down")))
+    #expect(sink.posted == ["doctor: the pods check failed — blog down"])
+}
+
+@MainActor
+@Test func prettyPrintedHealthyDoctorReportCountsFixes() async throws {
+    let lines = try goldenDoctorLines(healthy: true)
+    let state = StackState()
+    let sink = FakeSink()
+    await makeRunner(FakeRunner([.stream(lines: lines, status: 0)]), state: state, sink: sink).run(.doctor, pod: nil)
+    #expect(state.doctor == .finished(.fixed(1)))
+    #expect(sink.posted.isEmpty)
+}

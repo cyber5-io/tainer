@@ -13,8 +13,13 @@ struct DoctorDocument: Decodable, Equatable {
     var fixed: [String]?
     var healthy: Bool?
 
-    /// The document among the output lines, if any line is one.
+    /// The CLI pretty-prints the report over many lines, so the joined output is tried first;
+    /// a compact document on a line of its own is the fallback.
     static func parse(_ lines: [String]) -> DoctorDocument? {
+        if let data = lines.joined(separator: "\n").data(using: .utf8),
+           let doc = try? JSONDecoder().decode(DoctorDocument.self, from: data) {
+            return doc
+        }
         for line in lines {
             guard let data = line.data(using: .utf8),
                   let doc = try? JSONDecoder().decode(DoctorDocument.self, from: data) else { continue }
