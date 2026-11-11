@@ -53,6 +53,7 @@ struct MenuContent: View {
         .padding(.vertical, 6)
         .frame(width: 340)
         .background(palette.background)
+        .fitsMenuWindow()
         .foregroundStyle(palette.text)
         .focusEffectDisabled()
         .task {
