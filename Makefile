@@ -23,6 +23,7 @@ RELEASE_DIR := $(DIST_DIR)/releases
 # Machine-local release settings (signing identities, notary profile,
 # CS_REPO). Not tracked; see release.local.mk.example.
 -include release.local.mk
+export TAINER_SIGNING_IDENTITY TAINER_SIGNING_INSTALLER_IDENTITY TAINER_NOTARY_PROFILE CS_REPO
 
 # Source of the *.tainer.me wildcard cert bundled into the installers. The
 # first run copies it into ~/.config/tainer/certs so Caddy can serve
