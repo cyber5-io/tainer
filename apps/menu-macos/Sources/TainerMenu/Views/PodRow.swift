@@ -72,8 +72,8 @@ struct PodRow: View {
                 .truncationMode(.middle)
             Spacer(minLength: 4)
             if model.showsSpinner {
-                ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 24, height: 24)
-                    .accessibilityLabel("Working on \(pod.name)")
+                BrandSpinner(tint: palette.teal).frame(width: 24, height: 24)
+                    .accessibilityElement().accessibilityLabel("Working on \(pod.name)")
             } else {
                 ForEach(model.actions, id: \.self) { action in
                     IconButton(symbol: action.symbol, label: label(action),

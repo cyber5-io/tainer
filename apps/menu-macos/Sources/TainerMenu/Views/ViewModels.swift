@@ -135,6 +135,7 @@ struct DoctorRowModel: Equatable {
     }
 
     var enabled: Bool { run != .running }
+    var showsSpinner: Bool { run == .running }
 }
 
 /// What the status header says while an update is in flight.

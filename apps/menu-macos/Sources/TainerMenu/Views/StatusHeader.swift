@@ -41,6 +41,7 @@ struct BrandHeader: View {
 struct StatusHeader: View {
     let line: (pill: String, counts: String)
     let palette: MenuPalette
+    var busy = false
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
@@ -56,6 +57,7 @@ struct StatusHeader: View {
             .padding(.horizontal, 9).padding(.vertical, 2.5)
             .background(Capsule().fill(tone.fill))
             .overlay(Capsule().stroke(tone.stroke, lineWidth: 1))
+            if busy { BrandSpinner(tint: palette.countsText, width: 14) }
             counts
             Spacer(minLength: 0)
         }

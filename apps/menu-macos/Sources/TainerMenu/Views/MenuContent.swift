@@ -17,7 +17,7 @@ struct MenuContent: View {
         let palette = MenuPalette.forScheme(scheme)
         VStack(spacing: 0) {
             BrandHeader(palette: palette)
-            StatusHeader(line: statusLine, palette: palette)
+            StatusHeader(line: statusLine, palette: palette, busy: updates.activity != nil)
             updateRows(palette)
             divider(palette, vertical: 4)
             Text("PODS")
@@ -41,7 +41,8 @@ struct MenuContent: View {
             .help(dashboardHelp ?? "")
             .disabled(dashboardHelp != nil)
             let doctor = DoctorRowModel(run: state.doctor)
-            MenuItem(symbol: doctor.symbol, title: doctor.title, color: palette.menuItemText, palette: palette) {
+            MenuItem(symbol: doctor.symbol, title: doctor.title, color: palette.menuItemText, busy: doctor.showsSpinner,
+                     palette: palette) {
                 onAction(.doctor, nil)
             }
             .disabled(!doctor.enabled)
@@ -151,6 +152,7 @@ struct MenuItem: View {
     let title: String
     let color: Color
     var weight: Font.Weight = .medium
+    var busy = false
     let palette: MenuPalette
     let action: () -> Void
     @State private var hovering = false
@@ -158,7 +160,11 @@ struct MenuItem: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Image(systemName: symbol).font(.system(size: 12, weight: .medium)).frame(width: 16)
+                if busy {
+                    BrandSpinner(tint: color).frame(width: 16)
+                } else {
+                    Image(systemName: symbol).font(.system(size: 12, weight: .medium)).frame(width: 16)
+                }
                 Text(title).font(.system(size: 13, weight: weight))
                 Spacer(minLength: 0)
             }
