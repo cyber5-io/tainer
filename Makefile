@@ -8,7 +8,7 @@
         pkg-dist-menu pkg-dist-menu-signed pkg-dist-menu-notarised release-files
 
 # Single source of truth for the binary version.
-VERSION := 1.5.3
+VERSION := 1.5.4
 MENU_VERSION ?= $(VERSION)
 LDFLAGS := -X main.version=$(VERSION)
 
