@@ -1,12 +1,12 @@
 #!/bin/bash
-# release-files.sh <outdir> - assemble the folder to upload to get.tainer.dev.
+# release-files.sh <channel-dir> - add this release to the local channel
+# mirror (normally dist/releases) that get.tainer.dev is uploaded from.
 #
 # Takes the signed + notarised distribution package, refuses unless it
-# passes the installer signature checks, and writes a flat release folder
-# (normally dist/<version>/):
-#   <outdir>/<pkg file>
-#   <outdir>/latest.json
-# On the server, latest.json goes to the docroot and the pkg to
+# passes the installer signature checks, and writes:
+#   <channel-dir>/latest.json           (overwritten; the current channel file)
+#   <channel-dir>/<version>/<pkg file>  (this release; older versions stay)
+# On the server, latest.json goes to the docroot and each version folder to
 # releases/<version>/ — the json's url field says so.
 #
 # One pkg serves everything: the menu ships inside the full pkg and always
@@ -14,22 +14,20 @@
 # full pkg too (decided 2026-11-11; the separate menu pkg is gone).
 #
 # Environment:
-#   VERSION / MENU_VERSION          (required; the Makefile passes them)
-#   TAINER_DIST_PKG                 (default dist/tainer-dist-$VERSION.pkg)
-#   RELEASE_NOTES / MENU_NOTES      (required, one paragraph each)
-#   MENU_MIN_TAINER                 (default $VERSION)
-#   SKIP_SIGNATURE_CHECK=1          TEST ONLY; any other value is refused.
+#   VERSION / MENU_VERSION   (required; the Makefile passes them)
+#   TAINER_DIST_PKG          (default dist/build/tainer-dist-$VERSION.pkg)
+#   RELEASE_NOTES            (optional; defaults to a summary of the commits
+#                             since the previous "build: <version>" commit)
+#   MENU_MIN_TAINER          (default $VERSION)
+#   SKIP_SIGNATURE_CHECK=1   TEST ONLY; any other value is refused.
 set -euo pipefail
 
 OUT="${1:-}"
 if [[ -z "$OUT" ]]; then
-    echo "usage: release-files.sh <outdir>" >&2
+    echo "usage: release-files.sh <channel-dir>" >&2
     exit 2
 fi
-
-# A refused or failed run must leave nothing uploadable behind.
-case "$OUT" in ""|/|.|..|"$HOME") echo "release-files: unsafe output folder: $OUT" >&2; exit 2;; esac
-rm -rf "$OUT"
+case "$OUT" in ""|/|.|..|"$HOME") echo "release-files: unsafe channel folder: $OUT" >&2; exit 2;; esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BASE_URL="https://get.tainer.dev"
@@ -37,13 +35,13 @@ TEAM_ID="C8J8D9XJP6"
 
 : "${VERSION:?VERSION is required}"
 : "${MENU_VERSION:?MENU_VERSION is required}"
-TAINER_PKG="${TAINER_DIST_PKG:-dist/tainer-dist-${VERSION}.pkg}"
+TAINER_PKG="${TAINER_DIST_PKG:-dist/build/tainer-dist-${VERSION}.pkg}"
 MENU_MIN="${MENU_MIN_TAINER:-$VERSION}"
 
-if [[ -z "${RELEASE_NOTES:-}" || -z "${MENU_NOTES:-}" ]]; then
-    echo "release-files: set RELEASE_NOTES and MENU_NOTES (one paragraph each)" >&2
-    exit 2
-fi
+# A refused or failed run must leave no half-made version behind, but never
+# touches other versions already in the channel mirror.
+VDIR="$OUT/$VERSION"
+fail() { rm -rf "$VDIR" "$OUT/latest.json.new"; exit 1; }
 
 if [[ -n "${SKIP_SIGNATURE_CHECK:-}" && "${SKIP_SIGNATURE_CHECK}" != "1" ]]; then
     echo "release-files: SKIP_SIGNATURE_CHECK must be exactly 1 (or unset); refusing" >&2
@@ -53,6 +51,29 @@ fi
 if [[ ! -f "$TAINER_PKG" ]]; then
     echo "release-files: missing $TAINER_PKG (build it with make pkg-dist-notarised)" >&2
     exit 1
+fi
+
+# Notes: given, or summarised from the commits since the previous release's
+# "build: <version>" commit (skipping build/chore/test/docs/ci subjects).
+if [[ -z "${RELEASE_NOTES:-}" ]]; then
+    prev=""
+    while IFS=' ' read -r hash subject; do
+        [[ "$subject" == "build: $VERSION"* ]] && continue
+        prev="$hash"
+        break
+    done < <(git -C "$ROOT" log -n 50 --format='%H %s' --grep='^build: [0-9]' HEAD)
+    if [[ -z "$prev" ]]; then
+        echo "release-files: no previous build commit found; set RELEASE_NOTES" >&2
+        exit 1
+    fi
+    RELEASE_NOTES="New in $VERSION: $(git -C "$ROOT" log --no-merges --format='%s' "$prev..HEAD" \
+        | grep -vE '^(build|chore|test|docs|ci)(\(|:)' \
+        | sed -E 's/^[a-z]+(\([a-z-]+\))?: //; s/ \(tain-[0-9]+\)$//' \
+        | head -12 | paste -sd ';' - | sed 's/;/; /g')."
+    if [[ "$RELEASE_NOTES" == "New in $VERSION: ." ]]; then
+        echo "release-files: no commits to summarise; set RELEASE_NOTES" >&2
+        exit 1
+    fi
 fi
 
 check_signed() {
@@ -85,15 +106,15 @@ jstr() { printf '%s' "$1" | tr '\n\t\r' '   ' | tr -d '\000-\037\177' | sed -e '
 TAINER_SHA=$(sha "$TAINER_PKG")
 if [[ -z "$TAINER_SHA" ]]; then
     echo "release-files: could not compute sha256" >&2
-    rm -rf "$OUT"
-    exit 1
+    fail
 fi
 
-mkdir -p "$OUT"
-cp "$TAINER_PKG" "$OUT/"
+rm -rf "$VDIR"
+mkdir -p "$VDIR"
+cp "$TAINER_PKG" "$VDIR/"
 TN=$(basename "$TAINER_PKG")
 
-cat > "$OUT/latest.json" <<JSON
+cat > "$OUT/latest.json.new" <<JSON
 {
   "tainer": {
     "version": "$VERSION",
@@ -105,7 +126,7 @@ cat > "$OUT/latest.json" <<JSON
     "version": "$MENU_VERSION",
     "url": "$BASE_URL/releases/$VERSION/$TN",
     "sha256": "$TAINER_SHA",
-    "notes": "$(jstr "$MENU_NOTES")",
+    "notes": "$(jstr "$RELEASE_NOTES")",
     "minTainer": "$MENU_MIN"
   },
   "control": {
@@ -114,17 +135,18 @@ cat > "$OUT/latest.json" <<JSON
 }
 JSON
 
-if plutil -convert json -o /dev/null "$OUT/latest.json" 2>/dev/null; then :
-elif command -v python3 >/dev/null && python3 -I -c 'import json,sys; json.load(open(sys.argv[1]))' "$OUT/latest.json" 2>/dev/null; then :
+if plutil -convert json -o /dev/null "$OUT/latest.json.new" 2>/dev/null; then :
+elif command -v python3 >/dev/null && python3 -I -c 'import json,sys; json.load(open(sys.argv[1]))' "$OUT/latest.json.new" 2>/dev/null; then :
 else
     echo "release-files: generated latest.json is not valid JSON" >&2
-    rm -rf "$OUT"
-    exit 1
+    fail
 fi
+mv "$OUT/latest.json.new" "$OUT/latest.json"
 
-echo "Release files ready in: $OUT"
+echo "Release $VERSION ready in: $OUT"
+echo "notes: $RELEASE_NOTES"
 if [[ "${SKIP_SIGNATURE_CHECK:-}" == "1" ]]; then
     echo "TEST RUN - DO NOT UPLOAD this folder."
 else
-    echo "upload to get.tainer.dev: latest.json -> docroot, $TN -> releases/$VERSION/"
+    echo "upload to get.tainer.dev: latest.json -> docroot, $VERSION/ -> releases/$VERSION/"
 fi

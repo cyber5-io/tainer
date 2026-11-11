@@ -15,10 +15,14 @@ LDFLAGS := -X main.version=$(VERSION)
 BIN_DIR := bin
 DIST_DIR := dist
 # Intermediates (pkg roots, component pkgs, the menu .app, staging) live in
-# dist/build; a finished release is exactly dist/<version>/ (installer pkg +
-# latest.json), and old versions belong in dist/archive.
+# dist/build; the channel mirror is dist/releases (latest.json at its root,
+# each version's pkg in dist/releases/<version>/), old builds in dist/archive.
 BUILD_DIR := $(DIST_DIR)/build
-RELEASE_DIR := $(DIST_DIR)/$(VERSION)
+RELEASE_DIR := $(DIST_DIR)/releases
+
+# Machine-local release settings (signing identities, notary profile,
+# CS_REPO). Not tracked; see release.local.mk.example.
+-include release.local.mk
 
 # Source of the *.tainer.me wildcard cert bundled into the installers. The
 # first run copies it into ~/.config/tainer/certs so Caddy can serve
@@ -476,9 +480,6 @@ linux-dist:
 # get.tainer.dev docroot checkout); otherwise it stays in dist/release.
 .PHONY: release
 release:
-	@if [ -z "$(RELEASE_NOTES)" ] || [ -z "$(MENU_NOTES)" ]; then \
-		echo "set RELEASE_NOTES and MENU_NOTES (one paragraph each)" >&2; exit 1; \
-	fi
 	$(MAKE) require-sign-identity preflight-control-image
 	$(MAKE) pkg-dist-notarised
 	$(MAKE) release-files

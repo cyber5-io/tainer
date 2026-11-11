@@ -1,0 +1,5 @@
+# Machine-local release settings. Not tracked in git.
+TAINER_SIGNING_IDENTITY := <value>
+TAINER_SIGNING_INSTALLER_IDENTITY := <value>
+TAINER_NOTARY_PROFILE := <value>
+CS_REPO := <value>
