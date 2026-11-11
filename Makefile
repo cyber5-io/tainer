@@ -204,7 +204,7 @@ pkg-dist: pkg-full
 	productbuild \
 		--distribution $(BUILD_DIR)/distribution.xml \
 		--resources packaging/installer/resources \
-		--package-path $(DIST_DIR) \
+		--package-path $(BUILD_DIR) \
 		$(PKG_DIST_OUT)
 	@echo "Built $(PKG_DIST_OUT) (unsigned distribution pkg)"
 
@@ -216,7 +216,7 @@ pkg-dist-only: pkg-only
 	productbuild \
 		--distribution $(BUILD_DIR)/distribution-only.xml \
 		--resources packaging/installer/resources \
-		--package-path $(DIST_DIR) \
+		--package-path $(BUILD_DIR) \
 		$(PKG_DIST_ONLY_OUT)
 	@echo "Built $(PKG_DIST_ONLY_OUT) (unsigned distribution pkg)"
 
@@ -408,7 +408,7 @@ pkg-dist-menu: pkg-menu
 	productbuild \
 		--distribution $(BUILD_DIR)/distribution-menu.xml \
 		--resources $(BUILD_DIR)/resources-menu \
-		--package-path $(DIST_DIR) \
+		--package-path $(BUILD_DIR) \
 		$(PKG_DIST_MENU_OUT)
 	@echo "Built $(PKG_DIST_MENU_OUT) (unsigned distribution pkg)"
 
