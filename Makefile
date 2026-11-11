@@ -150,7 +150,7 @@ pkg-only-root: sign
 	@echo "pkg-only-root assembled at $(PKG_ONLY_ROOT)"
 
 pkg-only: pkg-only-root
-	mkdir -p $(DIST_DIR)
+	mkdir -p $(BUILD_DIR)
 	pkgbuild \
 		--root $(PKG_ONLY_ROOT) \
 		--scripts $(PKG_ONLY_SCRIPTS) \
@@ -283,7 +283,7 @@ MENU_APP      := $(BUILD_DIR)/$(MENU_APP_NAME)
 MENU_SRC_APP  := apps/menu-macos/build/$(MENU_APP_NAME)
 
 menu-app:
-	@mkdir -p $(DIST_DIR)
+	@mkdir -p $(BUILD_DIR)
 	apps/menu-macos/scripts/make-app.sh --app-version $(MENU_VERSION)
 	rm -rf "$(MENU_APP)"
 	cp -R "$(MENU_SRC_APP)" "$(MENU_APP)"
@@ -328,7 +328,7 @@ pkg-full-root: sign menu-app
 	@du -sh $(PKG_FULL_ROOT)/opt/* 2>/dev/null
 
 pkg-full: pkg-full-root
-	mkdir -p $(DIST_DIR)
+	mkdir -p $(BUILD_DIR)
 	pkgbuild \
 		--root $(PKG_FULL_ROOT) \
 		--scripts $(PKG_FULL_SCRIPTS) \
@@ -375,7 +375,7 @@ pkg-menu-root: menu-app
 	@echo "pkg-menu-root assembled at $(PKG_MENU_ROOT)"
 
 pkg-menu: pkg-menu-root
-	mkdir -p $(DIST_DIR)
+	mkdir -p $(BUILD_DIR)
 	pkgbuild \
 		--root $(PKG_MENU_ROOT) \
 		--scripts $(PKG_MENU_SCRIPTS) \
