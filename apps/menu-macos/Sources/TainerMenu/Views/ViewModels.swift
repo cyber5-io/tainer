@@ -64,6 +64,10 @@ enum UpdateCopy {
         "Needs tainer \(minTainer) first — this updates tainer."
     }
     static let updateAllPods = "Update all pods"
+    static let checkNow = "Check for updates"
+    static let checking = "Checking for updates…"
+    static let upToDate = "Up to date"
+    static let couldNotCheck = "Couldn't check for updates"
 }
 
 /// "New Pod" and "Open Control Dashboard" open pages the control pod serves, so they wait for a
@@ -226,5 +230,29 @@ enum BarIconStyle: Equatable {
     /// keep the icon to themselves (health wins).
     func showsUpdateBadge(hasUpdates: Bool) -> Bool {
         hasUpdates && (self == .full || self == .dimmed)
+    }
+}
+
+/// The "Check for updates" row: what it says and shows while idle, checking, and just after.
+struct CheckRowModel: Equatable {
+    let isChecking: Bool
+    let outcome: CheckOutcome?
+
+    var title: String {
+        if isChecking { return UpdateCopy.checking }
+        switch outcome {
+        case .upToDate: return UpdateCopy.upToDate
+        case .couldNotCheck: return UpdateCopy.couldNotCheck
+        case nil: return UpdateCopy.checkNow
+        }
+    }
+
+    var symbol: String {
+        if isChecking { return "arrow.triangle.2.circlepath" }
+        switch outcome {
+        case .upToDate: return "checkmark.circle"
+        case .couldNotCheck: return "exclamationmark.triangle"
+        case nil: return "arrow.triangle.2.circlepath"
+        }
     }
 }

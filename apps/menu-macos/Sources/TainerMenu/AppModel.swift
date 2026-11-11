@@ -52,6 +52,12 @@ final class AppModel {
         startSelfUpdate(.menu, activity: .updatingMenu)
     }
 
+    /// "Check for updates": a fresh check now instead of waiting for the daily one.
+    func checkForUpdates() {
+        let updates = self.updates
+        Task { await updates.checkNow() }
+    }
+
     func updateAllPods() {
         updatePods(updates.pods.keys.sorted())
     }

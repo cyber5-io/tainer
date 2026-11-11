@@ -477,9 +477,10 @@ func outputFlagArgs(f tui.OutputFlags) []string {
 	return out
 }
 
-// reservedTargets always mean tainer itself, the menu app and the resume
-// step; a project with one of these names is updated by its path.
-var reservedTargets = map[string]bool{"tainer": true, "menu": true, "resume": true}
+// reservedTargets always mean tainer itself (core, or its older spelling
+// tainer), the menu app and the resume step; a project with one of these
+// names is updated by its path.
+var reservedTargets = map[string]bool{"core": true, "tainer": true, "menu": true, "resume": true}
 
 // isPathTarget reports whether arg names a project folder rather than a
 // registered project.
@@ -512,14 +513,20 @@ func reservedHint(out io.Writer, name string) {
 	}
 }
 
-// runUpdateSelf is `tainer update tainer` / `tainer update menu`.
-func runUpdateSelf(outMode tui.OutputMode, target string, yes bool) {
+// runUpdateSelf is `tainer update core` (alias `tainer update tainer`) /
+// `tainer update menu`. word is the target as typed.
+func runUpdateSelf(outMode tui.OutputMode, word string, yes bool) {
 	out := io.Writer(os.Stdout)
 	if outMode == tui.ModeJSON {
 		// Prompts and progress stay off the JSON document.
 		out = os.Stderr
 	}
-	reservedHint(out, target)
+	reservedHint(out, word)
+	// The document's mode stays "tainer" for both spellings.
+	target := word
+	if word == "core" {
+		target = "tainer"
+	}
 	ctx, stop := signalContext()
 	defer stop()
 

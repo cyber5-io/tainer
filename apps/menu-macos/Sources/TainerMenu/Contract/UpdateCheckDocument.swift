@@ -45,6 +45,8 @@ struct UpdateCheckDocument: Equatable, Sendable {
     var menu: ReleaseInfo?
     /// Only pods with `updateAvailable` true, keyed by name.
     var pods: [String: PodUpdate]
+    /// The release couldn't be fetched and nothing was cached (`releaseCheck: "unavailable"`).
+    var releaseUnavailable = false
 
     private struct Row: Decodable {
         var name: String
@@ -66,6 +68,7 @@ struct UpdateCheckDocument: Equatable, Sendable {
         var tainer: ReleaseInfo?
         var menu: ReleaseInfo?
         var checkedAt: String?
+        var releaseCheck: String?
         var error: Present?
     }
 
@@ -84,7 +87,8 @@ struct UpdateCheckDocument: Equatable, Sendable {
         for row in doc.pods ?? [] where row.updateAvailable {
             pods[row.name] = PodUpdate(name: row.name, parts: row.parts)
         }
-        return UpdateCheckDocument(tainer: doc.tainer, menu: doc.menu, pods: pods)
+        return UpdateCheckDocument(tainer: doc.tainer, menu: doc.menu, pods: pods,
+                                   releaseUnavailable: doc.releaseCheck == "unavailable")
     }
 }
 

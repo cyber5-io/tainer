@@ -13,7 +13,7 @@
 //	tainer exec <project> [<role>] -- <cmd>  run a command in a container
 //	tainer list (ls)                         list all pods
 //	tainer db export|import <project> ...    dump / restore database
-//	tainer update [tainer|menu|project|--all|--check] update tainer, menu, pods
+//	tainer update [core|menu|project|--all|--check] update tainer, menu, pods
 //	tainer network mode show|set <mode>      inspect / switch network mode
 package main
 
@@ -162,7 +162,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  list (ls)                              list all pods")
 	fmt.Fprintln(os.Stderr, "  db export <project> [outfile]          dump database")
 	fmt.Fprintln(os.Stderr, "  db import <project> <file>             restore database")
-	fmt.Fprintln(os.Stderr, "  update [tainer|menu|project|--all|--check] [-y]  update tainer, the menu app or pods")
+	fmt.Fprintln(os.Stderr, "  update [core|menu|project|--all|--check] [-y]  update tainer, the menu app or pods")
 	fmt.Fprintln(os.Stderr, "  network mode show|set <perf|compat>    inspect / switch network mode")
 	fmt.Fprintln(os.Stderr, "  login | logout | whoami                sign in to your tainer account")
 	fmt.Fprintln(os.Stderr, "  signup [email] | password-reset <email>  create an account, or reset its password")
@@ -3100,7 +3100,8 @@ func fileSizeHuman(p string) (string, bool) {
 //
 //	tainer update                in a project folder: that pod, after y/N;
 //	                             elsewhere: tainer, menu and every pod, after y/N
-//	tainer update tainer|menu    tainer itself / the menu app (reserved words)
+//	tainer update core|menu      tainer itself / the menu app (reserved words;
+//	                             `update tainer` is an alias of `update core`)
 //	tainer update <project>      project: registry lookup
 //	tainer update ./<dir> | .    project: the one in that folder
 //	tainer update --check        list what has updates, change nothing

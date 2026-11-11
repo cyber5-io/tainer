@@ -347,3 +347,107 @@ final class GateRunner: ProcessRunner, @unchecked Sendable {
     #expect(parsed.tainer?.available == "1.5.0")
     #expect(UpdateCheckDocument.parse([#"{"v":1}"#]) == nil)
 }
+
+// MARK: - tain-123: check now, update core
+
+@MainActor
+@Test func checkNowRunsTheFreshCheckAndShowsItIsChecking() async {
+    let fake = GateRunner(line: newCheckDoc.replacingOccurrences(of: "\n", with: ""))
+    let checker = UpdateChecker(runner: fake, clock: FakeClock(), locate: { "/bin/tainer" })
+    #expect(!checker.isChecking)
+    #expect(checker.tainerRow == nil)
+    let run = Task { await checker.check() }
+    await settle { fake.spawnCount == 1 }
+    #expect(checker.isChecking)
+    fake.release()
+    await run.value
+    #expect(!checker.isChecking)
+    #expect(checker.tainerRow == "Tainer 1.5.0 is available — Update…")
+    #expect(checker.hasUpdates)
+}
+
+@MainActor
+@Test func checkNowUsesTheCheckThatAlwaysFetchesTheRelease() async {
+    let fake = FakeRunner([.stream(lines: [newCheckDoc.replacingOccurrences(of: "\n", with: "")], status: 0)])
+    let checker = UpdateChecker(runner: fake, clock: FakeClock(), locate: { "/bin/tainer" })
+    await checker.check()
+    // `update --check` skips the 24h release cache (cmd/tainer/updatecheck.go buildUpdateCheck).
+    #expect(fake.arguments == [["update", "--check", "--json"]])
+}
+
+@Test func checkNowRowCopy() {
+    #expect(UpdateCopy.checkNow == "Check for updates")
+    #expect(UpdateCopy.checking == "Checking for updates…")
+}
+
+@MainActor
+@Test func podNamedCoreUpdatesByFolderPath() async {
+    let state = StackState()
+    state.applyList([ListedProject(name: "core", domain: "core.tainer.me", path: "/p/core")])
+    let fake = FakeRunner([.stream(lines: [podDoc], status: 0)])
+    let runner = ActionRunner(state: state, runner: fake, sink: FakeSink(), locate: { "/bin/tainer" })
+    await runner.run(.update, pod: "core")
+    #expect(fake.arguments == [["update", "/p/core", "--json"]])
+}
+
+// MARK: - Check now closes the loop
+
+private let upToDateDoc = #"{"v":1,"checkedAt":"2026-11-02T12:00:00.000Z","pods":[{"name":"blog","updateAvailable":false,"parts":"WordPress","roles":[]}],"tainer":{"installed":"1.5.6","available":"1.5.6","updateAvailable":false},"menu":{"installed":"1.5.6","available":"1.5.6","updateAvailable":false},"releaseCheck":"ok","podsCheck":"ok"}"#
+private let offlineDoc = #"{"v":1,"checkedAt":"2026-11-02T12:00:00.000Z","pods":[],"tainer":{"installed":"1.5.6","available":"","updateAvailable":false},"menu":{"installed":"1.5.6","available":"","updateAvailable":false},"releaseCheck":"unavailable","podsCheck":"ok"}"#
+
+@MainActor
+private func checker(_ steps: [FakeRunner.Step], cli: String? = "/bin/tainer") -> UpdateChecker {
+    UpdateChecker(runner: FakeRunner(steps), clock: FakeClock(), locate: { cli }, outcomeHold: .milliseconds(30))
+}
+
+@MainActor
+@Test func checkNowSaysUpToDateBrieflyThenGoesIdle() async {
+    let c = checker([.stream(lines: [upToDateDoc], status: 0)])
+    await c.checkNow()
+    #expect(c.checkOutcome == .upToDate)
+    #expect(CheckRowModel(isChecking: c.isChecking, outcome: c.checkOutcome).title == "Up to date")
+    await settle { c.checkOutcome == nil }
+    #expect(CheckRowModel(isChecking: false, outcome: nil).title == "Check for updates")
+}
+
+@MainActor
+@Test func checkNowWithUpdatesLeavesItToTheRows() async {
+    let c = checker([.stream(lines: [newCheckDoc.replacingOccurrences(of: "\n", with: "")], status: 0)])
+    await c.checkNow()
+    #expect(c.checkOutcome == nil)
+    #expect(c.hasUpdates)
+}
+
+@MainActor
+@Test func checkNowSaysCouldntCheckWhenItCouldnt() async {
+    for c in [
+        checker([.stream(lines: [errDoc], status: 1)]),
+        checker([.spawnFailure]),
+        checker([], cli: nil),
+        checker([.stream(lines: [offlineDoc], status: 0)]),
+    ] {
+        await c.checkNow()
+        #expect(c.checkOutcome == .couldNotCheck)
+        await settle { c.checkOutcome == nil }
+    }
+    #expect(CheckRowModel(isChecking: false, outcome: .couldNotCheck).title == "Couldn't check for updates")
+}
+
+@MainActor
+@Test func backgroundChecksNeverShowAnOutcome() async {
+    let c = checker([.stream(lines: [upToDateDoc], status: 0)])
+    await c.check()
+    #expect(c.checkOutcome == nil)
+}
+
+@Test func checkRowModel() {
+    #expect(CheckRowModel(isChecking: true, outcome: .upToDate).title == "Checking for updates…")
+    #expect(CheckRowModel(isChecking: false, outcome: .upToDate).symbol == "checkmark.circle")
+    #expect(CheckRowModel(isChecking: false, outcome: .couldNotCheck).symbol == "exclamationmark.triangle")
+    #expect(CheckRowModel(isChecking: false, outcome: nil).symbol == "arrow.triangle.2.circlepath")
+}
+
+@Test func offlineDocumentIsMarkedUnavailable() throws {
+    #expect(try #require(UpdateCheckDocument.parse([offlineDoc])).releaseUnavailable)
+    #expect(try #require(UpdateCheckDocument.parse([upToDateDoc])).releaseUnavailable == false)
+}

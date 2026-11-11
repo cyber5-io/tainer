@@ -58,7 +58,7 @@ final class ActionRunner {
     private var openingFolders: Set<String> = []
 
     /// Words the CLI always reads as update targets, never as a project name.
-    static let reservedUpdateTargets: Set<String> = ["tainer", "menu", "resume"]
+    static let reservedUpdateTargets: Set<String> = ["core", "tainer", "menu", "resume"]
 
     init(
         state: StackState,

@@ -10,6 +10,7 @@ struct MenuContent: View {
     var onUpdateMenu: () -> Void = {}
     var onUpdateAllPods: () -> Void = {}
     var onOpenProject: () -> Void = {}
+    var onCheckForUpdates: () -> Void = {}
     @Environment(\.colorScheme) private var scheme
     @Environment(\.openURL) private var openURL
 
@@ -19,6 +20,10 @@ struct MenuContent: View {
             BrandHeader(palette: palette)
             StatusHeader(line: statusLine, palette: palette, busy: updates.activity != nil)
             updateRows(palette)
+            let checkRow = CheckRowModel(isChecking: updates.isChecking, outcome: updates.checkOutcome)
+            MenuItem(symbol: checkRow.symbol, title: checkRow.title,
+                     color: palette.menuItemText, busy: updates.isChecking, palette: palette, action: onCheckForUpdates)
+                .disabled(updates.isChecking || updates.activity != nil)
             divider(palette, vertical: 4)
             Text("PODS")
                 .font(.system(size: 10, weight: .bold)).tracking(1.2)
