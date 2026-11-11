@@ -429,7 +429,7 @@ pkg-dist-menu-notarised: pkg-dist-menu-signed
 # notarised distribution pkgs. Needs RELEASE_NOTES and MENU_NOTES (one
 # paragraph each); MENU_MIN_TAINER defaults to VERSION.
 release-files:
-	VERSION="$(VERSION)" MENU_VERSION="$(MENU_VERSION)" \
+	VERSION="$(VERSION)" \
 		TAINER_DIST_PKG="$(PKG_DIST_OUT)" \
 		scripts/release-files.sh $(RELEASE_DIR)
 

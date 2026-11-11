@@ -10,15 +10,15 @@
 # releases/<version>/ — the json's url field says so.
 #
 # One pkg serves everything: the menu ships inside the full pkg and always
-# carries the same version, so the menu entry in latest.json points at the
-# full pkg too (decided 2026-11-11; the separate menu pkg is gone).
+# carries the same version (decided 2026-11-11; the separate menu pkg and
+# the json's menu section are gone — old clients treat a missing menu
+# section as "no menu update" and get the new menu from the full pkg).
 #
 # Environment:
-#   VERSION / MENU_VERSION   (required; the Makefile passes them)
+#   VERSION                  (required; the Makefile passes it)
 #   TAINER_DIST_PKG          (default dist/build/tainer-dist-$VERSION.pkg)
 #   RELEASE_NOTES            (optional; defaults to a summary of the commits
 #                             since the previous "build: <version>" commit)
-#   MENU_MIN_TAINER          (default $VERSION)
 #   SKIP_SIGNATURE_CHECK=1   TEST ONLY; any other value is refused.
 set -euo pipefail
 
@@ -34,9 +34,7 @@ BASE_URL="https://get.tainer.dev"
 TEAM_ID="C8J8D9XJP6"
 
 : "${VERSION:?VERSION is required}"
-: "${MENU_VERSION:?MENU_VERSION is required}"
 TAINER_PKG="${TAINER_DIST_PKG:-dist/build/tainer-dist-${VERSION}.pkg}"
-MENU_MIN="${MENU_MIN_TAINER:-$VERSION}"
 
 # A refused or failed run must leave no half-made version behind, but never
 # touches other versions already in the channel mirror.
@@ -121,13 +119,6 @@ cat > "$OUT/latest.json.new" <<JSON
     "url": "$BASE_URL/releases/$VERSION/$TN",
     "sha256": "$TAINER_SHA",
     "notes": "$(jstr "$RELEASE_NOTES")"
-  },
-  "menu": {
-    "version": "$MENU_VERSION",
-    "url": "$BASE_URL/releases/$VERSION/$TN",
-    "sha256": "$TAINER_SHA",
-    "notes": "$(jstr "$RELEASE_NOTES")",
-    "minTainer": "$MENU_MIN"
   },
   "control": {
     "tag": "$CONTROL_TAG"
