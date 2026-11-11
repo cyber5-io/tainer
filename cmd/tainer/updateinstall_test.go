@@ -34,6 +34,10 @@ type fakeInstall struct {
 	resumeAtOpen release.ResumeFile
 	resumeSeen   bool
 	out          bytes.Buffer
+	// size, when set, makes the download report progress at 0, half and all of it.
+	size int64
+	// outAtOpen is what had been printed when the installer opened.
+	outAtOpen string
 }
 
 var installT0 = time.Date(2026, 11, 9, 15, 4, 5, 0, time.UTC)
@@ -51,8 +55,13 @@ func (f *fakeInstall) ops(stdin string) installOps {
 			f.steps = append(f.steps, "check")
 			return f.latest, f.checkOK
 		},
-		download: func(_ context.Context, a release.Artifact, dir string) (string, error) {
+		download: func(_ context.Context, a release.Artifact, dir string, report func(done, total int64)) (string, error) {
 			f.steps = append(f.steps, "download")
+			if f.size > 0 && report != nil {
+				for _, done := range []int64{0, f.size / 2, f.size} {
+					report(done, f.size)
+				}
+			}
 			f.dir = dir
 			f.pkg = filepath.Join(dir, "tainer-update.pkg")
 			return f.pkg, os.WriteFile(f.pkg, []byte("pkg"), 0o600)
@@ -67,6 +76,7 @@ func (f *fakeInstall) ops(stdin string) installOps {
 		},
 		openAndWait: func(_ context.Context, path string) error {
 			f.steps = append(f.steps, "open")
+			f.outAtOpen = f.out.String()
 			f.resumeAtOpen, f.resumeSeen, _ = release.ReadResume()
 			if f.afterOpen != "" {
 				f.installed = f.afterOpen
@@ -226,13 +236,13 @@ func TestInstallTainerTempDirIsPrivate(t *testing.T) {
 	ops := f.ops("")
 	var mode os.FileMode
 	dl := ops.download
-	ops.download = func(ctx context.Context, a release.Artifact, dir string) (string, error) {
+	ops.download = func(ctx context.Context, a release.Artifact, dir string, report func(done, total int64)) (string, error) {
 		st, err := os.Stat(dir)
 		if err != nil {
 			t.Fatal(err)
 		}
 		mode = st.Mode().Perm()
-		return dl(ctx, a, dir)
+		return dl(ctx, a, dir, report)
 	}
 	if _, err := installTainer(context.Background(), ops); err != nil {
 		t.Fatal(err)

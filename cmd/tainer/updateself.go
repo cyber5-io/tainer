@@ -179,9 +179,10 @@ func signalContext() (context.Context, context.CancelFunc) {
 // selfUpdateRun is one interactive `tainer update`: every prompt reads the
 // same reader so buffered answers aren't lost.
 type selfUpdateRun struct {
-	in  *bufio.Reader
-	out io.Writer
-	yes bool
+	in   *bufio.Reader
+	out  io.Writer
+	yes  bool
+	mode tui.OutputMode
 }
 
 // installOpsFor wires an installer to this run's prompts, and to the
@@ -191,6 +192,7 @@ func (r selfUpdateRun) installOpsFor(menu bool, st selfStatus) installOps {
 	if menu {
 		ops = liveMenuInstallOps(r.yes, r.in, r.out)
 	}
+	ops.progress = newDownloadProgress(r.mode, r.out, isTerminal(r.out))
 	if st.ok {
 		latest := st.latest
 		ops.check = func(context.Context) (release.Latest, bool) { return latest, true }
@@ -428,7 +430,7 @@ func updateOnePod(ctx context.Context, out io.Writer, name, manifestPath, dir st
 // outArgs are the output flags to pass on when handing off to the new
 // binary.
 func runUpdateNoArgs(outMode tui.OutputMode, yes bool, outArgs []string) {
-	r := selfUpdateRun{in: bufio.NewReader(updateStdin), out: os.Stdout, yes: yes}
+	r := selfUpdateRun{in: bufio.NewReader(updateStdin), out: os.Stdout, yes: yes, mode: outMode}
 	cwd, err := os.Getwd()
 	must(err)
 	manifestPath, dir, ferr := findManifestUpward(cwd)
@@ -553,7 +555,7 @@ func runUpdateSelf(outMode tui.OutputMode, word string, yes bool) {
 		return
 	}
 
-	r := selfUpdateRun{in: bufio.NewReader(updateStdin), out: out, yes: yes}
+	r := selfUpdateRun{in: bufio.NewReader(updateStdin), out: out, yes: yes, mode: outMode}
 	install := selfInstallTainer
 	if menu {
 		install = selfInstallMenu

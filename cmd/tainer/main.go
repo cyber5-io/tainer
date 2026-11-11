@@ -3079,21 +3079,7 @@ func fileSizeHuman(p string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	const (
-		kb = 1024
-		mb = kb * 1024
-		gb = mb * 1024
-	)
-	switch {
-	case n >= gb:
-		return fmt.Sprintf("%.1f GB", float64(n)/float64(gb)), true
-	case n >= mb:
-		return fmt.Sprintf("%.1f MB", float64(n)/float64(mb)), true
-	case n >= kb:
-		return fmt.Sprintf("%.1f KB", float64(n)/float64(kb)), true
-	default:
-		return fmt.Sprintf("%d B", n), true
-	}
+	return tui.HumanBytes(n), true
 }
 
 // cmdUpdate updates tainer, the menu app and pods. Modes:

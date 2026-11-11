@@ -32,6 +32,13 @@ func ExecRunner(ctx context.Context, name string, args ...string) ([]byte, error
 // caller), hashing as it writes. On a checksum mismatch the file is
 // removed and an error returned.
 func Download(ctx context.Context, a Artifact, dir string) (string, error) {
+	return DownloadWithProgress(ctx, a, dir, nil)
+}
+
+// DownloadWithProgress is Download reporting the bytes written so far and
+// the total (-1 when the server sends no length): once before the first
+// byte, then after every write. report may be nil.
+func DownloadWithProgress(ctx context.Context, a Artifact, dir string, report func(done, total int64)) (string, error) {
 	if !strings.HasPrefix(a.URL, "https://") && os.Getenv("TAINER_RELEASE_URL") == "" {
 		return "", errors.New("the download isn't from a secure address")
 	}
@@ -56,7 +63,7 @@ func Download(ctx context.Context, a Artifact, dir string) (string, error) {
 		return "", err
 	}
 	h := sha256.New()
-	_, err = io.Copy(io.MultiWriter(f, h), resp.Body)
+	_, err = io.Copy(io.MultiWriter(f, h, newProgressWriter(resp.ContentLength, report)), resp.Body)
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
@@ -94,4 +101,27 @@ func VerifyPkg(ctx context.Context, run Runner, pkg string) error {
 		return errors.New("the download isn't notarised by Apple")
 	}
 	return nil
+}
+
+// progressWriter counts what passes through it and reports the running
+// total.
+type progressWriter struct {
+	done, total int64
+	report      func(done, total int64)
+}
+
+func newProgressWriter(total int64, report func(done, total int64)) *progressWriter {
+	w := &progressWriter{total: total, report: report}
+	if report != nil {
+		report(0, total)
+	}
+	return w
+}
+
+func (w *progressWriter) Write(p []byte) (int, error) {
+	w.done += int64(len(p))
+	if w.report != nil {
+		w.report(w.done, w.total)
+	}
+	return len(p), nil
 }

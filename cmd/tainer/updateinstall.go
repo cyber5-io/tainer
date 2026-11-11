@@ -24,8 +24,9 @@ var errSelfUpdateUnsupported = errors.New("updating tainer itself works on macOS
 // their own logic, so tests can drive them without a network, Installer
 // or a runtime.
 type installOps struct {
-	check    func(ctx context.Context) (release.Latest, bool)
-	download func(ctx context.Context, a release.Artifact, dir string) (string, error)
+	check func(ctx context.Context) (release.Latest, bool)
+	// download reports bytes so far and the total (-1 when unknown) to report.
+	download func(ctx context.Context, a release.Artifact, dir string, report func(done, total int64)) (string, error)
 	// quarantine marks the download so Gatekeeper assesses it when
 	// Installer opens it. Failure is not fatal.
 	quarantine  func(ctx context.Context, path string) error
@@ -42,6 +43,8 @@ type installOps struct {
 	in  *bufio.Reader
 	out io.Writer
 	yes bool
+	// progress shows the download and the package check; nil shows nothing.
+	progress downloadProgress
 }
 
 // installResult is what one self-update did; `--json` emits it as is.
@@ -73,7 +76,7 @@ func installedTainerVersion() string {
 func liveInstallOps(yes bool, in *bufio.Reader, out io.Writer) installOps {
 	return installOps{
 		check:    func(ctx context.Context) (release.Latest, bool) { return release.Check(ctx, true) },
-		download: release.Download,
+		download: release.DownloadWithProgress,
 		quarantine: func(ctx context.Context, path string) error {
 			attr := fmt.Sprintf("0081;%x;tainer;", time.Now().Unix())
 			_, err := release.ExecRunner(ctx, "xattr", "-w", "com.apple.quarantine", attr, path)
@@ -142,7 +145,7 @@ func installTainer(ctx context.Context, ops installOps) (installResult, error) {
 			return res, nil
 		}
 	}
-	err = downloadAndOpen(ctx, ops, latest.Tainer, func() error {
+	err = downloadAndOpen(ctx, ops, latest.Tainer, "tainer "+to, func() error {
 		return release.WriteResume(release.ResumeFile{
 			ForVersion:  to,
 			FromVersion: from,
@@ -189,7 +192,7 @@ func installMenu(ctx context.Context, ops installOps) (installResult, error) {
 	if min := latest.Menu.MinTainer; min != "" && release.Newer(min, ops.installedTainer()) {
 		return res, fmt.Errorf("the menu app needs tainer %s first", min)
 	}
-	err := downloadAndOpen(ctx, ops, latest.Menu, nil)
+	err := downloadAndOpen(ctx, ops, latest.Menu, "the menu app "+to, nil)
 	if errors.Is(err, errNotOpened) {
 		return res, errors.Unwrap(err)
 	}
@@ -212,17 +215,24 @@ func (e notOpenedError) Is(target error) bool { return target == errNotOpened }
 // downloadAndOpen downloads a into a fresh private temp dir, marks and
 // verifies it, runs beforeOpen, then opens it in Installer and waits. The
 // temp dir is removed afterwards. Failures before opening come back as
-// notOpenedError.
-func downloadAndOpen(ctx context.Context, ops installOps, a release.Artifact, beforeOpen func() error) error {
+// notOpenedError. label names what is downloading in the progress display.
+func downloadAndOpen(ctx context.Context, ops installOps, a release.Artifact, label string, beforeOpen func() error) error {
+	progress := ops.progress
+	if progress == nil {
+		progress = noProgress{}
+	}
+	defer progress.stop()
 	dir, err := os.MkdirTemp("", "tainer-update-")
 	if err != nil {
 		return notOpenedError{err}
 	}
 	defer os.RemoveAll(dir)
-	pkg, err := ops.download(ctx, a, dir)
+	progress.start(label)
+	pkg, err := ops.download(ctx, a, dir, progress.update)
 	if err != nil {
 		return notOpenedError{err}
 	}
+	progress.verifying()
 	// Best effort: without it Installer still runs, just without a
 	// fresh Gatekeeper assessment.
 	_ = ops.quarantine(ctx, pkg)
@@ -230,11 +240,13 @@ func downloadAndOpen(ctx context.Context, ops installOps, a release.Artifact, be
 		os.Remove(pkg)
 		return notOpenedError{err}
 	}
+	progress.verified()
 	if beforeOpen != nil {
 		if err := beforeOpen(); err != nil {
 			return notOpenedError{err}
 		}
 	}
+	progress.opening()
 	if err := ops.openAndWait(ctx, pkg); err != nil {
 		return fmt.Errorf("couldn't open the installer: %w", err)
 	}
