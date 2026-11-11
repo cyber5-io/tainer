@@ -212,23 +212,70 @@ private func pixels(_ image: NSImage) -> [UInt8] {
     return Array(UnsafeBufferPointer(start: rep.bitmapData, count: w * h * 4))
 }
 
-/// Opaque near-white pixels in the top-right quarter (bitmap rows run top-down).
-private func whiteTopRight(_ px: [UInt8]) -> Int {
+/// Opaque soft-amber pixels (R high, G mid-high, B low) in the top-right quarter (bitmap rows run top-down).
+private func amberTopRight(_ px: [UInt8]) -> Int {
     let w = 90, h = 72
     var n = 0
     for y in 0..<(h / 2) { for x in (w / 2)..<w {
         let i = (y * w + x) * 4
-        if px[i + 3] > 230, px[i] > 230, px[i + 1] > 230, px[i + 2] > 230 { n += 1 }
+        let r = Int(px[i]), g = Int(px[i + 1]), b = Int(px[i + 2])
+        if px[i + 3] > 230, r > 220, g > 160, g < 215, b < 110 { n += 1 }
     } }
     return n
 }
 
-@Test @MainActor func updateDotDrawsOnlyOnHealthyAndIdleIcons() {
-    #expect(whiteTopRight(pixels(BarIconRenderer.markImage(style: .full, pulseHigh: true))) == 0)
-    #expect(whiteTopRight(pixels(BarIconRenderer.markImage(style: .full, pulseHigh: true, updateBadge: true))) > 0)
+/// Opaque near-white pixels anywhere: the old neutral dot must be gone.
+private func whitePixels(_ px: [UInt8]) -> Int {
+    var n = 0
+    for i in stride(from: 0, to: px.count, by: 4) where px[i + 3] > 230 && px[i] > 230 && px[i + 1] > 230 && px[i + 2] > 230 { n += 1 }
+    return n
+}
+
+/// Opaque dark pixels in the top-right quarter: the ring around the amber dot.
+private func darkRingTopRight(_ px: [UInt8]) -> Int {
+    let w = 90, h = 72
+    var n = 0
+    for y in 0..<(h / 2) { for x in (w / 2)..<w {
+        let i = (y * w + x) * 4
+        if px[i + 3] > 200, px[i] > 90, px[i] < 200, px[i + 2] < 60, px[i + 1] < 140 { n += 1 }
+    } }
+    return n
+}
+
+/// Opaque pixels in the top-right corner block the dot occupies.
+private func opaqueCorner(_ px: [UInt8], size: Int) -> Int {
+    let w = 90
+    var n = 0
+    for y in 0..<size { for x in (w - size)..<w where px[(y * w + x) * 4 + 3] > 230 { n += 1 } }
+    return n
+}
+
+@Test @MainActor func updateDotIsSoftAmberWithRingOnHealthyIcon() {
+    let plain = pixels(BarIconRenderer.markImage(style: .full, pulseHigh: true))
+    let badged = pixels(BarIconRenderer.markImage(style: .full, pulseHigh: true, updateBadge: true))
+    #expect(amberTopRight(plain) == 0)
+    #expect(amberTopRight(badged) > 40)
+    #expect(darkRingTopRight(badged) > darkRingTopRight(plain))
+    #expect(whitePixels(badged) == 0)
+}
+
+@Test @MainActor func updateDotOnIdleIconStaysMonochromeAndReadsLarger() {
     let idle = BarIconRenderer.markImage(style: .dimmed, pulseHigh: true, updateBadge: true)
     #expect(idle.isTemplate)
-    #expect(pixels(idle) != pixels(BarIconRenderer.markImage(style: .dimmed, pulseHigh: true)))
+    let px = pixels(idle)
+    #expect(px != pixels(BarIconRenderer.markImage(style: .dimmed, pulseHigh: true)))
+    #expect(amberTopRight(px) == 0)
+    var tinted = 0
+    for i in stride(from: 0, to: px.count, by: 4) where px[i + 3] > 0 {
+        if px[i] != px[i + 1] || px[i + 1] != px[i + 2] { tinted += 1 }
+    }
+    #expect(tinted == 0)
+    // The template mark is drawn translucent, so the opaque corner pixels are the dot alone. A 7pt dot
+    // (6pt body, 24px at 4x) covers ~450px; the 8pt template dot (28px body) covers ~615px.
+    #expect(opaqueCorner(px, size: 32) > 540)
+}
+
+@Test @MainActor func updateDotNeverDrawsOnRecoveringOrUnreachableIcons() {
     for style in [BarIconStyle.pulsing, .error] {
         #expect(pixels(BarIconRenderer.markImage(style: style, pulseHigh: true, updateBadge: true))
                 == pixels(BarIconRenderer.markImage(style: style, pulseHigh: true)))

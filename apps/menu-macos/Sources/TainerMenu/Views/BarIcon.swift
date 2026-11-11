@@ -31,7 +31,7 @@ enum BarIconRenderer {
             tinted.draw(in: rect, from: .zero, operation: .sourceOver, fraction: alpha)
             if style == .error { drawBadge(in: NSRect(x: rect.maxX - 9, y: 0, width: 9, height: 9)) }
             if style.showsUpdateBadge(hasUpdates: updateBadge) {
-                drawUpdateDot(in: NSRect(x: rect.maxX - 7, y: rect.maxY - 7, width: 7, height: 7), template: style == .dimmed)
+                drawUpdateDot(corner: NSPoint(x: rect.maxX, y: rect.maxY), template: style == .dimmed)
             }
             return true
         }
@@ -49,10 +49,17 @@ enum BarIconRenderer {
         }
     }
 
+    /// Soft amber for "updates available": distinct from the healthy teal, the recovering orange and
+    /// the unreachable red, with a darker amber ring so the dot holds its edge on light and dark bars.
+    static let updateAmber = NSColor(srgbRed: 0xF5 / 255.0, green: 0xB9 / 255.0, blue: 0x42 / 255.0, alpha: 1)
+    static let updateAmberRing = NSColor(srgbRed: 0x8A / 255.0, green: 0x5A / 255.0, blue: 0x0A / 255.0, alpha: 1)
+
     /// The "updates available" dot, top-right. A thin gap is cut out of the mark first so the dot
-    /// reads as separate. Coloured icon: white dot with a thin dark ring. Template icon: a plain
-    /// opaque dot (the mark is drawn at reduced opacity, so the dot stands out in any bar).
-    private static func drawUpdateDot(in rect: NSRect, template: Bool) {
+    /// reads as separate. Coloured icon: 7pt amber dot with a dark amber ring. Template icon: a plain
+    /// opaque 8pt dot, a touch larger so it reads as deliberate against the translucent mark.
+    private static func drawUpdateDot(corner: NSPoint, template: Bool) {
+        let side: CGFloat = template ? 8 : 7
+        let rect = NSRect(x: corner.x - side, y: corner.y - side, width: side, height: side)
         let gap = rect.insetBy(dx: -1.2, dy: -1.2)
         NSGraphicsContext.current?.compositingOperation = .clear
         NSBezierPath(ovalIn: gap).fill()
@@ -62,9 +69,9 @@ enum BarIconRenderer {
             NSColor.black.setFill()
             dot.fill()
         } else {
-            NSColor.white.setFill()
+            updateAmber.setFill()
             dot.fill()
-            NSColor(white: 0.15, alpha: 1).setStroke()
+            updateAmberRing.setStroke()
             dot.lineWidth = 0.8
             dot.stroke()
         }
