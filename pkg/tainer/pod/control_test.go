@@ -33,7 +33,7 @@ func TestControlManifestIsBuiltIn(t *testing.T) {
 }
 
 func TestControlVersionIsAFloor(t *testing.T) {
-	cases := map[string]string{"": "1.0.2", "0.9.0": "1.0.2", "1.2.0": "1.2.0", "garbage": "1.0.2"}
+	cases := map[string]string{"": "1.0.3", "0.9.0": "1.0.3", "1.2.0": "1.2.0", "garbage": "1.0.3"}
 	for in, want := range cases {
 		if got := controlVersion(in); got != want {
 			t.Errorf("controlVersion(%q) = %q, want %q", in, got, want)
@@ -44,7 +44,7 @@ func TestControlVersionIsAFloor(t *testing.T) {
 func TestPinnedControlImageRef(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	m := controlManifest(t)
-	if got, want := ImageRef(m, RoleApp), "ghcr.io/cyber5-io/tainer-control:1.0.2"; got != want {
+	if got, want := ImageRef(m, RoleApp), "ghcr.io/cyber5-io/tainer-control:1.0.3"; got != want {
 		t.Errorf("pinned app ref = %q, want %q", got, want)
 	}
 	if got, want := ControlImageRef("1.2.0"), "ghcr.io/cyber5-io/tainer-control:1.2.0"; got != want {
@@ -107,8 +107,8 @@ func TestControlManifestIsV2(t *testing.T) {
 }
 
 func TestControlPinIs102(t *testing.T) {
-	if controlImageVersion != "1.0.2" {
-		t.Errorf("controlImageVersion = %q, want 1.0.2 (the image whose workdir is /var/www/app)", controlImageVersion)
+	if controlImageVersion != "1.0.3" {
+		t.Errorf("controlImageVersion = %q, want 1.0.3 (the image with the pod settings form)", controlImageVersion)
 	}
 	if MountsVersion != "3" {
 		t.Errorf("MountsVersion = %q, want 3", MountsVersion)

@@ -73,7 +73,7 @@ func labelsFor(version, minVersion string) map[string]string {
 func TestControlNewerStableIsOffered(t *testing.T) {
 	f, calls := controlFakes(labelsFor("1.2.0", "1.3.0"))
 	rep, p := runControl(t, f, "", "1.3.0")
-	if p.Control.State != ControlUpdate || p.Control.Running != "1.0.2" || p.Control.Stable != "1.2.0" {
+	if p.Control.State != ControlUpdate || p.Control.Running != "1.0.3" || p.Control.Stable != "1.2.0" {
 		t.Fatalf("control = %+v", p.Control)
 	}
 	if !p.UpdateAvailable || rep.Available != 1 || rep.Held != 0 {
@@ -83,7 +83,7 @@ func TestControlNewerStableIsOffered(t *testing.T) {
 		t.Errorf("stable labels read %d times, want 1", *calls)
 	}
 	// The app role is judged by version, never by re-checking its own tag.
-	if n := f.remote["ghcr.io/cyber5-io/tainer-control:1.0.2"]; n != 0 {
+	if n := f.remote["ghcr.io/cyber5-io/tainer-control:1.0.3"]; n != 0 {
 		t.Errorf("versioned control tag digest-checked %d times", n)
 	}
 	var app *RoleReport
@@ -92,7 +92,7 @@ func TestControlNewerStableIsOffered(t *testing.T) {
 			app = &p.Roles[i]
 		}
 	}
-	if app == nil || app.Image != "ghcr.io/cyber5-io/tainer-control:1.0.2" || !app.UpdateAvailable {
+	if app == nil || app.Image != "ghcr.io/cyber5-io/tainer-control:1.0.3" || !app.UpdateAvailable {
 		t.Fatalf("app role = %+v", app)
 	}
 }
@@ -109,7 +109,7 @@ func TestControlNewerImageNeedingNewerTainerIsHeldBack(t *testing.T) {
 }
 
 func TestControlPinIsAFloorNotATarget(t *testing.T) {
-	// recorded 1.3.0, pin 1.0.2, stable 1.2.0 → up to date, no downgrade.
+	// recorded 1.3.0, pin 1.0.3, stable 1.2.0 → up to date, no downgrade.
 	f, _ := controlFakes(labelsFor("1.2.0", ""))
 	rep, p := runControl(t, f, "1.3.0", "1.3.0")
 	if p.Control.State != ControlUpToDate || p.Control.Running != "1.3.0" {
@@ -135,7 +135,7 @@ func TestControlCheckErrorsAreUnknown(t *testing.T) {
 	if rep.Unknown != 1 || !strings.Contains(p.Error, "offline") {
 		t.Fatalf("rep = %+v pod = %+v", rep, p)
 	}
-	if p.Control.State != ControlUnknown || p.Control.Running != "1.0.2" || p.UpdateAvailable {
+	if p.Control.State != ControlUnknown || p.Control.Running != "1.0.3" || p.UpdateAvailable {
 		t.Fatalf("failed check control = %+v", p.Control)
 	}
 
