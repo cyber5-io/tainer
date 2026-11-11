@@ -14,6 +14,11 @@ LDFLAGS := -X main.version=$(VERSION)
 
 BIN_DIR := bin
 DIST_DIR := dist
+# Intermediates (pkg roots, component pkgs, the menu .app, staging) live in
+# dist/build; a finished release is exactly dist/<version>/ (installer pkg +
+# latest.json), and old versions belong in dist/archive.
+BUILD_DIR := $(DIST_DIR)/build
+RELEASE_DIR := $(DIST_DIR)/$(VERSION)
 
 # Source of the *.tainer.me wildcard cert bundled into the installers. The
 # first run copies it into ~/.config/tainer/certs so Caddy can serve
@@ -125,10 +130,10 @@ verify-signatures:
 # /usr/local/bin/tainer to it. For users who already have cyberstack
 # installed via cyberstack.pkg.
 # ---------------------------------------------------------------------------
-PKG_ONLY_ROOT     := $(DIST_DIR)/pkg-only-root
-PKG_ONLY_SCRIPTS  := $(DIST_DIR)/pkg-only-scripts
+PKG_ONLY_ROOT     := $(BUILD_DIR)/pkg-only-root
+PKG_ONLY_SCRIPTS  := $(BUILD_DIR)/pkg-only-scripts
 PKG_ONLY_NAME     := tainer-only-$(VERSION).pkg
-PKG_ONLY_OUT      := $(DIST_DIR)/$(PKG_ONLY_NAME)
+PKG_ONLY_OUT      := $(BUILD_DIR)/$(PKG_ONLY_NAME)
 PKG_ONLY_IDENTIFIER := io.cyber5.tainer.only
 
 pkg-only-root: sign
@@ -185,15 +190,15 @@ pkg-only-notarised: pkg-only-signed
 # signing: `make pkg-dist` then open dist/tainer-dist-$(VERSION).pkg.
 # ---------------------------------------------------------------------------
 PKG_DIST_NAME := tainer-dist-$(VERSION).pkg
-PKG_DIST_OUT  := $(DIST_DIR)/$(PKG_DIST_NAME)
+PKG_DIST_OUT  := $(BUILD_DIR)/$(PKG_DIST_NAME)
 PKG_DIST_ONLY_NAME := tainer-only-dist-$(VERSION).pkg
-PKG_DIST_ONLY_OUT  := $(DIST_DIR)/$(PKG_DIST_ONLY_NAME)
+PKG_DIST_ONLY_OUT  := $(BUILD_DIR)/$(PKG_DIST_ONLY_NAME)
 
 pkg-dist: pkg-full
 	sed -e 's/@VERSION@/$(VERSION)/' -e 's/@COMPONENT_PKG@/$(PKG_FULL_NAME)/' \
-		packaging/installer/distribution.xml > $(DIST_DIR)/distribution.xml
+		packaging/installer/distribution.xml > $(BUILD_DIR)/distribution.xml
 	productbuild \
-		--distribution $(DIST_DIR)/distribution.xml \
+		--distribution $(BUILD_DIR)/distribution.xml \
 		--resources packaging/installer/resources \
 		--package-path $(DIST_DIR) \
 		$(PKG_DIST_OUT)
@@ -203,9 +208,9 @@ pkg-dist-only: pkg-only
 	sed -e 's/@VERSION@/$(VERSION)/' -e 's/@COMPONENT_PKG@/$(PKG_ONLY_NAME)/' \
 		-e 's/io.cyber5.tainer"/io.cyber5.tainer.only"/g' \
 		-e 's/id="io.cyber5.tainer"/id="io.cyber5.tainer.only"/g' \
-		packaging/installer/distribution.xml > $(DIST_DIR)/distribution-only.xml
+		packaging/installer/distribution.xml > $(BUILD_DIR)/distribution-only.xml
 	productbuild \
-		--distribution $(DIST_DIR)/distribution-only.xml \
+		--distribution $(BUILD_DIR)/distribution-only.xml \
 		--resources packaging/installer/resources \
 		--package-path $(DIST_DIR) \
 		$(PKG_DIST_ONLY_OUT)
@@ -257,10 +262,10 @@ verify-pkg-only:
 # only" installs cyberstack.pkg directly from the cyber-stack repo.
 # ---------------------------------------------------------------------------
 CYBERSTACK_REPO  := $(if $(CS_REPO),$(CS_REPO),../cyber-stack)
-PKG_FULL_ROOT    := $(DIST_DIR)/pkg-full-root
-PKG_FULL_SCRIPTS := $(DIST_DIR)/pkg-full-scripts
+PKG_FULL_ROOT    := $(BUILD_DIR)/pkg-full-root
+PKG_FULL_SCRIPTS := $(BUILD_DIR)/pkg-full-scripts
 PKG_FULL_NAME    := tainer-$(VERSION).pkg
-PKG_FULL_OUT     := $(DIST_DIR)/$(PKG_FULL_NAME)
+PKG_FULL_OUT     := $(BUILD_DIR)/$(PKG_FULL_NAME)
 PKG_FULL_IDENTIFIER := io.cyber5.tainer
 
 # ---------------------------------------------------------------------------
@@ -270,7 +275,7 @@ PKG_FULL_IDENTIFIER := io.cyber5.tainer
 # as the CLI so it rides the one notarisation chain.
 # ---------------------------------------------------------------------------
 MENU_APP_NAME := Tainer Menu.app
-MENU_APP      := $(DIST_DIR)/$(MENU_APP_NAME)
+MENU_APP      := $(BUILD_DIR)/$(MENU_APP_NAME)
 MENU_SRC_APP  := apps/menu-macos/build/$(MENU_APP_NAME)
 
 menu-app:
@@ -348,12 +353,12 @@ pkg-full-notarised: pkg-full-signed
 # can update on its own cadence (pkg identifier io.cyber5.tainer.menu,
 # versioned by MENU_VERSION). Same signed/notarised chain as the full pack.
 # ---------------------------------------------------------------------------
-PKG_MENU_ROOT    := $(DIST_DIR)/pkg-menu-root
-PKG_MENU_SCRIPTS := $(DIST_DIR)/pkg-menu-scripts
+PKG_MENU_ROOT    := $(BUILD_DIR)/pkg-menu-root
+PKG_MENU_SCRIPTS := $(BUILD_DIR)/pkg-menu-scripts
 PKG_MENU_NAME    := tainer-menu-$(MENU_VERSION).pkg
-PKG_MENU_OUT     := $(DIST_DIR)/$(PKG_MENU_NAME)
+PKG_MENU_OUT     := $(BUILD_DIR)/$(PKG_MENU_NAME)
 PKG_DIST_MENU_NAME := tainer-menu-dist-$(MENU_VERSION).pkg
-PKG_DIST_MENU_OUT  := $(DIST_DIR)/$(PKG_DIST_MENU_NAME)
+PKG_DIST_MENU_OUT  := $(BUILD_DIR)/$(PKG_DIST_MENU_NAME)
 
 pkg-menu-root: menu-app
 	rm -rf $(PKG_MENU_ROOT) $(PKG_MENU_SCRIPTS)
@@ -391,14 +396,14 @@ pkg-menu-notarised: pkg-menu-signed
 	xcrun stapler staple $(PKG_MENU_OUT)
 
 pkg-dist-menu: pkg-menu
-	rm -rf $(DIST_DIR)/resources-menu
-	cp -R packaging/installer/resources $(DIST_DIR)/resources-menu
-	cp packaging/installer/resources-menu/*.html $(DIST_DIR)/resources-menu/
+	rm -rf $(BUILD_DIR)/resources-menu
+	cp -R packaging/installer/resources $(BUILD_DIR)/resources-menu
+	cp packaging/installer/resources-menu/*.html $(BUILD_DIR)/resources-menu/
 	sed -e 's/@VERSION@/$(MENU_VERSION)/' -e 's/@COMPONENT_PKG@/$(PKG_MENU_NAME)/' \
-		packaging/installer/distribution-menu.xml > $(DIST_DIR)/distribution-menu.xml
+		packaging/installer/distribution-menu.xml > $(BUILD_DIR)/distribution-menu.xml
 	productbuild \
-		--distribution $(DIST_DIR)/distribution-menu.xml \
-		--resources $(DIST_DIR)/resources-menu \
+		--distribution $(BUILD_DIR)/distribution-menu.xml \
+		--resources $(BUILD_DIR)/resources-menu \
 		--package-path $(DIST_DIR) \
 		$(PKG_DIST_MENU_OUT)
 	@echo "Built $(PKG_DIST_MENU_OUT) (unsigned distribution pkg)"
@@ -421,8 +426,8 @@ pkg-dist-menu-notarised: pkg-dist-menu-signed
 # paragraph each); MENU_MIN_TAINER defaults to VERSION.
 release-files:
 	VERSION="$(VERSION)" MENU_VERSION="$(MENU_VERSION)" \
-		TAINER_DIST_PKG="$(PKG_DIST_OUT)" MENU_DIST_PKG="$(PKG_DIST_MENU_OUT)" \
-		scripts/release-files.sh $(DIST_DIR)/release
+		TAINER_DIST_PKG="$(PKG_DIST_OUT)" \
+		scripts/release-files.sh $(RELEASE_DIR)
 
 verify-pkg-full:
 	@pkgutil --check-signature $(PKG_FULL_OUT) || true
@@ -442,7 +447,7 @@ verify-pkg-full:
 # ---------------------------------------------------------------------------
 NFPM_VERSION := v2.41.3
 LINUX_ARCHES := amd64 arm64
-LINUX_STAGE  := $(DIST_DIR)/linux-stage
+LINUX_STAGE  := $(BUILD_DIR)/linux-stage
 
 linux-dist:
 	@if [ ! -f "$(CYBERSTACK_REPO)/cmd/cyberstackd/main.go" ]; then \
@@ -461,9 +466,9 @@ linux-dist:
 		ARCH=$$arch VERSION=$(VERSION) \
 			go run github.com/goreleaser/nfpm/v2/cmd/nfpm@$(NFPM_VERSION) package \
 			--packager deb --config packaging/linux/nfpm.yaml \
-			--target $(DIST_DIR)/tainer_$(VERSION)_$$arch.deb; \
+			--target $(BUILD_DIR)/tainer_$(VERSION)_$$arch.deb; \
 	done
-	@ls -l $(DIST_DIR)/tainer_$(VERSION)_*.deb
+	@ls -l $(BUILD_DIR)/tainer_$(VERSION)_*.deb
 
 # One command for a whole release: full pkg, menu pkg, channel files.
 # Fails fast on missing notes, identities or control image before any build.
@@ -476,11 +481,10 @@ release:
 	fi
 	$(MAKE) require-sign-identity preflight-control-image
 	$(MAKE) pkg-dist-notarised
-	$(MAKE) pkg-dist-menu-notarised
 	$(MAKE) release-files
 	@if [ -n "$(RELEASE_DEST)" ]; then \
-		mkdir -p "$(RELEASE_DEST)" && cp -R $(DIST_DIR)/release/. "$(RELEASE_DEST)/" && \
+		mkdir -p "$(RELEASE_DEST)" && cp -R $(RELEASE_DIR)/. "$(RELEASE_DEST)/" && \
 		echo "release $(VERSION): files copied to $(RELEASE_DEST)"; \
 	else \
-		echo "release $(VERSION) ready: upload $(DIST_DIR)/release/ to get.tainer.dev"; \
+		echo "release $(VERSION) ready: upload $(RELEASE_DIR)/ to get.tainer.dev"; \
 	fi

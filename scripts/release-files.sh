@@ -1,15 +1,21 @@
 #!/bin/bash
 # release-files.sh <outdir> - assemble the folder to upload to get.tainer.dev.
 #
-# Takes the signed + notarised distribution packages, refuses unless both
-# pass the installer signature checks, and writes:
-#   <outdir>/releases/<version>/<pkg files>
+# Takes the signed + notarised distribution package, refuses unless it
+# passes the installer signature checks, and writes a flat release folder
+# (normally dist/<version>/):
+#   <outdir>/<pkg file>
 #   <outdir>/latest.json
+# On the server, latest.json goes to the docroot and the pkg to
+# releases/<version>/ — the json's url field says so.
+#
+# One pkg serves everything: the menu ships inside the full pkg and always
+# carries the same version, so the menu entry in latest.json points at the
+# full pkg too (decided 2026-11-11; the separate menu pkg is gone).
 #
 # Environment:
 #   VERSION / MENU_VERSION          (required; the Makefile passes them)
-#   TAINER_DIST_PKG / MENU_DIST_PKG (default dist/tainer-dist-$VERSION.pkg,
-#                                    dist/tainer-menu-dist-$MENU_VERSION.pkg)
+#   TAINER_DIST_PKG                 (default dist/tainer-dist-$VERSION.pkg)
 #   RELEASE_NOTES / MENU_NOTES      (required, one paragraph each)
 #   MENU_MIN_TAINER                 (default $VERSION)
 #   SKIP_SIGNATURE_CHECK=1          TEST ONLY; any other value is refused.
@@ -32,7 +38,6 @@ TEAM_ID="C8J8D9XJP6"
 : "${VERSION:?VERSION is required}"
 : "${MENU_VERSION:?MENU_VERSION is required}"
 TAINER_PKG="${TAINER_DIST_PKG:-dist/tainer-dist-${VERSION}.pkg}"
-MENU_PKG="${MENU_DIST_PKG:-dist/tainer-menu-dist-${MENU_VERSION}.pkg}"
 MENU_MIN="${MENU_MIN_TAINER:-$VERSION}"
 
 if [[ -z "${RELEASE_NOTES:-}" || -z "${MENU_NOTES:-}" ]]; then
@@ -45,12 +50,10 @@ if [[ -n "${SKIP_SIGNATURE_CHECK:-}" && "${SKIP_SIGNATURE_CHECK}" != "1" ]]; the
     exit 2
 fi
 
-for f in "$TAINER_PKG" "$MENU_PKG"; do
-    if [[ ! -f "$f" ]]; then
-        echo "release-files: missing $f (build it with make pkg-dist-notarised / make pkg-dist-menu-notarised)" >&2
-        exit 1
-    fi
-done
+if [[ ! -f "$TAINER_PKG" ]]; then
+    echo "release-files: missing $TAINER_PKG (build it with make pkg-dist-notarised)" >&2
+    exit 1
+fi
 
 check_signed() {
     local pkg="$1" sig
@@ -67,7 +70,6 @@ if [[ "${SKIP_SIGNATURE_CHECK:-}" == "1" ]]; then
     echo "!!!!------------------------------------------------------------!!!!" >&2
 else
     check_signed "$TAINER_PKG"
-    check_signed "$MENU_PKG"
 fi
 
 CONTROL_TAG=$(sed -n 's/^const controlImageVersion = "\(.*\)"$/\1/p' "$ROOT/pkg/tainer/pod/control.go")
@@ -81,20 +83,15 @@ sha() { shasum -a 256 "$1" | awk '{print $1}'; }
 jstr() { printf '%s' "$1" | tr '\n\t\r' '   ' | tr -d '\000-\037\177' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
 
 TAINER_SHA=$(sha "$TAINER_PKG")
-MENU_SHA=$(sha "$MENU_PKG")
-if [[ -z "$TAINER_SHA" || -z "$MENU_SHA" ]]; then
+if [[ -z "$TAINER_SHA" ]]; then
     echo "release-files: could not compute sha256" >&2
     rm -rf "$OUT"
     exit 1
 fi
 
-TD="$OUT/releases/$VERSION"
-MD="$OUT/releases/$MENU_VERSION"
-mkdir -p "$TD" "$MD"
-cp "$TAINER_PKG" "$TD/"
-cp "$MENU_PKG" "$MD/"
+mkdir -p "$OUT"
+cp "$TAINER_PKG" "$OUT/"
 TN=$(basename "$TAINER_PKG")
-MN=$(basename "$MENU_PKG")
 
 cat > "$OUT/latest.json" <<JSON
 {
@@ -106,8 +103,8 @@ cat > "$OUT/latest.json" <<JSON
   },
   "menu": {
     "version": "$MENU_VERSION",
-    "url": "$BASE_URL/releases/$MENU_VERSION/$MN",
-    "sha256": "$MENU_SHA",
+    "url": "$BASE_URL/releases/$VERSION/$TN",
+    "sha256": "$TAINER_SHA",
     "notes": "$(jstr "$MENU_NOTES")",
     "minTainer": "$MENU_MIN"
   },
@@ -129,5 +126,5 @@ echo "Release files ready in: $OUT"
 if [[ "${SKIP_SIGNATURE_CHECK:-}" == "1" ]]; then
     echo "TEST RUN - DO NOT UPLOAD this folder."
 else
-    echo "upload this folder to get.tainer.dev"
+    echo "upload to get.tainer.dev: latest.json -> docroot, $TN -> releases/$VERSION/"
 fi
