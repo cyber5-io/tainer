@@ -464,3 +464,23 @@ linux-dist:
 			--target $(DIST_DIR)/tainer_$(VERSION)_$$arch.deb; \
 	done
 	@ls -l $(DIST_DIR)/tainer_$(VERSION)_*.deb
+
+# One command for a whole release: full pkg, menu pkg, channel files.
+# Fails fast on missing notes, identities or control image before any build.
+# Optional RELEASE_DEST copies the finished folder there (for example a local
+# get.tainer.dev docroot checkout); otherwise it stays in dist/release.
+.PHONY: release
+release:
+	@if [ -z "$(RELEASE_NOTES)" ] || [ -z "$(MENU_NOTES)" ]; then \
+		echo "set RELEASE_NOTES and MENU_NOTES (one paragraph each)" >&2; exit 1; \
+	fi
+	$(MAKE) require-sign-identity preflight-control-image
+	$(MAKE) pkg-dist-notarised
+	$(MAKE) pkg-dist-menu-notarised
+	$(MAKE) release-files
+	@if [ -n "$(RELEASE_DEST)" ]; then \
+		mkdir -p "$(RELEASE_DEST)" && cp -R $(DIST_DIR)/release/. "$(RELEASE_DEST)/" && \
+		echo "release $(VERSION): files copied to $(RELEASE_DEST)"; \
+	else \
+		echo "release $(VERSION) ready: upload $(DIST_DIR)/release/ to get.tainer.dev"; \
+	fi
