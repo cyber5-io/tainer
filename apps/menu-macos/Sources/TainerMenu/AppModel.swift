@@ -24,16 +24,9 @@ final class AppModel {
         Task { await actions.run(action, pod: pod) }
     }
 
-    /// Asks for a project folder, then starts it from there.
+    /// Asks for a project folder (or its tainer.yaml), then starts it from there.
     func openExistingProject() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Open"
-        panel.message = OpenProjectCopy.panelMessage
-        NSApp.activate()
-        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        guard let folder = OpenProjectPanel.choose() else { return }
         let actions = self.actions
         Task { await actions.openProject(at: folder) }
     }

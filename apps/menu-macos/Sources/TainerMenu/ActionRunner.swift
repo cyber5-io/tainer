@@ -134,8 +134,9 @@ final class ActionRunner {
     }
 
     /// `tainer start --plain` run inside `folder`, the way a user starts a project from its
-    /// folder. The pod then appears on the watch stream; only a failure is reported. A folder
-    /// without tainer.yaml is refused here rather than initialised.
+    /// folder. The menu window has closed by now (the picker took focus), so the start is
+    /// announced up front; the pod then appears on the watch stream and only a failure is
+    /// reported after that. A folder without tainer.yaml is refused here rather than initialised.
     func openProject(at folder: URL) async {
         let label = folder.lastPathComponent
         guard FileManager.default.fileExists(atPath: folder.appendingPathComponent("tainer.yaml").path) else {
@@ -148,6 +149,10 @@ final class ActionRunner {
             await sink.post("\(label): tainer was not found")
             return
         }
+        // Not awaited: the first post asks for notification permission, and that prompt
+        // must never hold up the start.
+        let sink = self.sink, announcement = OpenProjectCopy.starting(label)
+        Task { await sink.post(announcement) }
         let output = LineCollector()
         let result: ProcessResult
         do {

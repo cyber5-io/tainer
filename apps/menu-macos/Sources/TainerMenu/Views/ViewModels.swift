@@ -89,7 +89,9 @@ enum DashboardGate {
 enum OpenProjectCopy {
     static let menuItem = "Open Existing Project…"
     static let notAProject = "That folder isn't a tainer project yet — create one from the dashboard"
-    static let panelMessage = "Choose a folder with a tainer.yaml in it"
+    static let panelMessage = "Choose a project folder, or the tainer.yaml inside it"
+
+    static func starting(_ name: String) -> String { "Starting \(name)…" }
 }
 
 /// Exact doctor wording: the row's title per state, and the failure banner.

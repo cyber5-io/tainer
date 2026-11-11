@@ -276,7 +276,8 @@ private func projectFolder(withManifest: Bool) throws -> URL {
     await makeRunner(fake, sink: sink).openProject(at: folder)
     #expect(fake.arguments == [["start", "--plain"]])
     #expect(fake.directories == [folder])
-    #expect(sink.posted.isEmpty)
+    await settle { sink.posted.count == 1 }
+    #expect(sink.posted == ["Starting shop…"])
 }
 
 @MainActor
@@ -286,7 +287,8 @@ private func projectFolder(withManifest: Bool) throws -> URL {
     let stderr = "tainer: tainer.yaml is version 1 — run tainer migrate first\nmore detail\n"
     let fake = FakeRunner([.stream(lines: ["starting shop..."], stderr: stderr, status: 1)])
     await makeRunner(fake, sink: sink).openProject(at: folder)
-    #expect(sink.posted == ["shop: tainer.yaml is version 1 — run tainer migrate first"])
+    await settle { sink.posted.count == 2 }
+    #expect(Set(sink.posted) == ["Starting shop…", "shop: tainer.yaml is version 1 — run tainer migrate first"])
 }
 
 @MainActor
@@ -297,7 +299,69 @@ private func projectFolder(withManifest: Bool) throws -> URL {
     let missing = FakeRunner([])
     await makeRunner(missing, sink: sink, cli: nil).openProject(at: folder)
     #expect(missing.spawnCount == 0)
-    #expect(sink.posted == ["shop: could not run tainer", "shop: tainer was not found"])
+    await settle { sink.posted.count == 3 }
+    #expect(Set(sink.posted) == ["Starting shop…", "shop: could not run tainer", "shop: tainer was not found"])
+    #expect(sink.posted.filter { $0 == "Starting shop…" }.count == 1, "no announcement when tainer is missing")
+}
+
+/// A sink whose post never returns, like an unanswered notification-permission prompt.
+final class StuckSink: NotificationSink, @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+    var postCalls: Int { lock.withLock { calls } }
+    func post(_ message: String) async {
+        lock.withLock { calls += 1 }
+        while !Task.isCancelled { try? await Task.sleep(for: .seconds(3600)) }
+    }
+}
+
+@MainActor
+@Test func openProjectStartsEvenWhileTheAnnouncementIsStuck() async throws {
+    let folder = try projectFolder(withManifest: true)
+    let sink = StuckSink()
+    let fake = FakeRunner([.stream(lines: ["shop started"], status: 0)])
+    await ActionRunner(state: StackState(), runner: fake, sink: sink, locate: { "/bin/tainer" }).openProject(at: folder)
+    #expect(fake.arguments == [["start", "--plain"]])
+    await settle { sink.postCalls == 1 }
+}
+
+@MainActor
+@Test func openProjectAnnouncesTheStartBeforeItRuns() async throws {
+    let folder = try projectFolder(withManifest: true)
+    let sink = FakeSink()
+    let fake = FakeRunner([.blockUntilCancelled])
+    let runner = makeRunner(fake, sink: sink)
+    let run = Task { await runner.openProject(at: folder) }
+    await settle { fake.spawnCount == 1 }
+    await settle { sink.posted.count == 1 }
+    #expect(sink.posted == ["Starting shop…"])
+    // A second pick of the same folder while it starts says nothing more.
+    await runner.openProject(at: folder)
+    #expect(sink.posted == ["Starting shop…"])
+    run.cancel()
+    await run.value
+}
+
+@Test func chosenManifestResolvesToItsFolder() throws {
+    let folder = try projectFolder(withManifest: true)
+    let manifest = folder.appendingPathComponent("tainer.yaml")
+    #expect(OpenProjectPanel.projectFolder(for: manifest)?.path == folder.path)
+    #expect(OpenProjectPanel.projectFolder(for: folder)?.path == folder.path)
+    let other = folder.appendingPathComponent("notes.yaml")
+    try Data("x: 1\n".utf8).write(to: other)
+    #expect(OpenProjectPanel.projectFolder(for: other) == nil)
+}
+
+@Test func panelEnablesFoldersAndOnlyTheManifestFile() throws {
+    let folder = try projectFolder(withManifest: true)
+    #expect(OpenProjectPanel.isSelectable(folder))
+    #expect(OpenProjectPanel.isSelectable(folder.appendingPathComponent("tainer.yaml")))
+    let other = folder.appendingPathComponent("docker-compose.yaml")
+    try Data("x: 1\n".utf8).write(to: other)
+    #expect(!OpenProjectPanel.isSelectable(other))
+    let lookalike = folder.appendingPathComponent("tainer.yaml.bak")
+    try Data("x: 1\n".utf8).write(to: lookalike)
+    #expect(!OpenProjectPanel.isSelectable(lookalike))
 }
 
 @MainActor
