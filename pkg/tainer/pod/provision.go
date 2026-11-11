@@ -16,6 +16,7 @@ import (
 	"github.com/cyber5-io/tainer/pkg/tainer/engine"
 	"github.com/cyber5-io/tainer/pkg/tainer/manifest"
 	"github.com/cyber5-io/tainer/pkg/tainer/registry"
+	"github.com/cyber5-io/tainer/pkg/tainer/router"
 	"github.com/docker/docker/api/types/container"
 )
 
@@ -310,7 +311,7 @@ func ControlNameConflict(p registry.Project) error {
 }
 
 // controlDomain is the dashboard's domain, from the built-in definition.
-const controlDomain = "my.tainer.me"
+const controlDomain = router.ControlDomain
 
 // migrateControlData copies settings.json and thumbnails/ from oldData into
 // newData, each only when absent in newData. oldData is only read.
