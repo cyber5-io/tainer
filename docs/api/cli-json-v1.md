@@ -22,6 +22,7 @@ Examples are copied from the tests' own golden strings, so the page and the code
 | `logs` lines | `TestLogsJSONLineShape` (`cmd/tainer/json_gaps_test.go`) |
 | `doctor` document, skip hints | `TestDoctorJSONShape`, `TestDoctorJSONSkipCarriesReason` |
 | `config` document | `TestConfigJSONShape` |
+| `config set` document and refusals | `TestJSONSnapshotConfigSet` against `config-set.golden` and `config-set-nochange.golden`, `TestConfigSetRefusesInvalidValuesWithoutWriting`, `TestConfigSetUnknownKeyAndBadUsage` (`cmd/tainer/config_set_test.go`) |
 | `exec` lines | `TestExecJSONStreamShape`, `TestExecJSONRefusesTTY` |
 | `login`, `whoami`, `logout` documents | `TestLoginJSONReadsStdinAndStoresSession`, `TestWhoamiLoggedOutDocument`, `TestLogoutClearsStore` (`cmd/tainer/login_test.go`) |
 | `signup`, `password-reset` documents and failure slugs | `TestSignupJSONReadsStdin`, `TestSignupJSONWeakPassword`, `TestSignupWithEmailArgPromptsOnlyForPassword`, `TestPasswordResetJSON`, `TestPasswordResetInvalidEmail` (`cmd/tainer/signup_test.go`) |
@@ -390,6 +391,18 @@ The parsed manifest, with the same key names as `tainer.yaml`, under `project` (
 The optional `live` section (`{"domain":"shop.example.com"}`) appears only when `tainer.yaml` has one.
 
 Without `--json`, `config` prints `tainer.yaml` as written.
+
+### `config set`
+
+`tainer config set [project] <key> <value>` changes one setting in the project's `tainer.yaml`. The number of arguments picks the form: `set <key> <value>` finds the project from the working directory, and `set <project> <key> <value>` names a registered project, the same way `config <project>` does. Callers that don't run inside a project folder (the control gateway) use the second form, e.g. args `["set","shop","pod.size","large"]`. The keys are `pod.size`, `database`, `runtime.node`, `runtime.php`, `runtime.build-dir` and `live.domain`. `runtime.database` is accepted as another spelling of `database`; `key` in the result is always the canonical name. The new value goes through the same checks as a hand-edited `tainer.yaml`; on top of those, `runtime.php` and `runtime.node` must be version numbers and apply only to php and node projects respectively, and `runtime.build-dir` applies only to react and svelte. An empty `live.domain` removes the `live` section. Switching `pod.size` from `custom` to a named size drops `pod.memory` and `pod.cpu`.
+
+```json
+{"v":1,"key":"pod.size","value":"large","changed":true,"note":"takes effect on the next start"}
+```
+
+`value` is the value as stored (a build dir is cleaned, so `./build/` is stored as `build`). Setting a key to the value it already has changes nothing: `changed` is `false`, `note` is `"already set"`, and the file is left byte for byte as it was. Otherwise only the target key changes: comments, keys tainer does not know, key order and the file's indentation are kept (the space before an inline comment is normalised to one). A version 1 file stays version 1. The write never touches `.tainer.local.yaml`; when that file sets the same key, `note` says so (`"saved, but .tainer.local.yaml sets pod.size to xxl, which wins"`). If the project no longer loads after the write (for example `.tainer.local.yaml` now conflicts with it), the change is still saved and `note` starts with `"saved, but the project no longer loads: "` followed by the reason.
+
+Errors: `invalid-arguments` for an unknown key (the message lists the keys), a refused value (the message is the manifest's own, e.g. `invalid pod size: "huge"`) or bad usage (`set <project> <key>` with the value missing says so and shows the full form); `manifest-invalid` when the existing `tainer.yaml` does not parse; `no-project-here` (two-argument form, no project at or above the working directory) and `project-not-found` (the named project is not registered, or its `tainer.yaml` cannot be read) as for `config`; `command-failed` when the file cannot be written. Without `--json` it prints one line, e.g. `pod.size set to large — takes effect on the next start`.
 
 ### `logs` (NDJSON)
 

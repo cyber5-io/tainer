@@ -158,9 +158,14 @@ func streamLogLinesPlain(r io.Reader, w io.Writer, part string) error {
 
 // cmdConfig implements `tainer config [project]`: print the project's manifest.
 // Human modes print tainer.yaml as written; --json prints the parsed manifest.
+// `tainer config set ...` writes one setting (see cmdConfigSet).
 func cmdConfig(args []string) {
 	flags, rest := tui.ParseOutputFlags(args)
 	mode := resolveMode(flags, false)
+	if len(rest) > 0 && rest[0] == "set" {
+		cmdConfigSet(rest[1:])
+		return
+	}
 	for _, a := range rest {
 		if strings.HasPrefix(a, "-") {
 			must(withCode("invalid-arguments", fmt.Errorf("unknown flag %s (usage: tainer config [project])", a)))

@@ -1,0 +1,6 @@
+{
+  "key": "pod.size",
+  "value": "large",
+  "changed": true,
+  "note": "takes effect on the next start"
+}

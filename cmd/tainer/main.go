@@ -156,6 +156,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  npm|yarn|pnpm|node <args...>           run the tool in the current project")
 	fmt.Fprintln(os.Stderr, "  logs [project] [role] [--follow]       stream container logs")
 	fmt.Fprintln(os.Stderr, "  config [project]                       show the project manifest")
+	fmt.Fprintln(os.Stderr, "  config set [project] <key> <value>     change pod.size, database, runtime.*, live.domain")
 	fmt.Fprintln(os.Stderr, "  status                                 show pod state(s)")
 	fmt.Fprintln(os.Stderr, "  doctor [--fix]                         check every layer of the stack")
 	fmt.Fprintln(os.Stderr, "  list (ls)                              list all pods")
