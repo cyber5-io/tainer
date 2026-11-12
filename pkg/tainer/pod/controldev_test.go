@@ -170,7 +170,7 @@ func TestControlPodIgnoresDevApprovals(t *testing.T) {
 		}
 	}
 	check("two approvals")
-	if got := ImageRefIn(ctl, RoleApp, dir); got != "ghcr.io/cyber5-io/tainer-control:1.0.3" {
+	if got := ImageRefIn(ctl, RoleApp, dir); got != "ghcr.io/cyber5-io/tainer-control:1.0.4" {
 		t.Errorf("pinned control pod keeps the sealed image, got %q", got)
 	}
 }
@@ -405,10 +405,10 @@ func TestBuiltInControlPodIsStillPinned(t *testing.T) {
 	if !hasControlAccess(m, dir) || checkControlName(m, dir) != nil {
 		t.Fatal("the built-in control pod must keep its access")
 	}
-	if got := ImageRefIn(m, RoleApp, dir); got != "ghcr.io/cyber5-io/tainer-control:1.0.3" {
+	if got := ImageRefIn(m, RoleApp, dir); got != "ghcr.io/cyber5-io/tainer-control:1.0.4" {
 		t.Errorf("image = %q", got)
 	}
-	if got := ImageRef(m, RoleApp); got != "ghcr.io/cyber5-io/tainer-control:1.0.3" {
+	if got := ImageRef(m, RoleApp); got != "ghcr.io/cyber5-io/tainer-control:1.0.4" {
 		t.Errorf("ImageRef = %q", got)
 	}
 	if checkControlName(devProject(true), dir) != nil {

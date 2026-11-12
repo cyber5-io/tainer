@@ -187,7 +187,7 @@ func TestImageRefControlPod(t *testing.T) {
 		Project: manifest.ProjectConfig{Name: "control", Type: manifest.TypeNodeJS},
 		Runtime: manifest.RuntimeConfig{Node: "22"},
 	}
-	if got := ImageRef(control, RoleApp); got != "ghcr.io/cyber5-io/tainer-control:1.0.3" {
+	if got := ImageRef(control, RoleApp); got != "ghcr.io/cyber5-io/tainer-control:1.0.4" {
 		t.Errorf("control app image: got %q", got)
 	}
 	if got := ImageRef(control, RoleWeb); got != "ghcr.io/cyber5-io/tainer-caddy-web:2-alpine" {
