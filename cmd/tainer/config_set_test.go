@@ -126,7 +126,7 @@ func TestConfigSetSameValueDoesNotWrite(t *testing.T) {
 
 func TestConfigSetRefusesInvalidValuesWithoutWriting(t *testing.T) {
 	for _, c := range []struct{ key, value, msg string }{
-		{"pod.size", "huge", `invalid pod size: "huge"`},
+		{"pod.size", "huge", `invalid pod size: "huge" (expected nano, small, medium, large, xlarge or xxl)`},
 		{"database", "mysql", `invalid database: "mysql" (expected mariadb, postgres, or none)`},
 		{"live.domain", "not a domain", `live.domain: invalid domain "not a domain": use a plain hostname like mysite.tainer.me`},
 		{"runtime.php", "8.3", "runtime.php applies to php projects; shop is a react project"},
@@ -278,16 +278,52 @@ func TestConfigSetKeepsCommentsUnknownKeysAndMode(t *testing.T) {
 }
 
 func TestConfigSetSaysSoWhenTheProjectNoLongerLoads(t *testing.T) {
-	custom := strings.Replace(configSetBase, "  size: small\n", "  size: custom\n  memory: 3G\n  cpu: 2\n", 1)
-	path := configSetProject(t, custom)
-	// The overlay keeps size custom; the shared file losing its budget then breaks the merge.
+	path := configSetProject(t, configSetBase)
+	// The local file turns the project into wordpress, which needs a php version the
+	// shared file doesn't have: the merged project doesn't load.
 	overlay := filepath.Join(filepath.Dir(path), manifest.LocalOverlayName)
-	if err := os.WriteFile(overlay, []byte("pod:\n  size: custom\n"), 0o644); err != nil {
+	if err := os.WriteFile(overlay, []byte("project:\n  type: wordpress\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	doc, raw, exit := runConfigSet(t, "pod.size", "medium", "--json")
-	if exit != -1 || !doc.Changed || !strings.HasPrefix(doc.Note, "saved, but the project no longer loads: ") || !strings.Contains(doc.Note, "pod.size=custom requires pod.memory and pod.cpu") {
+	if exit != -1 || !doc.Changed || !strings.HasPrefix(doc.Note, "saved, but the project no longer loads: ") || !strings.Contains(doc.Note, "php version required") {
 		t.Fatalf("exit %d %s", exit, raw)
+	}
+}
+
+// tain-129: pods use named sizes only.
+func TestConfigSetRefusesPodMemoryAndCPU(t *testing.T) {
+	path := configSetProject(t, configSetBase)
+	for _, key := range []string{"pod.memory", "pod.cpu"} {
+		doc, raw, exit := runConfigSet(t, key, "4G", "--json")
+		want := key + " can't be set: pods use named sizes (nano 512M, small 1G, medium 2G, large 4G, xlarge 8G or xxl 16G) — set pod.size instead"
+		if exit != 1 || doc.Error.Code != "invalid-arguments" || doc.Error.Message != want {
+			t.Errorf("%s: exit %d %s", key, exit, raw)
+		}
+	}
+	if got := string(mustRead(t, path)); got != configSetBase {
+		t.Errorf("file changed")
+	}
+}
+
+func TestConfigOptionsAndConfigShowTheMappedSize(t *testing.T) {
+	configSetProject(t, strings.Replace(configSetBase, "  size: small\n", "  size: custom\n  memory: 3G\n  cpu: 2\n", 1))
+	doc, raw, exit := runConfigOptions(t, "--json")
+	size, _ := doc["size"].(map[string]any)
+	if exit != -1 || size["current"] != "large" || size["mappedFrom"] != "3G, 2 CPU" {
+		t.Fatalf("options: exit %d %s", exit, raw)
+	}
+	out, exit := failureHarness(t, false, func() { cmdConfig([]string{"--json"}) })
+	var cfg struct {
+		Project struct {
+			Pod map[string]any `json:"pod"`
+		} `json:"project"`
+	}
+	if err := json.Unmarshal(out, &cfg); err != nil || exit != -1 {
+		t.Fatalf("config --json: exit %d %v %s", exit, err, out)
+	}
+	if len(cfg.Project.Pod) != 1 || cfg.Project.Pod["size"] != "large" {
+		t.Errorf("config --json pod = %v, want only size large", cfg.Project.Pod)
 	}
 }
 

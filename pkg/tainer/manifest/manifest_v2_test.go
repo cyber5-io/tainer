@@ -83,16 +83,14 @@ ports:
 	if err != nil {
 		t.Fatalf("ParseBytes failed: %v", err)
 	}
-	if m.Pod.Size != PodSizeCustom {
-		t.Errorf("expected pod size %q, got %q", PodSizeCustom, m.Pod.Size)
+	// Legacy per-container limits fold into one pod total (200M + 1G + 500M
+	// = 1724M, 0.3 + 1 + 0.5 = 1.8 cores), which then runs as the nearest
+	// named size now that custom sizes are retired: 1724M is nearest 2G.
+	if m.Pod.Size != PodSizeMedium || m.Pod.MappedFrom != "1724M, 1.8 CPU" {
+		t.Errorf("pod size %q from %q, want medium from 1724M, 1.8 CPU", m.Pod.Size, m.Pod.MappedFrom)
 	}
-	// Legacy per-container limits are folded into the pod total:
-	// 200M + 1G + 500M = 1724M, 0.3 + 1 + 0.5 = 1.8 cores.
-	if m.Pod.Memory != "1724M" {
-		t.Errorf("folded pod.memory = %q, want 1724M", m.Pod.Memory)
-	}
-	if m.Pod.CPU != 1.8 {
-		t.Errorf("folded pod.cpu = %v, want 1.8", m.Pod.CPU)
+	if m.Pod.Memory != "" || m.Pod.CPU != 0 {
+		t.Errorf("budget should be cleared after mapping, got %q/%v", m.Pod.Memory, m.Pod.CPU)
 	}
 	if m.Pod.Containers != nil {
 		t.Errorf("legacy containers should be cleared after fold, got %+v", m.Pod.Containers)
@@ -277,8 +275,8 @@ mounts:
 
 func TestPodCustomValidation(t *testing.T) {
 	ok := []byte("version: 2\nproject:\n  name: d\n  type: nodejs\n  domain: d.tainer.me\nruntime:\n  node: \"24\"\n  database: postgres\npod:\n  size: custom\n  memory: 3G\n  cpu: 4\n")
-	if _, err := ParseBytes(ok); err != nil {
-		t.Fatalf("valid custom rejected: %v", err)
+	if m, err := ParseBytes(ok); err != nil || m.Pod.Size != PodSizeLarge {
+		t.Fatalf("a custom budget should load as large: %v", err)
 	}
 	missing := []byte("version: 2\nproject:\n  name: d\n  type: nodejs\n  domain: d.tainer.me\nruntime:\n  node: \"24\"\n  database: postgres\npod:\n  size: custom\n")
 	if _, err := ParseBytes(missing); err == nil {

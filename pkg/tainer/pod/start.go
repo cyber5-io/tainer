@@ -374,8 +374,12 @@ func Start(ctx context.Context, eng *engine.Client, opts StartOptions) (*StartRe
 // role's mounts. The order matters: buildMounts creates missing folders,
 // so run first it would make an empty app/ beside a full html/. The
 // TAINER_ENV check runs after the move, so a legacy html/.env is found as
-// app/.env.
+// app/.env. A retired custom size that was mapped to a named one is noted
+// first.
 func checkProjectFolders(m *manifest.Manifest, projectDir string, notices io.Writer) error {
+	if note := manifest.SizeNotice(m); note != "" {
+		fmt.Fprintln(notices, note)
+	}
 	if err := MigrateAppDir(projectDir, notices); err != nil {
 		return err
 	}

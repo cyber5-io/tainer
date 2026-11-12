@@ -151,7 +151,7 @@ func TestApplySettingNoChange(t *testing.T) {
 func TestApplySettingInvalidValues(t *testing.T) {
 	cases := []struct{ name, base, key, value, want string }{
 		{"size", wpYAML, "pod.size", "huge", `invalid pod size: "huge"`},
-		{"custom without budget", wpYAML, "pod.size", "custom", "pod.size=custom requires pod.memory and pod.cpu"},
+		{"custom without budget", wpYAML, "pod.size", "custom", `invalid pod size: "custom" (expected nano, small, medium, large, xlarge or xxl)`},
 		{"database", wpYAML, "database", "mysql", `invalid database: "mysql" (expected mariadb, postgres, or none)`},
 		{"live domain", wpYAML, "live.domain", "bad domain!", `live.domain: invalid domain "bad domain!"`},
 		{"build dir escape", reactYAML, "runtime.build-dir", "../out", "must stay inside the project"},

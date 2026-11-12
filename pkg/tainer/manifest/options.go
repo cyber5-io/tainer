@@ -87,6 +87,9 @@ type SizeOptions struct {
 	Current PodSize      `json:"current"`
 	Default PodSize      `json:"default"`
 	Values  []SizeOption `json:"values"`
+	// MappedFrom is set when tainer.yaml still carries a retired custom
+	// budget ("3G, 2 CPU") and Current is the named size it runs as.
+	MappedFrom string `json:"mappedFrom,omitempty"`
 }
 
 type SizeOption struct {
@@ -126,7 +129,7 @@ func OptionsFor(m *Manifest) Options {
 
 	o.Size = SizeOptions{Key: "pod.size", Default: DefaultPodSize, Values: []SizeOption{}}
 	if m.Pod != nil {
-		o.Size.Current = m.Pod.Size
+		o.Size.Current, o.Size.MappedFrom = m.Pod.Size, m.Pod.MappedFrom
 	}
 	for _, s := range NamedPodSizes() {
 		b := podBudgets[s]

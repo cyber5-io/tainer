@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	units "github.com/docker/go-units"
-
 	"github.com/cyber5-io/tainer/pkg/tainer/validate"
 	"gopkg.in/yaml.v3"
 )
@@ -49,6 +47,8 @@ const (
 	PodSizeLarge  PodSize = "large"
 	PodSizeXLarge PodSize = "xlarge"
 	PodSizeXXL    PodSize = "xxl"
+	// PodSizeCustom is retired: a tainer.yaml still naming it (with
+	// pod.memory / pod.cpu) loads as the nearest named size.
 	PodSizeCustom PodSize = "custom"
 )
 
@@ -156,13 +156,14 @@ type PodConfig struct {
 	Size PodSize `yaml:"size"`
 	// Smart pods: a size is one absolute budget shared by every container
 	// in the pod (enforced on a pod-level cgroup — containers burst within
-	// it). Memory/CPU are the pod totals for size: custom.
-	Memory string  `yaml:"memory,omitempty"` // custom: pod-total memory, e.g. "3G"
-	CPU    float64 `yaml:"cpu,omitempty"`    // custom: pod-total CPU cores
-	// Containers is the legacy per-container custom shape. Retained only so
-	// old manifests still parse; ParseBytes folds it into Memory/CPU and
-	// clears it. New writes never populate this.
+	// it). Memory/CPU and Containers are the retired custom size: read only
+	// so old files still load, mapped to the nearest named size and cleared.
+	Memory     string                     `yaml:"memory,omitempty"`
+	CPU        float64                    `yaml:"cpu,omitempty"`
 	Containers map[string]ContainerLimits `yaml:"containers,omitempty"`
+	// MappedFrom describes the budget a leftover custom size was mapped
+	// from ("3G, 2 CPU"); "" for a named size. Never written.
+	MappedFrom string `yaml:"-"`
 }
 
 type ContainerLimits struct {
@@ -269,6 +270,9 @@ func Load(path string) (*Manifest, error) {
 		if err := applyOverlay(m, overlayPath); err != nil {
 			return nil, err
 		}
+		if err := mapLegacyPodBudget(m); err != nil {
+			return nil, fmt.Errorf("%s: %w", LocalOverlayName, err)
+		}
 		// The overlay is a project file too (and may arrive with a
 		// clone): the merged result passes every check tainer.yaml does.
 		if err := m.validate(); err != nil {
@@ -305,23 +309,10 @@ func ParseBytes(data []byte) (*Manifest, error) {
 	// Apply defaults
 	m.defaults()
 
-	// Smart pods: fold the legacy per-container custom shape into the pod
-	// total. Defensive — no manifest in the wild uses it — but an old
-	// `size: custom` + `pod.containers` file must keep parsing.
-	if m.Pod != nil && m.Pod.Size == PodSizeCustom && m.Pod.Memory == "" && len(m.Pod.Containers) > 0 {
-		var totMem int64
-		var totCPU float64
-		for _, lim := range m.Pod.Containers {
-			b, err := units.RAMInBytes(lim.Memory)
-			if err != nil {
-				return nil, fmt.Errorf("pod.containers memory %q: %w", lim.Memory, err)
-			}
-			totMem += b
-			totCPU += lim.CPU
-		}
-		m.Pod.Memory = fmt.Sprintf("%dM", totMem/(1024*1024))
-		m.Pod.CPU = totCPU
-		m.Pod.Containers = nil
+	// Custom pod sizes are retired: a budget still in the file runs as the
+	// nearest named size.
+	if err := mapLegacyPodBudget(&m); err != nil {
+		return nil, err
 	}
 
 	// Validate
@@ -426,18 +417,8 @@ func (m *Manifest) validate() error {
 	// Validate pod config for v2
 	if m.Version == 2 {
 		if m.Pod != nil {
-			switch m.Pod.Size {
-			case PodSizeNano, PodSizeSmall, PodSizeMedium, PodSizeLarge, PodSizeXLarge, PodSizeXXL, PodSizeCustom:
-			default:
-				return fmt.Errorf("invalid pod size: %q", m.Pod.Size)
-			}
-			// Smart pods: custom is a single pod-total budget.
-			if m.Pod.Size == PodSizeCustom {
-				if m.Pod.Memory == "" || m.Pod.CPU <= 0 {
-					return fmt.Errorf("pod.size=custom requires pod.memory and pod.cpu")
-				}
-			} else if m.Pod.Memory != "" || m.Pod.CPU != 0 {
-				return fmt.Errorf("pod.memory/pod.cpu only valid with size: custom")
+			if _, ok := podBudgets[m.Pod.Size]; !ok {
+				return fmt.Errorf("invalid pod size: %q (expected %s)", m.Pod.Size, namedSizeList())
 			}
 		}
 

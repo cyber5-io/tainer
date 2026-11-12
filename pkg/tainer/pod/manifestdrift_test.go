@@ -131,23 +131,27 @@ func TestRecreatedContainersCarryTheCurrentHash(t *testing.T) {
 	}
 }
 
-// A custom pod's budget lives in pod.memory/pod.cpu, so changing either
-// changes the hash. Named sizes hash as before, so pods made by an earlier
-// tainer aren't replaced for nothing.
-func TestCustomBudgetIsInTheManifestHash(t *testing.T) {
-	m := &manifest.Manifest{
-		Project: manifest.ProjectConfig{Name: "site", Type: manifest.TypeWordPress, Domain: "site.tainer.me"},
-		Pod:     &manifest.PodConfig{Size: manifest.PodSizeCustom, Memory: "3G", CPU: 2},
+// Custom sizes are retired: a leftover budget loads as its nearest named size
+// and hashes exactly as that size, so such a pod is recreated once, onto the
+// named size's budget, and named sizes keep the hash they always had.
+func TestRetiredCustomBudgetHashesAsItsNamedSize(t *testing.T) {
+	parse := func(pod string) *manifest.Manifest {
+		t.Helper()
+		m, err := manifest.ParseBytes([]byte("version: 2\nproject:\n  name: site\n  type: wordpress\n  domain: site.tainer.me\nruntime:\n  php: \"8.3\"\n  database: mariadb\npod:\n" + pod))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
 	}
-	h := ManifestHash(m)
-	m.Pod.Memory = "4G"
-	if ManifestHash(m) == h {
-		t.Error("custom memory change: want a new hash")
+	large := ManifestHash(parse("  size: large\n"))
+	if got := ManifestHash(parse("  size: custom\n  memory: 3G\n  cpu: 2\n")); got != large {
+		t.Errorf("custom 3G/2 should hash as large")
 	}
-	h = ManifestHash(m)
-	m.Pod.CPU = 3
-	if ManifestHash(m) == h {
-		t.Error("custom cpu change: want a new hash")
+	if got := ManifestHash(parse("  size: custom\n  memory: 3500M\n  cpu: 3\n")); got != large {
+		t.Errorf("a budget change within the same named size keeps the hash")
+	}
+	if got := ManifestHash(parse("  size: custom\n  memory: 8G\n  cpu: 6\n")); got == large {
+		t.Errorf("a budget that maps to another size changes the hash")
 	}
 
 	// Pinned: the hash a small wordpress pod has carried since TAINER_ENV.

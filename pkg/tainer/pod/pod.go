@@ -134,11 +134,9 @@ func Get(ctx context.Context, eng *engine.Client, name string) (*Pod, error) {
 func ManifestHash(m *manifest.Manifest) string {
 	h := sha256.New()
 	fmt.Fprintf(h, "%s/%s/%s/%s\n", m.Project.Name, m.Project.Type, m.Project.Domain, m.Pod.Size)
-	// A custom budget is the pod's memory/cpu. Only written for custom so
-	// named sizes keep the hash they always had.
-	if m.Pod.Size == manifest.PodSizeCustom {
-		fmt.Fprintf(h, "budget mem=%s cpu=%g\n", m.Pod.Memory, m.Pod.CPU)
-	}
+	// The size name is the whole budget: a retired custom budget loads as
+	// its nearest named size, so such a pod's hash changes once and its
+	// next start recreates it on that size's budget.
 	fmt.Fprintf(h, "php=%s node=%s db=%s\n", m.Runtime.PHP, m.Runtime.Node, m.Runtime.Database)
 	// TAINER_ENV and TAINER_LIVE_DOMAIN are container env: a change must
 	// recreate the containers, which also gives pods made before these

@@ -262,3 +262,25 @@ func TestMigrateRenamesDotOnlyHtmlWithoutApp(t *testing.T) {
 	mustExist(t, filepath.Join(p, "app", ".env"))
 	mustNotExist(t, filepath.Join(p, "html"))
 }
+
+// tain-129: a start on a tainer.yaml still carrying a custom budget says
+// which named size it runs as, once, before anything else.
+func TestStartNotesAMappedCustomSize(t *testing.T) {
+	m, err := manifest.ParseBytes([]byte("version: 2\nproject:\n  name: demo\n  type: nodejs\n  domain: demo.tainer.me\nruntime:\n  node: \"22\"\n  database: none\npod:\n  size: custom\n  memory: 3G\n  cpu: 2\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := checkProjectFolders(m, realDir(t), &out); err != nil {
+		t.Fatal(err)
+	}
+	want := "custom pod sizes are no longer supported: 3G, 2 CPU now runs as large (4G, 4 CPU) — choose a size with tainer config set pod.size <size>\n"
+	if out.String() != want {
+		t.Errorf("got %q, want %q", out.String(), want)
+	}
+	m.Pod.MappedFrom = ""
+	out.Reset()
+	if err := checkProjectFolders(m, realDir(t), &out); err != nil || out.Len() != 0 {
+		t.Errorf("a named size says nothing: %q %v", out.String(), err)
+	}
+}

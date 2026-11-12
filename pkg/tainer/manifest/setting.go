@@ -90,6 +90,9 @@ func SettingValue(m *Manifest, key string) (string, error) {
 // removes pod.memory and pod.cpu.
 func ApplySetting(raw []byte, key, value string) (out []byte, stored string, changed bool, err error) {
 	canon := CanonicalSettingKey(key)
+	if key == "pod.memory" || key == "pod.cpu" {
+		return nil, "", false, &InvalidSettingError{Err: fmt.Errorf("%s can't be set: pods use named sizes (%s) — set pod.size instead", key, namedSizesWithMemory())}
+	}
 	if canon == "" {
 		return nil, "", false, &UnknownSettingError{Key: key}
 	}
@@ -106,7 +109,10 @@ func ApplySetting(raw []byte, key, value string) (out []byte, stored string, cha
 		return nil, "", false, &InvalidSettingError{Err: err}
 	}
 	stored, _ = SettingValue(next, canon)
-	if stored == before {
+	// A file still carrying a retired custom budget is rewritten when a size
+	// is chosen, even the one it maps to, so the budget lines go.
+	mapped := canon == "pod.size" && current.Pod != nil && current.Pod.MappedFrom != ""
+	if stored == before && !mapped {
 		return raw, stored, false, nil
 	}
 
@@ -132,9 +138,7 @@ func setField(m *Manifest, key, value string) error {
 			m.Pod = &PodConfig{}
 		}
 		m.Pod.Size = PodSize(value)
-		if m.Pod.Size != PodSizeCustom {
-			m.Pod.Memory, m.Pod.CPU = "", 0
-		}
+		m.Pod.Memory, m.Pod.CPU, m.Pod.Containers, m.Pod.MappedFrom = "", 0, nil, ""
 	case "database":
 		db := DatabaseType(value)
 		// Choosing the value already set is no change, even on a hand-edited
@@ -212,9 +216,10 @@ func editNode(raw []byte, key, stored string) ([]byte, error) {
 			return nil, err
 		}
 		setScalar(m, field, stored)
-		if key == "pod.size" && stored != string(PodSizeCustom) {
+		if key == "pod.size" {
 			removeKey(m, "memory")
 			removeKey(m, "cpu")
+			removeKey(m, "containers")
 		}
 	}
 	var buf bytes.Buffer
@@ -319,4 +324,13 @@ func orList(values []string) string {
 		return strings.Join(values, "")
 	}
 	return strings.Join(values[:len(values)-1], ", ") + " or " + values[len(values)-1]
+}
+
+// namedSizesWithMemory is "nano 512M, small 1G, … or xxl 16G".
+func namedSizesWithMemory() string {
+	var parts []string
+	for _, s := range NamedPodSizes() {
+		parts = append(parts, string(s)+" "+podBudgets[s].Memory)
+	}
+	return orList(parts)
 }

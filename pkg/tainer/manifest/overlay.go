@@ -109,6 +109,16 @@ func mergePod(b, ov *PodConfig) {
 	// Assume b is non-nil (defaults() ensures this)
 	if ov.Size != "" {
 		b.Size = ov.Size
+		// The overlay names the size: whatever the base was mapped from
+		// no longer applies.
+		b.MappedFrom = ""
+	}
+	// A retired custom budget in the overlay is mapped after the merge.
+	if ov.Memory != "" {
+		b.Memory = ov.Memory
+	}
+	if ov.CPU != 0 {
+		b.CPU = ov.CPU
 	}
 	if len(ov.Containers) > 0 {
 		if b.Containers == nil {

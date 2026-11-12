@@ -40,16 +40,18 @@ func TestPodBudgetPresets(t *testing.T) {
 	}
 }
 
-func TestPodBudgetCustom(t *testing.T) {
-	m := mkPod(manifest.PodSizeCustom)
-	m.Pod.Memory = "3G"
-	m.Pod.CPU = 4
+// A retired custom budget runs on its mapped named size's budget.
+func TestPodBudgetForAMappedCustomSize(t *testing.T) {
+	m, err := manifest.ParseBytes([]byte("version: 2\nproject:\n  name: d\n  type: nodejs\n  domain: d.tainer.me\nruntime:\n  node: \"22\"\n  database: none\npod:\n  size: custom\n  memory: 3G\n  cpu: 4\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	mem, cpu, err := PodBudget(m)
 	if err != nil {
 		t.Fatalf("custom: %v", err)
 	}
-	if mem != 3*1024*1024*1024 || cpu != 4 {
-		t.Errorf("custom: got %d/%v, want %d/4", mem, cpu, int64(3*1024*1024*1024))
+	if mem != 4*1024*1024*1024 || cpu != 4 {
+		t.Errorf("custom 3G/4 should run on large's 4G/4, got %d/%v", mem, cpu)
 	}
 }
 
@@ -57,10 +59,7 @@ func TestPodBudgetErrors(t *testing.T) {
 	if _, _, err := PodBudget(&manifest.Manifest{}); err == nil {
 		t.Errorf("nil pod config should error")
 	}
-	bad := mkPod(manifest.PodSizeCustom)
-	bad.Pod.Memory = "not-a-size"
-	bad.Pod.CPU = 1
-	if _, _, err := PodBudget(bad); err == nil {
-		t.Errorf("unparseable custom memory should error")
+	if _, _, err := PodBudget(mkPod(manifest.PodSizeCustom)); err == nil {
+		t.Errorf("an unmapped custom size has no budget")
 	}
 }
