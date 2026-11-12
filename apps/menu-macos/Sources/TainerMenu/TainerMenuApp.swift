@@ -1,6 +1,20 @@
 import SwiftUI
 
 @main
+enum Main {
+    static func main() {
+        switch LaunchMode(arguments: CommandLine.arguments) {
+        case .loginItemStatus:
+            print(SystemLoginItem().status.rawValue)
+        case .unregisterLoginItem:
+            let removed = LoginItemRegistrar.uninstall(remove: SystemLoginItem().removeForUninstall, flags: UserDefaults.standard)
+            if !removed { exit(1) }
+        case .app:
+            TainerMenuApp.main()
+        }
+    }
+}
+
 struct TainerMenuApp: App {
     @State private var model = AppModel()
 

@@ -100,6 +100,7 @@ final class AppModel {
     }
 
     init() {
+        LoginItemRegistrar(service: SystemLoginItem(), flags: UserDefaults.standard, bundlePath: Bundle.main.bundlePath).ensure()
         let state = self.state
         let pulse = self.pulse
         actions = ActionRunner(state: state)
