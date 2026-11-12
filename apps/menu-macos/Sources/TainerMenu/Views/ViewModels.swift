@@ -8,8 +8,11 @@ struct PodRowModel {
     let pod: Pod
     let busy: Bool
     var update: PodUpdate? = nil
-    /// False while tainer or the menu is updating: the update button is left out.
+    /// False while tainer or the menu is updating, or "Update all pods" runs: the update button
+    /// is left out.
     var updatesAllowed = true
+    /// This pod is the one "Update all pods" is updating now.
+    var updating = false
 
     var title: String { pod.domain.isEmpty ? pod.name : pod.domain }
     var tooltip: String { pod.name }
@@ -30,12 +33,13 @@ struct PodRowModel {
         return pod.total > 0 ? "Starts in seconds" : "First start takes a little longer"
     }
     var isActive: Bool { pod.isActive }
-    var showsSpinner: Bool { busy }
+    var showsSpinner: Bool { busy || updating }
+    var statusNote: String? { updating ? UpdateCopy.podUpdating : nil }
 
     /// Buttons shown in the row; empty while an operation is in flight. A pod with an update
     /// leads with the update button.
     var actions: [PodAction] {
-        if busy { return [] }
+        if busy || updating { return [] }
         let base: [PodAction]
         switch pod.state {
         case .running, .partial: base = [.open, .restart, .stop, .manage]
@@ -64,6 +68,12 @@ enum UpdateCopy {
         "Needs tainer \(minTainer) first — this updates tainer."
     }
     static let updateAllPods = "Update all pods"
+    static let updatingAllPods = "Updating all pods…"
+    static let allPodsUpdated = "All pods updated"
+    static let podUpdating = "updating…"
+    static func podsUpdated(_ updated: Int, failed: Int) -> String {
+        "\(updated) \(updated == 1 ? "pod" : "pods") updated, \(failed) failed"
+    }
     static let checkNow = "Check for updates"
     static let checking = "Checking for updates…"
     static let upToDate = "Up to date"
@@ -255,4 +265,33 @@ struct CheckRowModel: Equatable {
         case nil: return "arrow.triangle.2.circlepath"
         }
     }
+}
+
+/// The "Update all pods" row: idle, running, then how the run ended.
+struct BulkRowModel: Equatable {
+    let isRunning: Bool
+    let outcome: BulkOutcome?
+
+    /// The row shows while there are 2+ pod updates, and stays through a run and its outcome even
+    /// though the run empties the update list as it goes.
+    static func visible(podsWithUpdates: Int, isRunning: Bool, outcome: BulkOutcome?) -> Bool {
+        podsWithUpdates >= 2 || isRunning || outcome != nil
+    }
+
+    var title: String {
+        if isRunning { return UpdateCopy.updatingAllPods }
+        guard let outcome else { return UpdateCopy.updateAllPods }
+        return outcome.failed == 0 ? UpdateCopy.allPodsUpdated : UpdateCopy.podsUpdated(outcome.updated, failed: outcome.failed)
+    }
+
+    var symbol: String {
+        guard !isRunning, let outcome else { return "arrow.down.circle" }
+        return outcome.failed == 0 ? "checkmark.circle" : "exclamationmark.triangle"
+    }
+
+    var busy: Bool { isRunning }
+    /// Clickable only while idle.
+    var enabled: Bool { !isRunning && outcome == nil }
+    /// Secondary colour while running or showing the outcome.
+    var muted: Bool { isRunning || outcome != nil }
 }

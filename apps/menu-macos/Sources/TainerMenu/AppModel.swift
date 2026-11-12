@@ -7,6 +7,7 @@ final class AppModel {
     let state = StackState()
     let pulse = PulseDriver()
     let updates = UpdateChecker()
+    let bulk = BulkUpdate()
     private var watch: WatchClient?
 
     private let actions: ActionRunner
@@ -36,7 +37,7 @@ final class AppModel {
     /// Warn when pods are running (Update now / Later), then run `update tainer`. The installer
     /// may relaunch this app before the command returns; the new process picks up the resume.
     func updateTainer() {
-        guard updates.activity == nil else { return }
+        guard updates.activity == nil, !bulk.isRunning else { return }
         let running = state.podsATainerUpdateRestarts
         if !running.isEmpty, !Confirm.ask(UpdateCopy.restartWarning(running), ok: "Update now", cancel: "Later") { return }
         startSelfUpdate(.tainer, activity: .updatingTainer)
@@ -44,7 +45,7 @@ final class AppModel {
 
     /// A menu update that needs a newer tainer goes through the tainer update instead.
     func updateMenu() {
-        guard updates.activity == nil else { return }
+        guard updates.activity == nil, !bulk.isRunning else { return }
         if updates.menuUpdate?.needsTainerFirst == true {
             updateTainer()
             return
@@ -58,8 +59,18 @@ final class AppModel {
         Task { await updates.checkNow() }
     }
 
+    /// "Update all pods": one pod at a time, in the order the menu lists them, so the row can show
+    /// the run and the list the pod being updated. A click while a run is in flight does nothing.
     func updateAllPods() {
-        updatePods(updates.pods.keys.sorted())
+        guard !bulk.isRunning, updates.podUpdatesAllowed else { return }
+        let names = BulkUpdate.order(updates.pods.keys.sorted(), listed: state.allPods.map(\.name))
+        guard !names.isEmpty, confirmRestarts(names) else { return }
+        let actions = self.actions, updates = self.updates, bulk = self.bulk
+        Task {
+            if await bulk.run(names, update: { await actions.perform(.update, pod: $0) }) {
+                await updates.check()
+            }
+        }
     }
 
     private func startSelfUpdate(_ target: ActionRunner.SelfUpdateTarget, activity: UpdateActivity) {
@@ -72,12 +83,15 @@ final class AppModel {
         }
     }
 
-    /// Running pods restart while they update, so ask first (Update / Cancel); then update one
-    /// at a time and check again.
-    private func updatePods(_ names: [String]) {
-        guard !names.isEmpty, updates.podUpdatesAllowed else { return }
+    /// Running pods restart while they update, so ask first (Update / Cancel).
+    private func confirmRestarts(_ names: [String]) -> Bool {
         let running = names.filter(Set(runningPods).contains)
-        if !running.isEmpty, !Confirm.ask(UpdateCopy.podsWarning(running), ok: "Update", cancel: "Cancel") { return }
+        return running.isEmpty || Confirm.ask(UpdateCopy.podsWarning(running), ok: "Update", cancel: "Cancel")
+    }
+
+    /// One pod's update arrow; then check again. Not while "Update all pods" runs.
+    private func updatePods(_ names: [String]) {
+        guard !names.isEmpty, updates.podUpdatesAllowed, !bulk.isRunning, confirmRestarts(names) else { return }
         let actions = self.actions, updates = self.updates
         Task {
             for name in names { await actions.run(.update, pod: name) }

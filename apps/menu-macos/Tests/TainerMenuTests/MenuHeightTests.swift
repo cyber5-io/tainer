@@ -16,7 +16,7 @@ private func pagedState(_ count: Int) -> StackState {
 /// The menu hosted and laid out, with its on-open work (which resets to page 1) already run.
 @MainActor
 private func menu(_ state: StackState) async -> NSHostingView<MenuContent> {
-    let view = NSHostingView(rootView: MenuContent(state: state, updates: UpdateChecker(), onAction: { _, _ in }, onQuit: {}))
+    let view = NSHostingView(rootView: MenuContent(state: state, updates: UpdateChecker(), bulk: BulkUpdate(), onAction: { _, _ in }, onQuit: {}))
     view.frame.size = view.fittingSize
     view.layoutSubtreeIfNeeded()
     for _ in 0..<50 { await Task.yield() }

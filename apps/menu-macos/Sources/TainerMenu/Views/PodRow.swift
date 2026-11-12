@@ -72,6 +72,9 @@ struct PodRow: View {
                 .truncationMode(.middle)
             Spacer(minLength: 4)
             if model.showsSpinner {
+                if let note = model.statusNote {
+                    Text(note).font(.system(size: 11)).foregroundStyle(palette.secondaryText)
+                }
                 BrandSpinner(tint: palette.teal).frame(width: 24, height: 24)
                     .accessibilityElement().accessibilityLabel("Working on \(pod.name)")
             } else {

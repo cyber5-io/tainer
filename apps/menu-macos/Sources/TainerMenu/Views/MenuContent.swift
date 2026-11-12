@@ -3,6 +3,7 @@ import SwiftUI
 struct MenuContent: View {
     let state: StackState
     let updates: UpdateChecker
+    let bulk: BulkUpdate
     let onAction: (PodAction, String?) -> Void
     let onQuit: () -> Void
     var onOpen: () async -> Void = {}
@@ -80,13 +81,16 @@ struct MenuContent: View {
             VStack(spacing: 0) {
                 ForEach(state.visiblePods) { pod in
                     PodRow(model: PodRowModel(pod: pod, busy: state.busy.contains(pod.name), update: updates.pods[pod.name],
-                                                    updatesAllowed: updates.podUpdatesAllowed), palette: palette, onAction: onAction)
+                                              updatesAllowed: updates.podUpdatesAllowed && !bulk.isRunning,
+                                              updating: bulk.current == pod.name),
+                           palette: palette, onAction: onAction)
                 }
                 if state.showsPager { pager(palette) }
-                if updates.pods.count >= 2 {
-                    MenuItem(symbol: "arrow.down.circle", title: UpdateCopy.updateAllPods, color: palette.link, palette: palette,
-                             action: onUpdateAllPods)
-                        .disabled(!updates.podUpdatesAllowed)
+                if BulkRowModel.visible(podsWithUpdates: updates.pods.count, isRunning: bulk.isRunning, outcome: bulk.outcome) {
+                    let row = BulkRowModel(isRunning: bulk.isRunning, outcome: bulk.outcome)
+                    MenuItem(symbol: row.symbol, title: row.title, color: row.muted ? palette.secondaryText : palette.link,
+                             busy: row.busy, palette: palette, action: onUpdateAllPods)
+                        .disabled(!row.enabled || !updates.podUpdatesAllowed)
                         .padding(.top, 2)
                 }
             }
@@ -101,7 +105,8 @@ struct MenuContent: View {
 
     /// "Tainer <v> is available — Update…" / "Menu <v> …", only when there is one; notes as help.
     @ViewBuilder private func updateRows(_ palette: MenuPalette) -> some View {
-        let busy = updates.activity != nil
+        // Not while pods are updating: a tainer update restarts them mid-update.
+        let busy = updates.activity != nil || bulk.isRunning
         if let release = updates.tainerUpdate, let title = updates.tainerRow {
             MenuItem(symbol: "arrow.down.circle", title: title, color: palette.link, weight: .semibold, palette: palette,
                      action: onUpdateTainer)

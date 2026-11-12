@@ -74,27 +74,32 @@ final class ActionRunner {
         self.doctorResultHold = doctorResultHold
     }
 
-    func run(_ action: PodAction, pod: String?) async {
+    func run(_ action: PodAction, pod: String?) async { _ = await perform(action, pod: pod) }
+
+    /// `run`, returning true when the action ran and succeeded. Failures are reported to the sink
+    /// here, and an action that couldn't start (the pod already busy, no folder for a reserved
+    /// name) counts as not succeeded.
+    func perform(_ action: PodAction, pod: String?) async -> Bool {
         let label: String
         let arguments: [String]
         switch (action, pod) {
         case (.doctor, _):
             await runDoctor()
-            return
+            return true
         case (.start, let pod?), (.stop, let pod?), (.restart, let pod?):
-            guard !state.busy.contains(pod) else { return }
+            guard !state.busy.contains(pod) else { return false }
             label = pod
             arguments = [command(action), pod, "--json"]
         case (.update, let pod?):
-            guard !state.busy.contains(pod), !selfUpdateRunning else { return }
+            guard !state.busy.contains(pod), !selfUpdateRunning else { return false }
             label = pod
             guard let target = updateTarget(pod) else {
                 await sink.post("\(pod): update it from its folder with tainer update ./\(pod)")
-                return
+                return false
             }
             arguments = ["update", target, "--json"]
         default:
-            return
+            return false
         }
 
         state.busy.insert(label)
@@ -102,7 +107,9 @@ final class ActionRunner {
 
         if let message = await failure(arguments, isDoctor: false) {
             await sink.post("\(label): \(message)")
+            return false
         }
+        return true
     }
 
     /// `doctor --fix --json`. The row shows the run and then its outcome for `doctorResultHold`;
