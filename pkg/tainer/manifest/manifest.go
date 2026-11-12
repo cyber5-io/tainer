@@ -187,7 +187,7 @@ func (m *Manifest) BuildDirOrDefault() string {
 	if m.Runtime.BuildDir != "" {
 		return m.Runtime.BuildDir
 	}
-	return "dist"
+	return DefaultBuildDir
 }
 
 func (m *Manifest) ShellOrDefault() string {

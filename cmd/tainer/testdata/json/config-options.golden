@@ -1,0 +1,68 @@
+{
+  "project": "shop",
+  "type": "react",
+  "size": {
+    "key": "pod.size",
+    "current": "small",
+    "default": "small",
+    "values": [
+      {
+        "name": "nano",
+        "memory": "512M",
+        "cpu": 1
+      },
+      {
+        "name": "small",
+        "memory": "1G",
+        "cpu": 1
+      },
+      {
+        "name": "medium",
+        "memory": "2G",
+        "cpu": 2
+      },
+      {
+        "name": "large",
+        "memory": "4G",
+        "cpu": 4
+      },
+      {
+        "name": "xlarge",
+        "memory": "8G",
+        "cpu": 6
+      },
+      {
+        "name": "xxl",
+        "memory": "16G",
+        "cpu": 8
+      }
+    ]
+  },
+  "database": {
+    "key": "database",
+    "current": "none",
+    "default": "none",
+    "values": [
+      "none",
+      "postgres",
+      "mariadb"
+    ]
+  },
+  "runtime": {
+    "key": "runtime.node",
+    "name": "node",
+    "current": "22",
+    "default": "22",
+    "values": [
+      "20",
+      "22",
+      "24"
+    ]
+  },
+  "buildDir": {
+    "key": "runtime.build-dir",
+    "applies": true,
+    "current": "dist",
+    "default": "dist"
+  }
+}

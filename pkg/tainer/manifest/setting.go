@@ -3,7 +3,7 @@ package manifest
 import (
 	"bytes"
 	"fmt"
-	"regexp"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -51,8 +51,6 @@ type InvalidSettingError struct{ Err error }
 
 func (e *InvalidSettingError) Error() string { return e.Err.Error() }
 func (e *InvalidSettingError) Unwrap() error { return e.Err }
-
-var versionPattern = regexp.MustCompile(`^[0-9]+(\.[0-9]+)*$`)
 
 // SettingValue reads a settable key (or alias) from m; an unset key reads as "".
 func SettingValue(m *Manifest, key string) (string, error) {
@@ -138,21 +136,38 @@ func setField(m *Manifest, key, value string) error {
 			m.Pod.Memory, m.Pod.CPU = "", 0
 		}
 	case "database":
-		m.Runtime.Database = DatabaseType(value)
+		db := DatabaseType(value)
+		// Choosing the value already set is no change, even on a hand-edited
+		// file whose value the type doesn't offer.
+		switch db {
+		case m.Runtime.Database:
+		case DatabaseMariaDB, DatabasePostgres, DatabaseNone:
+			// A known engine the type doesn't offer; anything else gets
+			// the manifest's own "invalid database" message.
+			offered := DatabasesFor(m.Project.Type)
+			if !containsDB(offered, db) {
+				names := make([]string, len(offered))
+				for i, d := range offered {
+					names[i] = string(d)
+				}
+				return fmt.Errorf("database %q isn't offered for %s projects (choose %s)", value, m.Project.Type, orList(names))
+			}
+		}
+		m.Runtime.Database = db
 	case "runtime.node":
 		if !m.IsNode() {
 			return fmt.Errorf("runtime.node applies to node projects; %s", kind())
 		}
-		if value != "" && !versionPattern.MatchString(value) {
-			return fmt.Errorf("runtime.node %q: use a version number like 22", value)
+		if value != "" && value != m.Runtime.Node && !slices.Contains(NodeVersions, value) {
+			return fmt.Errorf("runtime.node %q isn't available (choose %s)", value, orList(NodeVersions))
 		}
 		m.Runtime.Node = value
 	case "runtime.php":
 		if !m.IsPHP() {
 			return fmt.Errorf("runtime.php applies to php projects; %s", kind())
 		}
-		if value != "" && !versionPattern.MatchString(value) {
-			return fmt.Errorf("runtime.php %q: use a version number like 8.3", value)
+		if value != "" && value != m.Runtime.PHP && !slices.Contains(PHPVersions, value) {
+			return fmt.Errorf("runtime.php %q isn't available (choose %s)", value, orList(PHPVersions))
 		}
 		m.Runtime.PHP = value
 	case "runtime.build-dir":
@@ -294,4 +309,14 @@ func removeKey(m *yaml.Node, key string) {
 			return
 		}
 	}
+}
+
+func containsDB(list []DatabaseType, d DatabaseType) bool { return slices.Contains(list, d) }
+
+// orList joins values as "a, b or c".
+func orList(values []string) string {
+	if len(values) <= 1 {
+		return strings.Join(values, "")
+	}
+	return strings.Join(values[:len(values)-1], ", ") + " or " + values[len(values)-1]
 }

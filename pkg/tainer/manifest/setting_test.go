@@ -20,6 +20,9 @@ pod:
   size: small
 `
 
+// phpYAML is a php project: unlike wordpress it offers mariadb, postgres or none.
+var phpYAML = strings.Replace(wpYAML, "type: wordpress", "type: php", 1)
+
 const nodeYAML = `version: 2
 project:
   name: api
@@ -61,9 +64,9 @@ func TestApplySettingEveryKey(t *testing.T) {
 		name, base, key, value, stored string
 	}{
 		{"pod size", wpYAML, "pod.size", "large", "large"},
-		{"database", wpYAML, "database", "postgres", "postgres"},
-		{"database alias", wpYAML, "runtime.database", "postgres", "postgres"},
-		{"database none", wpYAML, "database", "none", "none"},
+		{"database", phpYAML, "database", "postgres", "postgres"},
+		{"database alias", phpYAML, "runtime.database", "postgres", "postgres"},
+		{"database none", phpYAML, "database", "none", "none"},
 		{"php", wpYAML, "runtime.php", "8.4", "8.4"},
 		{"node", nodeYAML, "runtime.node", "24", "24"},
 		{"build dir", reactYAML, "runtime.build-dir", "./build/", "build"},
@@ -155,8 +158,13 @@ func TestApplySettingInvalidValues(t *testing.T) {
 		{"build dir absolute", reactYAML, "runtime.build-dir", "/srv/out", "not an absolute path"},
 		{"php empty", wpYAML, "runtime.php", "", "php version required for wordpress projects"},
 		{"node empty", nodeYAML, "runtime.node", "", "node version required for nodejs projects"},
-		{"php junk", wpYAML, "runtime.php", "8.3; rm -rf /", `runtime.php "8.3; rm -rf /": use a version number like 8.3`},
-		{"node junk", nodeYAML, "runtime.node", "latest", `runtime.node "latest": use a version number like 22`},
+		{"php junk", wpYAML, "runtime.php", "8.3; rm -rf /", `runtime.php "8.3; rm -rf /" isn't available (choose 7.4, 8.1, 8.2, 8.3, 8.4 or 8.5)`},
+		{"node junk", nodeYAML, "runtime.node", "latest", `runtime.node "latest" isn't available (choose 20, 22 or 24)`},
+		{"node 99", nodeYAML, "runtime.node", "99", `runtime.node "99" isn't available (choose 20, 22 or 24)`},
+		{"node 18", nodeYAML, "runtime.node", "18", `runtime.node "18" isn't available (choose 20, 22 or 24)`},
+		{"php 8.0", wpYAML, "runtime.php", "8.0", `runtime.php "8.0" isn't available`},
+		{"postgres on wordpress", wpYAML, "database", "postgres", `database "postgres" isn't offered for wordpress projects (choose mariadb)`},
+		{"none on kompozi", strings.Replace(strings.Replace(nodeYAML, "type: nodejs", "type: kompozi", 1), "database: none", "database: postgres", 1), "database", "none", `database "none" isn't offered for kompozi projects (choose postgres or mariadb)`},
 		{"php on node", nodeYAML, "runtime.php", "8.3", "runtime.php applies to php projects; api is a nodejs project"},
 		{"node on php", wpYAML, "runtime.node", "22", "runtime.node applies to node projects; blog is a wordpress project"},
 		{"build dir on php", wpYAML, "runtime.build-dir", "dist", "runtime.build-dir applies to react and svelte projects; blog is a wordpress project"},
@@ -198,7 +206,7 @@ func TestApplySettingRefusesABrokenFile(t *testing.T) {
 func TestApplySettingRoundTripsThroughSaveAndLoad(t *testing.T) {
 	for _, c := range []struct{ base, key, value string }{
 		{wpYAML, "pod.size", "xlarge"},
-		{wpYAML, "database", "postgres"},
+		{phpYAML, "database", "postgres"},
 		{wpYAML, "runtime.php", "8.4"},
 		{nodeYAML, "runtime.node", "24"},
 		{reactYAML, "runtime.build-dir", "build"},
@@ -323,5 +331,31 @@ func TestApplySettingOnAVersion1File(t *testing.T) {
 	out, _, _, err = ApplySetting([]byte(v1), "live.domain", "old.example.com")
 	if err != nil || !strings.HasPrefix(string(out), "version: 1\n") {
 		t.Errorf("live.domain on v1: %v\n%s", err, out)
+	}
+}
+
+// Setting the value a hand-edited file already has is "no change", even when
+// the type doesn't offer that value: nothing would change, so nothing is
+// refused.
+func TestApplySettingSameUnofferedValueIsNoChange(t *testing.T) {
+	wpOnPostgres := strings.Replace(wpYAML, "database: mariadb", "database: postgres", 1)
+	nodeOn18 := strings.Replace(nodeYAML, `node: "22"`, `node: "18"`, 1)
+	phpOn80 := strings.Replace(wpYAML, `php: "8.3"`, `php: "8.0"`, 1)
+	for _, c := range []struct{ base, key, value string }{
+		{wpOnPostgres, "database", "postgres"},
+		{nodeOn18, "runtime.node", "18"},
+		{phpOn80, "runtime.php", "8.0"},
+	} {
+		out, stored, changed, err := ApplySetting([]byte(c.base), c.key, c.value)
+		if err != nil || changed || stored != c.value || string(out) != c.base {
+			t.Errorf("%s=%s: changed=%v stored=%q err=%v", c.key, c.value, changed, stored, err)
+		}
+	}
+	// Changing to another unoffered value is still refused.
+	if _, _, _, err := ApplySetting([]byte(nodeOn18), "runtime.node", "16"); err == nil {
+		t.Errorf("node 16 should be refused")
+	}
+	if _, _, _, err := ApplySetting([]byte(wpOnPostgres), "database", "none"); err == nil {
+		t.Errorf("none on wordpress should be refused")
 	}
 }

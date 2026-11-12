@@ -22,6 +22,7 @@ Examples are copied from the tests' own golden strings, so the page and the code
 | `logs` lines | `TestLogsJSONLineShape` (`cmd/tainer/json_gaps_test.go`) |
 | `doctor` document, skip hints | `TestDoctorJSONShape`, `TestDoctorJSONSkipCarriesReason` |
 | `config` document | `TestConfigJSONShape` |
+| `config options` document | `TestJSONSnapshotConfigOptions` against `config-options.golden`, `TestOptionsPerType` (`pkg/tainer/manifest/options_test.go`) |
 | `config set` document and refusals | `TestJSONSnapshotConfigSet` against `config-set.golden` and `config-set-nochange.golden`, `TestConfigSetRefusesInvalidValuesWithoutWriting`, `TestConfigSetUnknownKeyAndBadUsage` (`cmd/tainer/config_set_test.go`) |
 | `exec` lines | `TestExecJSONStreamShape`, `TestExecJSONRefusesTTY` |
 | `login`, `whoami`, `logout` documents | `TestLoginJSONReadsStdinAndStoresSession`, `TestWhoamiLoggedOutDocument`, `TestLogoutClearsStore` (`cmd/tainer/login_test.go`) |
@@ -394,7 +395,7 @@ Without `--json`, `config` prints `tainer.yaml` as written.
 
 ### `config set`
 
-`tainer config set [project] <key> <value>` changes one setting in the project's `tainer.yaml`. The number of arguments picks the form: `set <key> <value>` finds the project from the working directory, and `set <project> <key> <value>` names a registered project, the same way `config <project>` does. Callers that don't run inside a project folder (the control gateway) use the second form, e.g. args `["set","shop","pod.size","large"]`. The keys are `pod.size`, `database`, `runtime.node`, `runtime.php`, `runtime.build-dir` and `live.domain`. `runtime.database` is accepted as another spelling of `database`; `key` in the result is always the canonical name. The new value goes through the same checks as a hand-edited `tainer.yaml`; on top of those, `runtime.php` and `runtime.node` must be version numbers and apply only to php and node projects respectively, and `runtime.build-dir` applies only to react and svelte. An empty `live.domain` removes the `live` section. Switching `pod.size` from `custom` to a named size drops `pod.memory` and `pod.cpu`.
+`tainer config set [project] <key> <value>` changes one setting in the project's `tainer.yaml`. The number of arguments picks the form: `set <key> <value>` finds the project from the working directory, and `set <project> <key> <value>` names a registered project, the same way `config <project>` does. Callers that don't run inside a project folder (the control gateway) use the second form, e.g. args `["set","shop","pod.size","large"]`. The keys are `pod.size`, `database`, `runtime.node`, `runtime.php`, `runtime.build-dir` and `live.domain`. `runtime.database` is accepted as another spelling of `database`; `key` in the result is always the canonical name. The new value goes through the same checks as a hand-edited `tainer.yaml`; on top of those, `runtime.php` and `runtime.node` must be one of the versions `config options` lists (and apply only to php and node projects respectively), `database` must be one the project type offers, and `runtime.build-dir` applies only to react and svelte. An empty `live.domain` removes the `live` section. Switching `pod.size` from `custom` to a named size drops `pod.memory` and `pod.cpu`.
 
 ```json
 {"v":1,"key":"pod.size","value":"large","changed":true,"note":"takes effect on the next start"}
@@ -403,6 +404,22 @@ Without `--json`, `config` prints `tainer.yaml` as written.
 `value` is the value as stored (a build dir is cleaned, so `./build/` is stored as `build`). Setting a key to the value it already has changes nothing: `changed` is `false`, `note` is `"already set"`, and the file is left byte for byte as it was. Otherwise only the target key changes: comments, keys tainer does not know, key order and the file's indentation are kept (the space before an inline comment is normalised to one). A version 1 file stays version 1. The write never touches `.tainer.local.yaml`; when that file sets the same key, `note` says so (`"saved, but .tainer.local.yaml sets pod.size to xxl, which wins"`). If the project no longer loads after the write (for example `.tainer.local.yaml` now conflicts with it), the change is still saved and `note` starts with `"saved, but the project no longer loads: "` followed by the reason.
 
 Errors: `invalid-arguments` for an unknown key (the message lists the keys), a refused value (the message is the manifest's own, e.g. `invalid pod size: "huge"`) or bad usage (`set <project> <key>` with the value missing says so and shows the full form); `manifest-invalid` when the existing `tainer.yaml` does not parse; `no-project-here` (two-argument form, no project at or above the working directory) and `project-not-found` (the named project is not registered, or its `tainer.yaml` cannot be read) as for `config`; `command-failed` when the file cannot be written. Without `--json` it prints one line, e.g. `pod.size set to large — takes effect on the next start`.
+
+### `config options`
+
+`tainer config options [project]` lists, for one project, what each pod setting can be set to with `config set` and what it is now. The project is found like `config`: no argument means the working directory, one argument names a registered project. It reads `tainer.yaml` with `.tainer.local.yaml` applied, so `current` is what the pod runs with.
+
+```json
+{"v":1,"project":"shop","type":"react",
+ "size":{"key":"pod.size","current":"small","default":"small","values":[{"name":"nano","memory":"512M","cpu":1},{"name":"small","memory":"1G","cpu":1},{"name":"medium","memory":"2G","cpu":2},{"name":"large","memory":"4G","cpu":4},{"name":"xlarge","memory":"8G","cpu":6},{"name":"xxl","memory":"16G","cpu":8}]},
+ "database":{"key":"database","current":"none","default":"none","values":["none","postgres","mariadb"]},
+ "runtime":{"key":"runtime.node","name":"node","current":"22","default":"22","values":["20","22","24"]},
+ "buildDir":{"key":"runtime.build-dir","applies":true,"current":"dist","default":"dist"}}
+```
+
+Each section's `key` is the key to pass to `config set`. `size.values` are the named sizes, smallest first; `memory` and `cpu` are the whole pod's budget. `database.values` are the engines the project type offers, its default first: wordpress offers `mariadb`; php `mariadb`, `postgres`, `none`; kompozi `postgres`, `mariadb`; every other type `none`, `postgres`, `mariadb`. `runtime` is `runtime.php` (`name` `"php"`) for wordpress and php, `runtime.node` (`name` `"node"`) for every other type; `values` are the versions tainer's images are built for. `buildDir.applies` is true only for react and svelte, which serve a built bundle; otherwise `current` and `default` are `""`. A value can be `current` without being in `values` when `tainer.yaml` was written by hand.
+
+Errors: `no-project-here`, `project-not-found`, `manifest-invalid` as for `config`; `invalid-arguments` for more than one argument or an unknown flag.
 
 ### `logs` (NDJSON)
 

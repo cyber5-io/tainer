@@ -64,8 +64,9 @@ const (
 )
 
 var (
-	defaultPHPVersions  = []string{"7.4", "8.1", "8.2", "8.3", "8.4", "8.5"}
-	defaultNodeVersions = []string{"20", "22", "24"}
+	// Offline fallbacks: the versions tainer's images are built for.
+	defaultPHPVersions  = manifest.PHPVersions
+	defaultNodeVersions = manifest.NodeVersions
 	projectTypes        = []struct {
 		Type  manifest.ProjectType
 		Label string
@@ -167,16 +168,11 @@ func defaultVersion(pt manifest.ProjectType) string {
 }
 
 func dbChoices(pt manifest.ProjectType) []string {
-	switch pt {
-	case manifest.TypeWordPress:
-		return []string{"mariadb"}
-	case manifest.TypePHP:
-		return []string{"mariadb", "postgres", "none"}
-	case manifest.TypeKompozi:
-		return []string{"postgres", "mariadb"}
-	default:
-		return []string{"none", "postgres", "mariadb"}
+	var out []string
+	for _, d := range manifest.DatabasesFor(pt) {
+		out = append(out, string(d))
 	}
+	return out
 }
 
 // ---------------------------------------------------------------------------
