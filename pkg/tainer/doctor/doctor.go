@@ -157,6 +157,7 @@ func Run(ctx context.Context, opts Options) Report {
 	d.checkTLS()
 	d.checkDNS(ctx)
 	d.checkSSHConfig()
+	d.checkLoginItem(ctx)
 	d.checkPods(ctx, eng)
 
 	return d.report

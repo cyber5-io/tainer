@@ -381,6 +381,8 @@ A report command. It exits 1 when any check is not ok-or-warn, and still prints 
 
 The `fixed` array above appears because the example was run with `--fix`.
 
+On macOS a `login item` check reports whether Tainer Menu opens at login: `ok` when it does or when the menu app isn't installed, `warn` (with a hint naming the exact System Settings path, which macOS 15 renamed to Login Items & Extensions) when it waits for approval, isn't registered, can't be found, or the installed menu is older than 1.6.0. It never fails the report.
+
 ### `config`
 
 The parsed manifest, with the same key names as `tainer.yaml`, under `project` (so the manifest's own `project` section is `project.project`):
