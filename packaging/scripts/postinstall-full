@@ -71,21 +71,24 @@ else
     echo "postinstall-full: could not write /etc/resolver/tainer.me" >&2
 fi
 
-# 4. Tainer Menu — load the login agent for the current GUI user so the
-#    menu-bar app appears immediately (and at every login after). The
-#    installer runs as root; we target the logged-in console user's GUI
-#    domain. RunAtLoad in the plist starts it on bootstrap.
+# 4. Tainer Menu — start the menu-bar app once for the current GUI user.
+#    That first launch registers it as a login item (SMAppService), so it
+#    starts at every login after. The installer runs as root; the app is
+#    opened in the logged-in console user's GUI session. The pre-1.6.0
+#    launchd agent (which Login Items showed as the signing team) is
+#    booted out and removed first, should preinstall not have run.
 CONSOLE_USER=$(stat -f%Su /dev/console 2>/dev/null || true)
-AGENT=/Library/LaunchAgents/io.cyber5.tainer.menu.plist
-if [[ -n "$CONSOLE_USER" && "$CONSOLE_USER" != "root" && -f "$AGENT" ]]; then
+OLD_AGENT=/Library/LaunchAgents/io.cyber5.tainer.menu.plist
+MENU_APP="/Applications/Tainer Menu.app"
+if [[ -n "$CONSOLE_USER" && "$CONSOLE_USER" != "root" ]]; then
     CONSOLE_UID=$(id -u "$CONSOLE_USER" 2>/dev/null || true)
     if [[ -n "$CONSOLE_UID" ]]; then
-        # Replace any previous instance (upgrade), then start fresh.
         launchctl bootout "gui/${CONSOLE_UID}/io.cyber5.tainer.menu" 2>/dev/null || true
-        launchctl bootstrap "gui/${CONSOLE_UID}" "$AGENT" 2>/dev/null \
-            || launchctl asuser "$CONSOLE_UID" launchctl load -w "$AGENT" 2>/dev/null \
-            || true
-        echo "postinstall-full: Tainer Menu login agent loaded for $CONSOLE_USER"
+        rm -f "$OLD_AGENT" 2>/dev/null || true
+        if [[ -d "$MENU_APP" ]]; then
+            launchctl asuser "$CONSOLE_UID" sudo -u "$CONSOLE_USER" /usr/bin/open -g "$MENU_APP" 2>/dev/null || true
+            echo "postinstall-full: started Tainer Menu for $CONSOLE_USER"
+        fi
     fi
 fi
 

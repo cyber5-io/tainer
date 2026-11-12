@@ -1,11 +1,17 @@
 #!/bin/bash
-# Runs as root before the payload is laid down. Stops the menu login agent
-# and removes the existing menu app, so an upgrade over the retired menu
-# never leaves stale files inside the bundle (which would break its
-# signature). The package reinstalls the new app. Never fails the install.
+# Runs as root before the payload is laid down. Stops the menu app and
+# removes the existing bundle, so an upgrade over the retired menu never
+# leaves stale files inside the bundle (which would break its signature).
+# The package reinstalls the new app. Never fails the install.
+#
+# Before 1.6.0 the menu started from a launchd plist in /Library/LaunchAgents,
+# which Login Items showed as the signing team with no icon. The app now
+# registers itself as a login item, so the old agent is booted out and its
+# plist removed here.
 set -euo pipefail
 
 APP="/Applications/Tainer Menu.app"
+OLD_AGENT=/Library/LaunchAgents/io.cyber5.tainer.menu.plist
 
 CONSOLE_USER=$(stat -f%Su /dev/console 2>/dev/null || true)
 if [[ -n "$CONSOLE_USER" && "$CONSOLE_USER" != "root" ]]; then
@@ -14,6 +20,7 @@ if [[ -n "$CONSOLE_USER" && "$CONSOLE_USER" != "root" ]]; then
         launchctl bootout "gui/${CONSOLE_UID}/io.cyber5.tainer.menu" 2>/dev/null || true
     fi
 fi
+rm -f "$OLD_AGENT" || true
 
 # A menu instance the agent does not manage (or the retired Go menu) survives
 # bootout and would keep running the deleted binary beside the new one.

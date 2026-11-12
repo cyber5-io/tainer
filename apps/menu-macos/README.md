@@ -16,9 +16,9 @@ Brand rasters in `Sources/TainerMenu/Resources/` are generated from `packaging/b
 
 This is the shipping menu app (the Go `cmd/tainer-menu` is retired). The `menu-app` target in the repo-root `Makefile` runs `scripts/make-app.sh --app-version $(MENU_VERSION)` (`MENU_VERSION` defaults to `VERSION`), copies `build/Tainer Menu.app` to `dist/Tainer Menu.app` as `$(MENU_APP)`, and signs it with `codesign $(SIGN_FLAGS_BASE) --sign "$(SIGN_IDENTITY)"` (ad-hoc when `TAINER_SIGNING_IDENTITY` is unset). `pkg-full-root` then copies the bundle into the installer payload under `/Applications/`.
 
-- `packaging/menu/io.cyber5.tainer.menu.plist` launches `/Applications/Tainer Menu.app/Contents/MacOS/TainerMenu`.
-- `packaging/installer/pkg-full-components.plist` pins the bundle to `Applications/Tainer Menu.app`, `postinstall-full` bootstraps the `io.cyber5.tainer.menu` agent, and `tainer-uninstall.sh` removes the bundle and the agent.
-- The bundle id is `io.cyber5.tainer.menu`, matching the agent label.
+- The app is its own login item: on the first launch that finds it unregistered it registers with `SMAppService.mainApp` (Login Items shows "Tainer Menu" with its icon), and remembers having done so, so a user who removes it in System Settings keeps it removed. Quit never unregisters it. If macOS wants approval, System Settings opens once. `TainerMenu --login-item-status` prints the status for `tainer doctor`.
+- `packaging/installer/pkg-full-components.plist` pins the bundle to `Applications/Tainer Menu.app`. `postinstall-full` (and `postinstall-menu`) start the app once as the console user, which registers the login item; the pre-1.6.0 `/Library/LaunchAgents/io.cyber5.tainer.menu.plist` agent is booted out and removed by `preinstall-menu` and the postinstalls. `tainer-uninstall.sh` removes the bundle (and with it the login item) and any leftover agent.
+- The bundle id is `io.cyber5.tainer.menu`.
 - The app finds the CLI via `TAINER_CLI`, then `/opt/tainer/bin/tainer`, then `PATH`. It needs a CLI that supports `tainer watch --json`; against an older CLI it stays in the recovering state with an "update tainer" hint and turns unreachable after 60 seconds.
 - Sandboxing is not used (it spawns the CLI). Hardened runtime needs no extra entitlements for subprocess launch, but verify once with a signed build.
 

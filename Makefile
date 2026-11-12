@@ -275,9 +275,10 @@ PKG_FULL_IDENTIFIER := io.cyber5.tainer
 
 # ---------------------------------------------------------------------------
 # Tainer Menu — the menu-bar app bundle (LSUIElement agent). Built into
-# an .app so the installer can drop it in /Applications and a LaunchAgent
-# can start it at login. Signed with the same identity/hardened-runtime
-# as the CLI so it rides the one notarisation chain.
+# an .app so the installer can drop it in /Applications; the app registers
+# itself as a login item (SMAppService) on its first launch. Signed with
+# the same identity/hardened-runtime as the CLI so it rides the one
+# notarisation chain.
 # ---------------------------------------------------------------------------
 MENU_APP_NAME := Tainer Menu.app
 MENU_APP      := $(BUILD_DIR)/$(MENU_APP_NAME)
@@ -313,12 +314,10 @@ pkg-full-root: sign menu-app
 	install -m 0755 $(BIN_DIR)/tainer $(PKG_FULL_ROOT)/opt/tainer/bin/
 	# Bundle the *.tainer.me wildcard cert (first run provisions HTTPS).
 	$(call bundle-certs,$(PKG_FULL_ROOT))
-	# Menu-bar app in /Applications + a login agent to start it.
+	# Menu-bar app in /Applications. No launchd plist: the app is its own
+	# login item, registered on the first launch postinstall performs.
 	mkdir -p "$(PKG_FULL_ROOT)/Applications"
 	cp -R "$(MENU_APP)" "$(PKG_FULL_ROOT)/Applications/"
-	mkdir -p $(PKG_FULL_ROOT)/Library/LaunchAgents
-	install -m 0644 packaging/menu/io.cyber5.tainer.menu.plist \
-		$(PKG_FULL_ROOT)/Library/LaunchAgents/io.cyber5.tainer.menu.plist
 	# The uninstaller ships with the product so any machine can be
 	# cleaned without a checkout: sudo bash /opt/tainer/bin/tainer-uninstall.sh
 	install -m 0755 packaging/scripts/tainer-uninstall.sh $(PKG_FULL_ROOT)/opt/tainer/bin/
@@ -354,7 +353,7 @@ pkg-full-notarised: pkg-full-signed
 	xcrun stapler staple $(PKG_FULL_OUT)
 
 # ---------------------------------------------------------------------------
-# Menu-only package: just Tainer Menu.app + its login agent, so the menu
+# Menu-only package: just Tainer Menu.app, so the menu
 # can update on its own cadence (pkg identifier io.cyber5.tainer.menu,
 # versioned by MENU_VERSION). Same signed/notarised chain as the full pack.
 # ---------------------------------------------------------------------------
@@ -367,10 +366,8 @@ PKG_DIST_MENU_OUT  := $(BUILD_DIR)/$(PKG_DIST_MENU_NAME)
 
 pkg-menu-root: menu-app
 	rm -rf $(PKG_MENU_ROOT) $(PKG_MENU_SCRIPTS)
-	mkdir -p $(PKG_MENU_ROOT)/Applications $(PKG_MENU_ROOT)/Library/LaunchAgents $(PKG_MENU_SCRIPTS)
+	mkdir -p $(PKG_MENU_ROOT)/Applications $(PKG_MENU_SCRIPTS)
 	cp -R "$(MENU_APP)" "$(PKG_MENU_ROOT)/Applications/"
-	install -m 0644 packaging/menu/io.cyber5.tainer.menu.plist \
-		$(PKG_MENU_ROOT)/Library/LaunchAgents/io.cyber5.tainer.menu.plist
 	install -m 0755 packaging/scripts/postinstall-menu $(PKG_MENU_SCRIPTS)/postinstall
 	install -m 0755 packaging/scripts/preinstall-menu $(PKG_MENU_SCRIPTS)/preinstall
 	@echo "pkg-menu-root assembled at $(PKG_MENU_ROOT)"
