@@ -267,8 +267,8 @@ func TestUpdateNoArgsListsAndAsks(t *testing.T) {
 	if len(f.log) != 0 {
 		t.Fatalf("answering n must update nothing, ran %v", f.log)
 	}
-	if !reflect.DeepEqual(f.forced, []bool{false}) || !reflect.DeepEqual(f.auto, []bool{false}) {
-		t.Errorf("listing: forced=%v autoStart=%v, want cached release and no auto-start", f.forced, f.auto)
+	if !reflect.DeepEqual(f.forced, []bool{true}) || !reflect.DeepEqual(f.auto, []bool{false}) {
+		t.Errorf("listing: forced=%v autoStart=%v, want a fresh release fetch and no auto-start", f.forced, f.auto)
 	}
 
 	f = newFakeSelf()

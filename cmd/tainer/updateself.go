@@ -114,8 +114,10 @@ func menuWanted(available, installed string) bool {
 	return available != "" && installed != "" && release.Newer(available, installed)
 }
 
-// checkSelf reads latest.json (cached unless force) and the installed
-// versions. A failed fetch with no cache leaves ok false: no news.
+// checkSelf reads latest.json and the installed versions. force fetches it
+// fresh: every update the user asks for does, so it never offers a release
+// the daily cache has gone stale on; a failed fetch still falls back to the
+// cache. A failed fetch with no cache leaves ok false: no news.
 func checkSelf(ctx context.Context, force bool) selfStatus {
 	latest, ok := releaseCheck(ctx, force)
 	st := selfStatus{latest: latest, ok: ok}
@@ -257,7 +259,7 @@ func podsWithUpdates(rep imagecheck.Report) []imagecheck.PodReport {
 // new binary do the rest.
 func updateEverything(ctx context.Context, r selfUpdateRun) (handOff bool, err error) {
 	checkCtx, cancel := context.WithTimeout(ctx, checkPhaseTimeout)
-	st := checkSelf(checkCtx, false)
+	st := checkSelf(checkCtx, true)
 	all := registry.All()
 	var pods, held []imagecheck.PodReport
 	podsChecked := true
@@ -371,7 +373,7 @@ func updateHere(ctx context.Context, r selfUpdateRun, name, manifestPath, dir st
 		cancel()
 		return err
 	}
-	st := checkSelf(checkCtx, false)
+	st := checkSelf(checkCtx, true)
 	cancel()
 	defer func() {
 		if st.Tainer.UpdateAvailable {
@@ -534,7 +536,7 @@ func runUpdateSelf(outMode tui.OutputMode, word string, yes bool) {
 
 	menu := target == "menu"
 	if !selfUpdateSupported {
-		st := checkSelf(ctx, false)
+		st := checkSelf(ctx, true)
 		res := newInstallResult(target, st.Tainer.Installed, st.Tainer.Available)
 		line := tainerLine(st.Tainer)
 		avail := st.Tainer.UpdateAvailable
